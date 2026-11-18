@@ -25,16 +25,20 @@ import sys
 import tempfile
 import zipfile
 from bisect import bisect_right
+from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 from xml.etree import ElementTree as ET
 
 from office_artifact_runtime import (
+    WORD_NS,
     office_backend_statuses,
     publish_staged_artifact,
     scan_ooxml_risks,
     staging_path,
     validate_ooxml_package,
+    word_paragraph_text,
     write_artifact_manifest,
 )
 
@@ -161,28 +165,19 @@ def _publish_edit(staged: Path, path: Path) -> tuple[Path | None, dict[str, Any]
     return snapshot, report.to_dict() if report is not None else None
 
 
-def _parse_pages(spec: str | None, total: int) -> list[int]:
+def _parse_pages(spec: str | None, total: int) -> Iterator[int]:
     if not spec:
-        return list(range(total))
-    out: list[int] = []
+        yield from range(total)
+        return
     for part in spec.split(","):
         part = part.strip()
         if not part:
             continue
-        if "-" in part:
-            a, b = part.split("-", 1)
-            out.extend(range(int(a) - 1, int(b)))
-        else:
-            out.append(int(part) - 1)
-    return [i for i in out if 0 <= i < total]
-
-
-def _truncate(text: str) -> str:
-    raw = text.encode("utf-8")
-    if len(raw) <= MAX_EXTRACT_BYTES:
-        return text
-    cut = raw[:MAX_EXTRACT_BYTES].decode("utf-8", errors="ignore")
-    return cut + f"\n\n[TRUNCATED: output exceeded {MAX_EXTRACT_BYTES} bytes]"
+        selection = re.fullmatch(r"(\d+)(?:\s*-\s*(\d+))?", part)
+        if selection is None:
+            _die(f"ERROR: invalid --pages selection: {part}", 3)
+        start, end = selection.groups()
+        yield from range(max(0, int(start) - 1), min(total, int(end or start)))
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -425,82 +420,143 @@ def cmd_check(args: argparse.Namespace) -> int:
 # extract
 # ---------------------------------------------------------------------------
 
-def _extract_docx(path: Path) -> str:
+def _extract_docx(path: Path, locations: bool) -> Iterator[str]:
+    if locations:
+        # Read just the main story. Macro/template variants use the same paragraph XML.
+        with zipfile.ZipFile(path) as package, package.open("word/document.xml") as source:
+            inside_paragraph = 0
+            index = 0
+            for event, node in ET.iterparse(source, events=("start", "end")):
+                if event == "start":
+                    if node.tag == WORD_NS + "p":
+                        inside_paragraph += 1
+                    continue
+                if node.tag == WORD_NS + "p":
+                    inside_paragraph -= 1
+                    if not inside_paragraph:
+                        for paragraph in node.iter(WORD_NS + "p"):
+                            index += 1
+                            yield f"[Body paragraph {index}] {word_paragraph_text(paragraph)}"
+                if not inside_paragraph:
+                    node.clear()
+        return
     try:
         import docx  # type: ignore
     except ImportError:
         _missing("python-docx")
     doc = docx.Document(str(path))
-    return "\n".join(p.text for p in doc.paragraphs)
+    yield from (paragraph.text for paragraph in doc.paragraphs)
 
 
-def _extract_pptx(path: Path, pages: str | None) -> str:
+def _extract_pptx(path: Path, pages: str | None, locations: bool) -> Iterator[str]:
     try:
         from pptx import Presentation  # type: ignore
     except ImportError:
         _missing("python-pptx")
     prs = Presentation(str(path))
-    indices = _parse_pages(pages, len(prs.slides))
-    out = []
-    for i in indices:
+    for i in _parse_pages(pages, len(prs.slides)):
         slide = prs.slides[i]
-        out.append(f"--- Slide {i + 1} ---")
+        yield f"--- Slide {i + 1} ---"
         for shape in slide.shapes:
             if shape.has_text_frame:
-                for para in shape.text_frame.paragraphs:
-                    out.append(para.text)
-    return "\n".join(out)
+                for index, para in enumerate(shape.text_frame.paragraphs, 1):
+                    prefix = f"[Slide {i + 1}, shape {shape.shape_id}, paragraph {index}] " if locations else ""
+                    yield prefix + para.text
 
 
-def _extract_pdf(path: Path, pages: str | None) -> str:
+def _extract_pdf(path: Path, pages: str | None, locations: bool) -> Iterator[str]:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError:
         _missing("pypdf")
-    reader = PdfReader(str(path))
-    indices = _parse_pages(pages, len(reader.pages))
-    out = []
-    for i in indices:
-        out.append(f"--- Page {i + 1} ---")
-        out.append(reader.pages[i].extract_text() or "")
-    return "\n".join(out)
+    with path.open("rb") as source:
+        reader = PdfReader(source)
+        for i in _parse_pages(pages, len(reader.pages)):
+            yield f"--- Page {i + 1} ---"
+            page_text = reader.pages[i].extract_text() or ""
+            if locations:
+                for index, line in enumerate(page_text.splitlines(), 1):
+                    yield f"[Page {i + 1}, extracted line {index}] {line}"
+            else:
+                yield page_text
 
 
-def _extract_xlsx(path: Path, sheets: str | None) -> str:
+def _extract_xlsx(path: Path, sheets: str | None, locations: bool) -> Iterator[str]:
     try:
         import openpyxl  # type: ignore
+        from openpyxl.utils.cell import quote_sheetname  # type: ignore
     except ImportError:
         _missing("openpyxl")
-    wb = openpyxl.load_workbook(str(path), data_only=False, read_only=True)
     wanted = {s.strip() for s in sheets.split(",")} if sheets else None
-    out: list[str] = []
-    for ws in wb.worksheets:
-        if wanted and ws.title not in wanted:
-            continue
-        out.append(f"--- Sheet: {ws.title} ---")
-        for row in ws.iter_rows(values_only=True):
-            values = ["" if cell is None else str(cell) for cell in row]
-            if any(v.strip() for v in values):
-                out.append("\t".join(values).rstrip())
-    return "\n".join(out)
+    with closing(openpyxl.load_workbook(path, data_only=False, read_only=True)) as wb:
+        for ws in wb.worksheets:
+            if wanted and ws.title not in wanted:
+                continue
+            yield f"--- Sheet: {ws.title} ---"
+            # Some exporters leave stale used-range dimensions. Follow the actual row XML.
+            ws.reset_dimensions()
+            sheet = quote_sheetname(ws.title)
+            for row in ws.iter_rows():
+                if locations:
+                    for cell in row:
+                        if cell.value is not None:
+                            yield f"[{sheet}!{cell.coordinate}] {cell.value}"
+                else:
+                    values = ["" if cell.value is None else str(cell.value) for cell in row]
+                    if any(value.strip() for value in values):
+                        yield "\t".join(values).rstrip()
+
+
+def _write_extract(records: Iterator[str], stream: TextIO, byte_limit: int | None = None) -> bool:
+    """Join records as plain text. Stop reading as soon as the UTF-8 preview fills."""
+    first = True
+    ends_with_newline = False
+    for record in records:
+        separator = "" if first else "\n"
+        first = False
+        for piece in (separator, record):
+            if not piece:
+                continue
+            if byte_limit is not None:
+                # Bound encoding work even if a single paragraph is very large.
+                prefix = piece[:byte_limit + 1].encode("utf-8")
+                if len(prefix) > byte_limit:
+                    stream.write(prefix[:byte_limit].decode("utf-8", errors="ignore"))
+                    return False
+                byte_limit -= len(prefix)
+            stream.write(piece)
+            ends_with_newline = piece.endswith("\n")
+    if not ends_with_newline:
+        stream.write("\n")
+    return True
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
     path = _validate_path(args.path)
     ext = _ext(path)
     if ext in DOCX_EXTENSIONS:
-        text = _extract_docx(path)
+        records = _extract_docx(path, args.locations)
     elif ext in PPTX_EXTENSIONS:
-        text = _extract_pptx(path, args.pages)
+        records = _extract_pptx(path, args.pages, args.locations)
     elif ext == "pdf":
-        text = _extract_pdf(path, args.pages)
+        records = _extract_pdf(path, args.pages, args.locations)
     elif ext in XLSX_EXTENSIONS:
-        text = _extract_xlsx(path, args.sheets)
+        records = _extract_xlsx(path, args.sheets, args.locations)
     else:
         _die(f"ERROR: extract does not support .{ext}", 3)
-    sys.stdout.write(_truncate(text))
-    if not text.endswith("\n"):
-        sys.stdout.write("\n")
+    with closing(records):
+        if args.output:
+            output = _validate_output_path(args.output, {"txt"})
+            staged = staging_path(output)
+            try:
+                with staged.open("x", encoding="utf-8", newline="\n") as stream:
+                    _write_extract(records, stream)
+                os.replace(staged, output)
+            finally:
+                staged.unlink(missing_ok=True)
+            print(output)
+        elif not _write_extract(records, sys.stdout, MAX_EXTRACT_BYTES):
+            print("\n\n[TRUNCATED: repeat extract with --output <absolute .txt path> for the full text]")
     return 0
 
 
@@ -3056,6 +3112,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_ext = sub.add_parser("extract", help="Extract plain text (docx/pdf/pptx/xlsx)")
     p_ext.add_argument("--pages", default=None, help="e.g. 1-3 or 1,3,5")
     p_ext.add_argument("--sheets", default=None, help="Comma-separated XLSX sheet names")
+    p_ext.add_argument("--locations", action="store_true", help="Label text with its source paragraph, slide/shape, sheet/cell, or PDF page/extracted line")
+    p_ext.add_argument("--output", help="Write the complete UTF-8 extraction to this absolute workspace .txt path")
     p_ext.set_defaults(func=cmd_extract)
 
     p_ins = sub.add_parser("insert_slide", help="Insert a slide into a pptx")

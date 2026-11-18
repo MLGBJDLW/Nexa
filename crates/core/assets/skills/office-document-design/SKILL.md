@@ -11,12 +11,12 @@ Use this skill as the Office router. It should keep routing concise, then rely o
 2. PPTX, slides, presentation, deck, speaker notes, template deck: use `pptx-presentation-design` plus `doc-script-editor`.
 3. XLSX, Excel, spreadsheet, workbook, dashboard, financial model, formulas: use `xlsx-workbook-design` plus `doc-script-editor`.
 4. Mixed deliverables: make a short artifact plan, then execute each file with the relevant format skill.
-5. Existing Office file with exact layout preservation: use `doc-script-editor` versioning and OOXML unpack/pack before broad regeneration.
+5. For an existing Office file, inspect the source and request the preservation guarantee needed for the edit. Use the OOXML tools for operations outside the typed format adapters.
 
 ## Common Rules
 1. Produce real editable Office files through Python-backed libraries or `doc-script-editor`; do not route Office work through deleted native generator tools.
 2. Keep file bytes on disk. Never paste binary content or base64 Office blobs into tool arguments.
-3. Validate after write with `edit_doc.py --path <file> validate`; use `office_artifact_service.py` for multi-step transactional work and a unified `artifact-manifest.json`.
+3. Use `office_artifact` requestVersion 2 to create, modify, or verify Office files. Review the candidate's validation evidence before publishing with `decide`. For citations from an existing file, `doc-script-editor` supports read-only `extract --locations`.
 4. Render or convert layout-sensitive outputs for visual QA only when the required system tools are already available.
 5. For XLSX formulas, lint first; when real cached values are required, use guarded LibreOffice recalculation or an explicitly selected Windows COM finalizer, then scan formula errors before completion.
 6. Preserve existing templates unless the user explicitly asks for a redesign.

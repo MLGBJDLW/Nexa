@@ -310,6 +310,7 @@ fn decode_document(
             Some(page) => crate::evidence::EvidenceLocator::Pdf {
                 page,
                 bbox: block.bbox,
+                extracted_lines: None,
             },
             None => {
                 unlocated += 1;

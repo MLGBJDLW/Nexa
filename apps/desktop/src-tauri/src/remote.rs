@@ -478,16 +478,20 @@ impl RemoteHost for DesktopHost {
             PhoneControlResult { .. } => Err("Phone results are owned by the authenticated transport.".into()),
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },
-            FilePreview { path, verify_content_hash } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash).await?),
-            FileData { path } => {
-                // Resolve through the same source/path rules as the desktop preview.
-                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None, None).await?;
-                let file = tokio::fs::File::open(&preview.path).await.map_err(|e| e.to_string())?;
+            FilePreview { path, verify_content_hash, start_line, focus_slide } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash, start_line, focus_slide).await?),
+            FileData { path, expected_hash } => {
+                let db = state.db.clone();
+                let file_path = tokio::task::spawn_blocking(move || commands::resolve_local_file(&db, &path).map(|file| file.canonical)).await.map_err(|e| e.to_string())??;
+                let mime_type = nexa_core::parse::detect_mime_type(&file_path);
+                let file = tokio::fs::File::open(file_path).await.map_err(|e| e.to_string())?;
                 let mut bytes = Vec::new();
                 use tokio::io::AsyncReadExt;
                 file.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes).await.map_err(|e| e.to_string())?;
                 if bytes.len() > 8 * 1024 * 1024 { return Err("Remote preview download is limited to 8 MiB".into()); }
-                value(format!("data:{};base64,{}", preview.mime_type, B64.encode(bytes)))
+                if let Some(expected) = expected_hash {
+                    if blake3::hash(&bytes).to_hex().as_str() != expected { return Err("The cited file changed before its data could be displayed.".into()); }
+                }
+                value(format!("data:{};base64,{}", mime_type, B64.encode(bytes)))
             }
             Evidence { chunk_id, reference } => {
                 if let Some(reference) = reference {

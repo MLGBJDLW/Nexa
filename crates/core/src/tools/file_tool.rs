@@ -134,7 +134,9 @@ impl Tool for FileTool {
             // Read text files directly; for supported binary docs, parse and extract text.
             let privacy_config = db.load_privacy_config()?;
             let unredacted_image = native_image_consent && crate::media::is_supported_image(&crate::parse::detect_mime_type(&canonical));
-            let (raw, document) = read_file_evidence(&canonical, native_candidate && (!privacy_config.enabled || unredacted_image))?;
+            let evidence = read_file_evidence(&canonical, native_candidate && (!privacy_config.enabled || unredacted_image))?;
+
+            let raw = &evidence.text;
 
             // Skip to start_line (1-based) and truncate to max_lines.
             let start = args.start_line.max(1);
@@ -153,21 +155,13 @@ impl Tool for FileTool {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
-            let file_label = canonical
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("file");
-            let suggested_citation = match &document_info {
-                Some((document_id, _)) => format!("[doc:{document_id}|{file_label}]"),
-                None => format!("[file:{canonical_str}:{start}-{showing_end}|{file_label}]"),
-            };
+
 
             // Apply privacy redaction.
-            let redacted = if privacy_config.enabled {
-                privacy::redact_content(&content, &privacy_config.redact_patterns)
-            } else {
-                content
-            };
+            let redacted = privacy_config.enabled.then(|| privacy::redact_content(&content, &privacy_config.redact_patterns));
+            let same_projection = redacted.as_ref().is_none_or(|text| *text == content);
+            let citations = evidence.citations(&canonical, start, showing_end, &privacy_config, same_projection);
+            let redacted = redacted.unwrap_or(content);
 
             let mut text = format!("File: {}\n", canonical.display());
             if let Some((document_id, title)) = &document_info {
@@ -175,7 +169,7 @@ impl Tool for FileTool {
                 text.push_str(&format!("Document ID: {document_id}\n"));
                 text.push_str(&format!("Title: {title_display}\n"));
             }
-            text.push_str(&format!("Suggested citation: {suggested_citation}\n"));
+            citations.write_hint(&mut text);
             if truncated {
                 text.push_str(&format!(
                     "(showing lines {start}–{showing_end} of {total_lines})\n"
@@ -195,10 +189,11 @@ impl Tool for FileTool {
                     "lineStart": start,
                     "lineEnd": showing_end,
                     "totalLines": total_lines,
-                    "suggestedCitation": suggested_citation,
+                    "suggestedCitation": citations.suggested,
+                    "passageCitations": citations.passages,
                 })),
             };
-            if let Some(document) = document {
+            if let Some(document) = evidence.native {
                 let attachment = document.into_attachment(text);
                 result.artifacts.as_mut().unwrap()["toolOutput"] = serde_json::json!({
                     "llmContent": result.content, "displayContent": result.content,
@@ -367,7 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_file_returns_suggested_document_citation_when_indexed() {
+    async fn read_file_cites_the_read_bytes_even_when_the_index_is_stale() {
         let dir = tempfile::tempdir().expect("create tempdir");
         let file_path = dir.path().join("notes.md");
         std::fs::write(&file_path, "# Notes\nhello world\n").expect("write text file");
@@ -400,9 +395,11 @@ mod tests {
 
         assert!(!result.is_error);
         assert!(result.content.contains("Document ID: doc-1"));
+        let hash = blake3::hash(b"# Notes\nhello world\n");
         assert!(result
             .content
-            .contains("Suggested citation: [doc:doc-1|notes.md]"));
+            .contains("Suggested citation: [notes.md · L1–2]"));
+        assert!(result.content.contains(&format!("#L1-L2@{hash}>")));
         assert_eq!(result.artifacts.unwrap()["documentId"], "doc-1");
     }
 
@@ -488,7 +485,7 @@ mod tests {
         zip.start_file("word/document.xml", options)
             .expect("document file");
         zip.write_all(
-            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>DOCX fallback works</w:t></w:r></w:p></w:body></w:document>"#,
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>DOCX fallback works</w:t></w:r></w:p><w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:body></w:document>"#,
         )
         .expect("write document");
         zip.finish().expect("finish docx");
@@ -515,6 +512,41 @@ mod tests {
             result.content.contains("DOCX fallback works"),
             "unexpected content: {}",
             result.content
+        );
+        let artifacts = result.artifacts.unwrap();
+        let passages = artifacts["passageCitations"].as_array().unwrap();
+        assert_eq!(passages.len(), 2);
+        assert_eq!(passages[1]["lineStart"], 2);
+        let citation = passages[1]["citation"].as_str().unwrap();
+        let url =
+            url::Url::parse(citation.split_once("](<").unwrap().1.trim_end_matches(">)")).unwrap();
+        let fields: std::collections::HashMap<_, _> =
+            url::form_urlencoded::parse(url.fragment().unwrap().as_bytes()).collect();
+        assert_eq!(
+            fields["rev"],
+            blake3::hash(&std::fs::read(docx_path).unwrap())
+                .to_hex()
+                .as_str()
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fields["loc"]).unwrap(),
+            serde_json::json!({"kind":"document","part":"word/document.xml","paragraph":2})
+        );
+
+        let args =
+            serde_json::json!({"paths":["docs/status.docx"],"max_lines_per_file":1}).to_string();
+        let batch = crate::tools::read_files_tool::ReadFilesTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "batch",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            batch.artifacts.unwrap()["files"][0]["suggestedCitation"],
+            passages[0]["citation"]
         );
     }
 }

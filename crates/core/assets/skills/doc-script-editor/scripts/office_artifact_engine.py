@@ -39,6 +39,7 @@ from office_artifact_runtime import (
     snapshot_file,
     staging_path,
     validate_ooxml_package,
+    word_paragraph_text,
     workspace_path,
     write_artifact_manifest,
 )
@@ -746,12 +747,9 @@ class OfficeArtifactEngine:
                     )
                     if style_id:
                         styles[style_id] = name
-            document_paragraphs = list(document.iter(f"{{{word_ns}}}p"))
+            paragraph_count = 0
             headings = []
-            for index, paragraph in enumerate(document_paragraphs):
-                text = "".join(
-                    item.text or "" for item in paragraph.iter(f"{{{word_ns}}}t")
-                )
+            for paragraph_count, paragraph in enumerate(document.iter(f"{{{word_ns}}}p"), 1):
                 style_id = next(
                     (
                         item.attrib.get(f"{{{word_ns}}}val", "")
@@ -765,27 +763,13 @@ class OfficeArtifactEngine:
                     if heading_match
                     else styles.get(style_id, style_id)
                 )
-                if text.strip() and (
-                    style_name.casefold().startswith("heading")
-                    or style_id.casefold().startswith("heading")
-                ):
-                    headings.append({"index": index, "style": style_name, "text": text})
-            story_parts = [
-                name
-                for name in archive.namelist()
-                if name == "word/document.xml"
-                or re.fullmatch(
-                    r"word/(?:header[0-9]+|footer[0-9]+|comments(?:Extended)?|footnotes|endnotes)\.xml",
-                    name,
-                    re.IGNORECASE,
-                )
-            ]
-            preview_lines = []
-            for name in story_parts:
-                root = ET.fromstring(archive.read(name))
-                text = "".join(item.text or "" for item in root.iter(f"{{{word_ns}}}t"))
-                if text.strip():
-                    preview_lines.append(text)
+                if style_name.casefold().startswith("heading") or style_id.casefold().startswith("heading"):
+                    text = word_paragraph_text(paragraph)
+                    if text.strip():
+                        headings.append({
+                            "index": paragraph_count - 1, "paragraph": paragraph_count,
+                            "style": style_name, "text": text,
+                        })
             bookmarks = [
                 {
                     "id": element.attrib.get(f"{{{word_ns}}}id", ""),
@@ -844,10 +828,23 @@ class OfficeArtifactEngine:
                         key.rsplit("}", 1)[-1]: value
                         for key, value in protected.attrib.items()
                     }
-            for name in sorted(names):
+            preview = ""
+            for name in ["word/document.xml", *sorted(names - {"word/document.xml"})]:
                 if not name.startswith("word/") or not name.endswith(".xml"):
                     continue
-                root = ET.fromstring(archive.read(name))
+                root = document if name == "word/document.xml" else ET.fromstring(archive.read(name))
+                if len(preview) < 4000 and re.fullmatch(
+                    r"word/(?:document|header[0-9]+|footer[0-9]+|comments|footnotes|endnotes)\.xml",
+                    name, re.IGNORECASE,
+                ):
+                    story = "Body" if name == "word/document.xml" else Path(name).stem
+                    for index, paragraph in enumerate(root.iter(f"{{{word_ns}}}p"), 1):
+                        text = word_paragraph_text(paragraph)
+                        if text.strip():
+                            prefix = "\n" if preview else ""
+                            preview += (f"{prefix}[{story} paragraph {index}] " + text[:4000])[:4000 - len(preview)]
+                        if len(preview) == 4000:
+                            break
                 counts: dict[str, int] = {}
                 for element in root.iter():
                     local = element.tag.rsplit("}", 1)[-1]
@@ -858,11 +855,11 @@ class OfficeArtifactEngine:
                     revision_parts[name] = counts
         comments = extract_comments(path)["comments"]
         return {
-            "paragraphs": len(document_paragraphs),
+            "paragraphs": paragraph_count,
             "tables": sum(1 for _ in document.iter(f"{{{word_ns}}}tbl")),
             "sections": max(1, sum(1 for _ in document.iter(f"{{{word_ns}}}sectPr"))),
             "headings": headings,
-            "textPreview": "\n".join(preview_lines)[:4000],
+            "textPreview": preview,
             "profileEngine": "direct-openxml",
             "bookmarks": bookmarks,
             "fields": fields,

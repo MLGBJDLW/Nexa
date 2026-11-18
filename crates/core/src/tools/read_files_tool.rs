@@ -51,6 +51,7 @@ struct FileReadOutcome {
 
 struct FileReadOk {
     canonical_path: String,
+    citations: super::document_utils::FileCitations,
     content: String,
     total_lines: usize,
     shown_lines: usize,
@@ -183,7 +184,11 @@ impl Tool for ReadFilesTool {
                             ok.shown_lines, ok.total_lines
                         ));
                     }
-                    let mut text = format!("{}\n---\n{}", header, ok.content);
+                    let mut text = header;
+                    text.push('\n');
+                    ok.citations.write_hint(&mut text);
+                    text.push_str("---\n");
+                    text.push_str(&ok.content);
                     if let Some(document) = ok.document {
                         if document.byte_length() <= remaining_document_bytes {
                             remaining_document_bytes -= document.byte_length();
@@ -195,6 +200,8 @@ impl Tool for ReadFilesTool {
                     text_blocks.push(text);
                     files_json.push(json!({
                         "path": ok.canonical_path,
+                        "suggestedCitation": ok.citations.suggested,
+                        "passageCitations": ok.citations.passages,
                         "content": ok.content,
                         "totalLines": ok.total_lines,
                         "shownLines": ok.shown_lines,
@@ -253,12 +260,13 @@ fn read_single_file(
 
     let unredacted_image = native_image_consent
         && crate::media::is_supported_image(&crate::parse::detect_mime_type(&canonical));
-    let (raw, document) = read_file_evidence(
+    let evidence = read_file_evidence(
         &canonical,
         native_candidate && (!privacy_config.enabled || unredacted_image),
     )
     .map_err(|e| e.to_string())?;
 
+    let raw = &evidence.text;
     let total_lines = raw.lines().count();
     let lines: Vec<&str> = raw.lines().take(max_lines).collect();
     let shown = lines.len();
@@ -269,19 +277,19 @@ fn read_single_file(
         content.push_str(&format!("\n...[truncated, {remaining} more lines]"));
     }
 
-    let redacted = if privacy_config.enabled {
-        privacy::redact_content(&content, &privacy_config.redact_patterns)
-    } else {
-        content
-    };
+    let redacted = privacy_config
+        .enabled
+        .then(|| privacy::redact_content(&content, &privacy_config.redact_patterns));
+    let same_projection = redacted.as_ref().is_none_or(|text| *text == content);
 
     Ok(FileReadOk {
         canonical_path: canonical.to_string_lossy().to_string(),
-        content: redacted,
+        citations: evidence.citations(&canonical, 1, shown, privacy_config, same_projection),
+        content: redacted.unwrap_or(content),
         total_lines,
         shown_lines: shown,
         truncated,
-        document,
+        document: evidence.native,
     })
 }
 

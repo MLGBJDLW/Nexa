@@ -7,6 +7,7 @@ import { openFileInDefaultApp, showInFileExplorer, getEvidenceCard } from '../..
 import { canPreviewInApp, useFilePreview } from '../../features/preview';
 import { getSoftDropdownMotion } from '../../lib/uiMotion';
 import { VideoPreviewModal } from '../media/VideoPreviewModal';
+import { evidenceLocationLabel } from '../../lib/evidenceLocation';
 import type { CitationCardData } from '../../lib/citationParser';
 import { isWebUrl, sourceBasename, sourceHost } from '../../lib/sourceDisplay';
 import { WebSourceIcon } from './WebSourceIcon';
@@ -196,6 +197,10 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
           </div>
         )}
 
+        {card.evidenceRef && !isWebSource && (
+          <p className="px-3 pt-2 text-xs font-medium text-text-primary">{evidenceLocationLabel(card.evidenceRef.locator, t)}</p>
+        )}
+
         {/* Heading path breadcrumb */}
         {card.headingPath.length > 0 && (
           <div className="px-3 py-1 border-b border-border/50">
@@ -359,8 +364,10 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
   }, []);
 
   const title = resolvedCard?.documentTitle || sourceBasename(resolvedCard?.documentPath) || chunkId.slice(0, 8);
-  const tooltipText = resolvedCard ? `${resolvedCard.documentTitle || sourceBasename(resolvedCard.documentPath)}` : chunkId.slice(0, 8);
   const isWebSource = isWebUrl(resolvedCard?.documentPath);
+  const locator = resolvedCard?.evidenceRef?.locator;
+  const location = !isWebSource && locator && locator.kind !== 'unknown' ? evidenceLocationLabel(locator, t) : '';
+  const tooltipText = location ? `${title} · ${location}` : title;
 
   return (
     <>
@@ -380,6 +387,7 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
       >
         {isWebSource ? <WebSourceIcon source={resolvedCard?.documentPath} className="h-3 w-3 shrink-0" /> : isVideoFile(resolvedCard?.documentPath ?? '') ? <Film className="h-2.5 w-2.5 shrink-0" /> : isAudioFile(resolvedCard?.documentPath ?? '') ? <Music className="h-2.5 w-2.5 shrink-0" /> : <FileText className="h-2.5 w-2.5 shrink-0" />}
         <span className="truncate max-w-[120px]">{displayText || title}</span>
+        {location && <span className="truncate max-w-[min(42vw,14rem)]">· {location}</span>}
       </button>
       {popupOpen && resolvedCard && !fetching && !error && (
         <EvidenceCardPopup card={resolvedCard} anchorRect={anchorRect} onClose={handleClose} />

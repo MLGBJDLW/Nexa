@@ -1,6 +1,8 @@
 {
+  "extractedLines": "추출 텍스트 {range}행",
   "paragraph": "문단 {number}",
   "tableRow": "표 {table}, 행 {row}",
+  "speakerNotes": "발표자 노트",
   "slide": "슬라이드 {number}",
   "locationUnknown": "위치가 없습니다. 이 소스를 다시 스캔하세요.",
   "version": "인덱스 버전",

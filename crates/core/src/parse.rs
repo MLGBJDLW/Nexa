@@ -22,7 +22,7 @@ use crate::visual_document::{OoxmlPackageKind, ParsedVisualArtifact};
 
 const BINARY_SNIFF_BYTES: usize = 8192;
 
-fn bytes_appear_binary(raw: &[u8]) -> bool {
+pub fn bytes_appear_binary(raw: &[u8]) -> bool {
     if raw.starts_with(&[0xFF, 0xFE]) || raw.starts_with(&[0xFE, 0xFF]) {
         return false;
     }
@@ -61,7 +61,14 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     decode_text_bytes(&raw, path)
 }
 
-fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
+pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
+    decode_text_with_encoding(raw, path).map(|(text, _)| text)
+}
+
+pub fn decode_text_with_encoding(
+    raw: &[u8],
+    path: &Path,
+) -> Result<(String, &'static str), CoreError> {
     // Binary check — look for null bytes in first 8 KB.
     if bytes_appear_binary(raw) {
         return Err(CoreError::Parse(format!(
@@ -73,32 +80,34 @@ fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // BOM detection
     if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
         // UTF-8 BOM — strip and decode
-        return String::from_utf8(raw[3..].to_vec()).map_err(|e| {
-            CoreError::Parse(format!(
-                "File has UTF-8 BOM but contains invalid UTF-8: {}: {}",
-                path.display(),
-                e
-            ))
-        });
+        return String::from_utf8(raw[3..].to_vec())
+            .map(|s| (s, "utf-8-bom"))
+            .map_err(|e| {
+                CoreError::Parse(format!(
+                    "File has UTF-8 BOM but contains invalid UTF-8: {}: {}",
+                    path.display(),
+                    e
+                ))
+            });
     }
     if raw.starts_with(&[0xFF, 0xFE]) {
         let (result, _, had_errors) = encoding_rs::UTF_16LE.decode(&raw[2..]);
         if had_errors {
             tracing::warn!("UTF-16 LE decoding had errors for: {}", path.display());
         }
-        return Ok(result.into_owned());
+        return Ok((result.into_owned(), "utf-16le"));
     }
     if raw.starts_with(&[0xFE, 0xFF]) {
         let (result, _, had_errors) = encoding_rs::UTF_16BE.decode(&raw[2..]);
         if had_errors {
             tracing::warn!("UTF-16 BE decoding had errors for: {}", path.display());
         }
-        return Ok(result.into_owned());
+        return Ok((result.into_owned(), "utf-16be"));
     }
 
     // Try strict UTF-8 (most common case)
     if let Ok(s) = std::str::from_utf8(raw) {
-        return Ok(s.to_owned());
+        return Ok((s.to_owned(), "utf-8"));
     }
 
     // Try common legacy encodings
@@ -111,7 +120,7 @@ fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
                 path.display(),
                 encoding.name()
             );
-            return Ok(result.into_owned());
+            return Ok((result.into_owned(), encoding.name()));
         }
     }
 
@@ -120,7 +129,7 @@ fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
         "Could not detect encoding for {}, using lossy UTF-8",
         path.display()
     );
-    Ok(String::from_utf8_lossy(raw).into_owned())
+    Ok((String::from_utf8_lossy(raw).into_owned(), "lossy"))
 }
 
 // ---------------------------------------------------------------------------
@@ -594,26 +603,25 @@ pub fn parse_pdf_with_llm_provider_type(
         };
         return Err(CoreError::Parse(format!(
             "PDF requires OCR: no searchable text in {} pages. {reason}",
-            document.get_pages().len()
+            page_indices.len()
         )));
     }
-    let visual_artifacts =
-        crate::visual_document::extract_pdf_visual_artifacts_with_llm_provider_type(
-            &bytes,
-            ocr_config,
-            llm_provider,
-            llm_provider_type,
-        );
+    let visual_artifacts = crate::visual_document::pdf_visual_artifacts(
+        &document,
+        ocr_config,
+        llm_provider,
+        llm_provider_type,
+    );
 
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let mut metadata = extract_fs_metadata(path);
-    metadata.insert("page_count".into(), document.get_pages().len().to_string());
+    metadata.insert("page_count".into(), page_indices.len().to_string());
     metadata.insert(
         "searchable_pages".into(),
-        (document.get_pages().len() - missing_pages.len()).to_string(),
+        (page_indices.len() - missing_pages.len()).to_string(),
     );
     metadata.insert(
         "uncovered_pages".into(),
@@ -651,19 +659,8 @@ fn pdf_page_chunks(
     let mut missing = Vec::new();
     let mut warnings = Vec::new();
     for (page, page_id) in document.get_pages() {
-        let native = panic::catch_unwind(AssertUnwindSafe(|| {
-            let mut text = String::new();
-            let mut failed = false;
-            for fragment in document.extract_text_chunks(&[page]) {
-                match fragment {
-                    Ok(fragment) => text.push_str(&fragment),
-                    Err(_) => failed = true,
-                }
-            }
-            (text, failed)
-        }))
-        .unwrap_or_else(|_| (String::new(), true));
-        let (mut text, native_failed) = native;
+        let (mut text, native_error) = native_pdf_page_text(document, page);
+        let native_failed = native_error.is_some();
         let mut method = "native";
         let native_chars = text.trim().chars().count();
         let sparse_visual = (1..40).contains(&native_chars)
@@ -682,13 +679,16 @@ fn pdf_page_chunks(
                 Ok(Some(result)) => {
                     if !result.text.trim().is_empty() {
                         method = if text.trim().is_empty() {
+                            text.clear();
                             "page_ocr"
                         } else {
                             "native_and_ocr"
                         };
                         if !text.contains(result.text.trim()) {
-                            text.push_str("\n\n");
-                            text.push_str(&result.text);
+                            if !text.is_empty() {
+                                text.push_str("\n\n");
+                            }
+                            text.push_str(&normalize_pdf_lines(result.text));
                         }
                     }
                     warnings.extend(
@@ -709,15 +709,62 @@ fn pdf_page_chunks(
             missing.push(page);
             warnings.push(format!("Page {page}: no searchable text"));
         }
-        for mut chunk in chunk_plaintext(&text.replace("\r\n", "\n"), max_chars) {
+        for mut chunk in chunk_plaintext(&text, max_chars) {
             chunk.chunk_index = chunks.len() as i32;
-            chunk.locator = EvidenceLocator::Pdf { page, bbox: None };
+            let extracted_lines = match chunk.locator {
+                EvidenceLocator::Text {
+                    line_start,
+                    line_end,
+                    ..
+                } if method == "page_ocr" || (method == "native" && !native_failed) => {
+                    Some(crate::evidence::ExtractedLineRange {
+                        start: line_start,
+                        end: line_end,
+                    })
+                }
+                _ => None,
+            };
+            chunk.locator = EvidenceLocator::Pdf {
+                page,
+                bbox: None,
+                extracted_lines,
+            };
             chunk.heading_context = Some(format!("Page {page}"));
             chunk.extraction_method = method.into();
             chunks.push(chunk);
         }
     }
     (chunks, missing, warnings)
+}
+
+#[cfg(feature = "document-processing")]
+fn normalize_pdf_lines(text: String) -> String {
+    if text.contains('\r') {
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        text
+    }
+}
+
+/// Both indexing and the structured preview number lines in this stream.
+#[cfg(feature = "document-processing")]
+pub(crate) fn native_pdf_page_text(
+    document: &lopdf::Document,
+    page: u32,
+) -> (String, Option<String>) {
+    panic::catch_unwind(AssertUnwindSafe(|| {
+        let mut text = String::new();
+        let mut first_error = None;
+        for fragment in document.extract_text_chunks(&[page]) {
+            match fragment {
+                Ok(fragment) => text.push_str(&fragment),
+                Err(error) if first_error.is_none() => first_error = Some(error.to_string()),
+                Err(_) => (),
+            }
+        }
+        (normalize_pdf_lines(text), first_error)
+    }))
+    .unwrap_or_else(|payload| (String::new(), Some(panic_payload_to_string(payload))))
 }
 
 /// Convert a panic payload into a readable string for error reporting.
@@ -824,7 +871,7 @@ pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
-    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)
+    let chunks = crate::document_structure::workbook_chunks(&bytes, max_chunk_chars)
         .map_err(|error| crate::document_structure::office_package_error(&bytes, error))?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Xlsx);
@@ -2324,7 +2371,7 @@ mod tests {
         let (chunks, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| {
             calls += 1;
             Ok(Some(crate::ocr::PdfPageOcr {
-                text: "扫描页报销额度：500元。".into(),
+                text: "第一行\r\n扫描页报销额度：500元。".into(),
                 warnings: Vec::new(),
             }))
         });
@@ -2334,14 +2381,16 @@ mod tests {
             && chunk.locator
                 == EvidenceLocator::Pdf {
                     page: 2,
-                    bbox: None
+                    bbox: None,
+                    extracted_lines: Some(crate::evidence::ExtractedLineRange { start: 1, end: 2 })
                 }));
         assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
             && chunk.extraction_method == "native_and_ocr"
             && chunk.locator
                 == EvidenceLocator::Pdf {
                     page: 3,
-                    bbox: None
+                    bbox: None,
+                    extracted_lines: None
                 }));
         let (_, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| Ok(None));
         assert_eq!(missing, [2]);

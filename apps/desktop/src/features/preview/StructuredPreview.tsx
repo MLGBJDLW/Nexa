@@ -3,7 +3,7 @@ import { FileSpreadsheet } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type * as api from '../../lib/api';
 import { PreviewImage } from './PreviewImage';
-import type { EvidenceLocator } from '../../types/evidence';
+import type { PreviewLocation } from './filePreviewContext';
 type TranslateFn = ReturnType<typeof useTranslation>['t'];
 export function createPreviewLabels(t: TranslateFn) {
   return {
@@ -42,6 +42,8 @@ export function createPreviewLabels(t: TranslateFn) {
     lines: t('preview.lines'),
     pages: t('preview.pages'),
     page: t('preview.page'),
+    slide: (number: number) => t('citation.slide', { number }),
+    speakerNotes: t('citation.speakerNotes'),
     pageBreak: t('preview.pageBreak'),
     zoomIn: t('preview.zoomIn'),
     zoomOut: t('preview.zoomOut'),
@@ -201,18 +203,55 @@ function DocumentRuns({
   );
 }
 
+interface PdfPassageLines { first: number; last: number }
+
+export function locatePdfPassage(preview: api.StructuredPreview | undefined | null, locator: PreviewLocation['locator']) {
+  if (preview?.type !== 'document' || locator?.kind !== 'pdf' || !locator.extractedLineStart || !locator.extractedLineEnd) return null;
+  const start = locator.extractedLineStart, end = locator.extractedLineEnd;
+  const ranges = new Map<api.DocumentPreviewBlock, PdfPassageLines>();
+  let page = 1;
+  let hasStart = false, hasEnd = false, clipped = false;
+  for (const block of preview.blocks) {
+    if (block.type === 'pageBreak') page++;
+    if (page > locator.page) break;
+    if (page !== locator.page || block.type !== 'paragraph' || block.extractedLineStart == null || block.extractedLineEnd == null) continue;
+    const first = Math.max(start, block.extractedLineStart), last = Math.min(end, block.extractedLineEnd);
+    if (first > last) continue;
+    ranges.set(block, { first, last });
+    hasStart ||= first === start;
+    hasEnd ||= last === end;
+    if (last === block.extractedLineEnd) {
+      // A clipped paragraph has an extra display line beyond its numbered source lines.
+      const text = block.runs.map(run => run.text).join('');
+      clipped ||= text.split('\n').length > block.extractedLineEnd - block.extractedLineStart + 1;
+    }
+  }
+  return { ranges, complete: hasStart && hasEnd && !clipped };
+}
+
 function DocumentBlockView({
   block,
   assetMap,
   labels,
   onOpenWebLink,
+  pdfLines,
 }: {
   block: api.DocumentPreviewBlock;
   assetMap: Map<string, api.PreviewAsset>;
   labels: PreviewLabels;
   onOpenWebLink: (url: string, title?: string) => void;
+  pdfLines?: PdfPassageLines;
 }) {
   switch (block.type) {
+    case 'slide':
+      return <section className="space-y-3 py-3">
+        <h3 className="text-lg font-semibold">{labels.slide(block.number)}</h3>
+        <p className="whitespace-pre-wrap">{block.text}</p>
+        {block.notes && <aside className="border-l-2 border-border px-3">
+          <h4 className="text-xs font-medium text-text-secondary">{labels.speakerNotes}</h4>
+          <p className="whitespace-pre-wrap">{block.notes}</p>
+        </aside>}
+      </section>;
     case 'heading': {
       const Tag = (`h${Math.min(Math.max(block.level, 1), 6)}`) as
         | 'h1'
@@ -234,6 +273,15 @@ function DocumentBlockView({
       );
     }
     case 'paragraph':
+      if (pdfLines && block.extractedLineStart != null) {
+        const lines = block.runs.map(run => run.text).join('').split('\n');
+        const from = pdfLines.first - block.extractedLineStart, to = pdfLines.last - block.extractedLineStart + 1;
+        return <p className="my-3 whitespace-pre-wrap text-sm leading-7">
+          {from > 0 && lines.slice(0, from).join('\n') + '\n'}
+          <span data-pdf-line={pdfLines.first}>{lines.slice(from, to).join('\n')}</span>
+          {to < lines.length && '\n' + lines.slice(to).join('\n')}
+        </p>;
+      }
       return (
         <p data-docx-paragraph={block.sourceParagraph} className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
@@ -353,16 +401,17 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
   focusText?: string;
 }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const [anchorMissing, setAnchorMissing] = useState(false);
   const assetMap = useMemo(() => new Map(preview.assets.map((asset) => [asset.id, asset])), [preview.assets]);
+  const pdfPassage = useMemo(() => locatePdfPassage(preview, locator), [preview, locator]);
   const blockPages = useMemo(() => {
     let page = 1;
-    return preview.blocks.map((block) => { if (block.type === 'pageBreak') page += 1; return page; });
+    return preview.blocks.map((block) => { if (block.type === 'slide') page = block.number; else if (block.type === 'pageBreak') page += 1; return page; });
   }, [preview.blocks]);
   useEffect(() => {
     if (!locator || !root.current) { setAnchorMissing(false); return; }
@@ -371,6 +420,11 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
     if (locator.kind === 'pdf' || locator.kind === 'slide') {
       const page = locator.kind === 'pdf' ? locator.page : locator.slide;
       target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
+      if (pdfPassage) {
+        const lines = Array.from(root.current.querySelectorAll<HTMLElement>('[data-pdf-line]'));
+        setAnchorMissing(!pdfPassage.complete);
+        return markEvidenceLocations(lines.length ? lines : target ? [target] : [], []);
+      }
     } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
       if (locator.table) {
         const table = root.current.querySelector<HTMLElement>(`[data-docx-table="${locator.table}"]`);
@@ -384,13 +438,13 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
     setAnchorMissing(!target || (locator.kind === 'document' && Boolean(locator.contextRow) && !context));
     if (!target) return;
     return markEvidenceLocations([target], context ? [context] : []);
-  }, [locator, preview]);
+  }, [locator, preview, pdfPassage]);
   return (
     <div ref={root} data-testid="file-preview-structured-document" className="h-full overflow-auto bg-surface-0 px-4 py-5" onMouseUp={onMouseUp}>
       {anchorMissing && <p role="status" className="mb-3 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <article className="mx-auto min-h-full max-w-[900px] rounded-md border border-border/70 bg-surface-1 px-6 py-6 text-text-primary shadow-[0_18px_45px_rgba(0,0,0,0.18)] sm:px-8 sm:py-7">
         {preview.blocks.map((block, index) => <div key={index} data-preview-page={blockPages[index]}>
-          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} />
+          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} pdfLines={pdfPassage?.ranges.get(block)} />
         </div>)}
       </article>
     </div>
@@ -417,7 +471,7 @@ function WorkbookPreview({
   preview: api.WorkbookStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
 }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
@@ -609,7 +663,7 @@ export function StructuredPreviewRenderer({
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
   focusText?: string;
 }) {
   if (preview.type === 'workbook') {

@@ -25,6 +25,19 @@ use crate::parse::{
 use crate::privacy::{self, PrivacyConfig};
 
 pub const NATIVE_PARSER_PROFILE: &str = "native-v5";
+pub(crate) const LOCATED_PARSER_PROFILE: &str = "native-v6";
+pub(crate) const LOCATED_MIME_TYPES: [&str; 2] = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
+
+fn native_parser_profile(mime: &str) -> &'static str {
+    if LOCATED_MIME_TYPES.contains(&mime) {
+        LOCATED_PARSER_PROFILE
+    } else {
+        NATIVE_PARSER_PROFILE
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct IndexedDocument {
@@ -37,13 +50,13 @@ pub struct IndexedDocument {
 }
 
 impl IndexedDocument {
-    fn reusable_extraction(&self, content_hash: &str, fingerprint: &str) -> bool {
+    fn reusable_extraction(&self, path: &Path, content_hash: &str, fingerprint: &str) -> bool {
         self.content_hash == content_hash
             && self.ingestion_fingerprint == fingerprint
             // A service can upgrade in place without changing its URL. Its
             // response is the only authoritative parser-version identity, so
             // externally parsed documents must revalidate before this shortcut.
-            && self.parser_profile == NATIVE_PARSER_PROFILE
+            && self.parser_profile == native_parser_profile(&detect_mime_type(path))
     }
 }
 
@@ -161,7 +174,7 @@ fn parsed_metadata_json(parsed: &ParsedDocument) -> Result<String, CoreError> {
     metadata.insert("parsed_hash".into(), parsed_hash(parsed));
     metadata
         .entry("parser_profile".into())
-        .or_insert_with(|| NATIVE_PARSER_PROFILE.into());
+        .or_insert_with(|| native_parser_profile(&parsed.mime_type).into());
     Ok(serde_json::to_string(&metadata)?)
 }
 
@@ -170,7 +183,7 @@ fn parser_profile(parsed: &ParsedDocument) -> &str {
         .metadata
         .get("parser_profile")
         .map(String::as_str)
-        .unwrap_or(NATIVE_PARSER_PROFILE)
+        .unwrap_or_else(|| native_parser_profile(&parsed.mime_type))
 }
 
 fn apply_privacy(
@@ -1318,7 +1331,7 @@ fn classify_file(
     if existing_docs
         .get(&document_lookup_key(&file_path))
         .is_some_and(|existing| {
-            existing.reusable_extraction(&known_content_hash, ingestion_profile)
+            existing.reusable_extraction(path, &known_content_hash, ingestion_profile)
         })
     {
         return Ok(FileClassification::Unchanged);
@@ -1633,7 +1646,7 @@ fn ingest_file(
     }
     if !force
         && existing_document.as_ref().is_some_and(|existing| {
-            existing.reusable_extraction(&known_content_hash, &ingestion_profile)
+            existing.reusable_extraction(path, &known_content_hash, &ingestion_profile)
         })
     {
         db.clear_scan_error(source_id, &path_str)?;

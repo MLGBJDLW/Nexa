@@ -49,7 +49,7 @@ Keep format-specific generation logic in the format skill. In particular, `creat
 
 ## Preferred OfficeArtifactEngine v2 pattern
 
-1. Call `office_artifact` with `action: "capabilities"` or `action: "assess"` when native calculation, final Office validation, or rendered evidence may be required.
+1. For modify or verify, call `office_artifact` with `action: "inspect"` and use the returned SHA-256 in `preconditions.sourceSha256`. Use `action: "assess"` when native calculation, final Office validation, or rendered evidence may be required.
 2. Call `action: "execute"` with `requestVersion: 2`, `format`, `intent`, source/destination, typed `operations`, `guarantees`, and optional `validation`. Leave `delivery.mode` as `candidate` for review-sensitive work.
 3. Inspect the returned validation, preservation, calculation, and rendered-preview evidence. Never describe a missing evidence class as passed.
 4. Call `action: "decide"` with `publish` or `discard`. Publication returns a receipt.
@@ -64,11 +64,11 @@ Example request body:
   "intent": "modify",
   "source": "/abs/source/report.docx",
   "destination": "/abs/source/report-revised.docx",
+  "preconditions": {"sourceSha256": "<64-hex sha256 from inspect>"},
   "operations": [{
     "op": "replace",
     "find": "Q3",
     "replace": "Q4",
-    "expectedSha256": "<hash-from-inspection>",
     "expectedMatches": 1
   }],
   "guarantees": {
@@ -76,7 +76,7 @@ Example request body:
     "preservation": "strict",
     "render": "none"
   },
-  "validation": {"required_text": ["Q4"]},
+  "validation": {"contractVersion": 2, "required_text": ["Q4"]},
   "delivery": {"mode": "candidate"}
 }
 ```
@@ -95,10 +95,11 @@ For this skill, invoke the bundled document script through `run_shell` with `pyt
    python <SKILL_DIR>/scripts/edit_doc.py --path /abs/report.docx replace --find "Q3" --replace "Q4" --dry-run
    python <SKILL_DIR>/scripts/edit_doc.py --path /abs/report.docx replace --find "Q3" --replace "Q4"
    ```
-2. PDF text extract for review:
+2. Extract evidence for a citation using the file's own coordinates:
    ```
-   python <SKILL_DIR>/scripts/edit_doc.py --path /abs/whitepaper.pdf extract --pages 1-3
+   python <SKILL_DIR>/scripts/edit_doc.py --path /abs/source/whitepaper.pdf extract --pages 1-3 --locations
    ```
+   Pair the filename with a printed location and a short quote. PDF line numbers count extracted text lines on each page. Word body paragraph numbers include paragraphs inside tables. PowerPoint labels use the display-order slide, shape ID and paragraph. Excel uses quoted worksheet names and A1 addresses. For a long extraction, add `--output /abs/source/extract.txt` and read the UTF-8 file by line range. The named text file is replaced on success.
 3. PPTX slide insert:
    ```
    python <SKILL_DIR>/scripts/edit_doc.py --path /abs/deck.pptx insert_slide --after 2 --title "Results" --body "Revenue up 18% QoQ"
@@ -169,15 +170,10 @@ For this skill, invoke the bundled document script through `run_shell` with `pyt
    ```
    Use `jobVersion: 1`, `format`, `intent`, `input`/`output`, `operations`, `preservationPolicy`, `validationContract`, and `renderPolicy`. New work should use `office_artifact` requestVersion 2. The default `nexa-openxml` backend is local. `officecli` is an optional installed binary for explicit `create_new` jobs only and also requires `allowNetworkBackend: true`; never select it implicitly because hosted mode may transmit prompts or files. Microsoft Office COM is an explicit Windows-only finalizer.
 
-Always call `check` first in a fresh environment:
-```
-python <SKILL_DIR>/scripts/edit_doc.py check
-```
-
 ## Decision tree
 
 1. Existing DOCX/PPTX/XLSX file? Prefer `office_artifact` for multi-step or risky changes. Use direct commands only for compatibility or a tightly scoped operation. Existing PDF file? Use the direct PDF commands.
-2. New DOCX/XLSX/PPTX and Python is available? Use `create_docx`, `create_xlsx`, `create_pptx`, or `create_html_pptx` first. Prefer a JSON spec for spreadsheets/decks and a markdown/body input for documents.
+2. New DOCX/XLSX/PPTX? Use the typed create operation in `office_artifact`. Prefer a JSON spec for spreadsheets/decks and a markdown/body input for documents.
 3. Need template fidelity, comments, tracked changes, precise image replacement, relationship repair, or layout surgery? Use `unpack` → XML/media edit → `pack` → `validate`; do not use rigid one-shot generators.
 4. Need PDF/image preview or conversion QA? Use `render` when system Poppler is already available, or `convert --to pdf` with system LibreOffice already available, then inspect/extract.
 5. XLSX contains formulas? Use `lint_xlsx` after writing formulas, optionally with `--contract`. Use `recalc_xlsx` only when real cached values are required and LibreOffice is available; it blocks preservation-sensitive round-trips unless explicitly reviewed.
@@ -189,11 +185,11 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 - Do not use external hard-coded skill paths, external author names, assumptions that every binary is preinstalled, or Node-first DOCX/PPTX generation as the default.
 - Do not paste binary/base64 Office content into tool calls. All Office bytes stay on disk and are passed by absolute path.
 
-## Better-than-openclaw principles
+## Script capabilities
 - **Diff preview** — `--dry-run` on `replace` / `redact` prints a unified diff instead of mutating the file
 - **Sidecar versioning** — `version` subcommand writes `.nexa/doc-history/<name>/v{N}/<file>` snapshots
 - **Undo stack** — every snapshot is addressable by version number, nothing is clobbered in place
-- **Chunked streaming** — `extract` truncates > 50 KB output with a clear notice so large docs don't blow the context
+- **Text extraction** — the stdout preview stops at 50 KiB. Use `--locations` for citations and `--output` for a complete streamed extraction.
 - **Capability check** — `check` subcommand reports available/missing backends with exit code 2 if core deps are absent
 - **Validate after write** — `validate` checks ZIP/CRC, XML parseability, required parts, Content Types, duplicate/missing relationships, formula errors, and backend readability
 - **Visual QA** — `render` converts Office/PDF pages to PNG/JPEG images with isolated LibreOffice profiles
@@ -218,10 +214,10 @@ python -m pip install -r <SKILL_DIR>/scripts/requirements.txt
 Optional for format conversion / PDF rendering: system `libreoffice` and Poppler. Optional for HTML-first PPTX screenshot QA: Python `playwright` plus browser installation. Install optional tools only when the task specifically needs conversion, render QA, or screenshot QA.
 
 ## Handling missing dependencies
-Before first use, or when the user targets an unfamiliar file type, run:
+When an operation needs a format library and its availability is unknown, check that format (for example, PDF):
 
 ```
-python <SKILL_DIR>/scripts/edit_doc.py check
+python <SKILL_DIR>/scripts/edit_doc.py check --format pdf
 ```
 
 The `check` subcommand lists each backend as `OK (version)` or `MISSING`. If any required backend is missing:
@@ -252,7 +248,7 @@ Only install backends the user actually needs — don't pull `python-pptx` for a
 | replace        | .pptx            | python-pptx      |
 | replace        | .xlsx            | precise OOXML ZIP/XML edit (no broad openpyxl round-trip) |
 | redact         | .docx / .pptx    | python-docx / python-pptx |
-| extract        | .docx            | python-docx      |
+| extract        | .docx            | Python standard library with `--locations`, otherwise python-docx |
 | extract        | .pptx            | python-pptx      |
 | extract        | .xlsx            | openpyxl         |
 | extract        | .pdf             | pypdf            |

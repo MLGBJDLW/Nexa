@@ -1,5 +1,13 @@
 //! Citation references shared by evidence verification and workflow requirements.
 
+/// Use the stored coordinates in model-facing output as well as in the evidence card.
+pub(crate) fn source_location(card: &crate::models::EvidenceCard) -> String {
+    card.evidence_ref
+        .as_ref()
+        .and_then(|reference| serde_json::to_string(&reference.locator).ok())
+        .unwrap_or_else(|| "unavailable".into())
+}
+
 /// Extract `[cite:CHUNK_ID]` references from an answer text.
 pub fn extract_citations(text: &str) -> Vec<String> {
     let mut citations = Vec::new();

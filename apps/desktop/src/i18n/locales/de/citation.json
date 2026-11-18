@@ -1,6 +1,8 @@
 {
+  "extractedLines": "extrahierte Zeilen {range}",
   "paragraph": "Absatz {number}",
   "tableRow": "Tabelle {table}, Zeile {row}",
+  "speakerNotes": "Vortragsnotizen",
   "slide": "Folie {number}",
   "locationUnknown": "Position nicht verfügbar; Quelle erneut scannen.",
   "version": "Indexierte Version",

@@ -58,8 +58,8 @@ export class LocalClient implements RemoteChatClient {
       case 'chat.read':
         this.selected = params.conversationId;
         return local('messages',{conversationId:params.conversationId,beforeOrder:params.beforeOrder});
-      case 'files.preview': return invoke('mobile_files', {action:'preview',relativePath:params.path});
-      case 'files.data': return invoke('mobile_files', {action:'data',relativePath:params.path});
+      case 'files.preview': return invoke('mobile_files', {action:'preview',relativePath:params.path,verifyContentHash:params.verifyContentHash,startLine:params.startLine,focusSlide:params.focusSlide});
+      case 'files.data': return invoke('mobile_files', {action:'data',relativePath:params.path,expectedHash:params.expectedHash});
       case 'chat.attachment': return local('attachment', params);
       case 'chat.message': return local(params.channel === 'thinking' ? 'thinking' : 'message',{conversationId:params.conversationId,messageId:params.messageId,offset:params.offset});
       case 'chat.start':

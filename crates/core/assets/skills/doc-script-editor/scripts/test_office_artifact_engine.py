@@ -817,7 +817,7 @@ class OfficeArtifactEngineTests(unittest.TestCase):
         }
         candidate = self.engine.execute(request)
         inspection = self.engine.inspect(candidate["candidatePath"], "docx")
-        self.assertIn("Controlled insight", inspection["profile"]["textPreview"])
+        self.assertIn("[Body paragraph 1] Controlled insight", inspection["profile"]["textPreview"])
         self.assertEqual("direct-openxml", inspection["profile"]["profileEngine"])
         self.assertEqual("decision-insight", inspection["profile"]["contentControls"][0]["tag"])
 

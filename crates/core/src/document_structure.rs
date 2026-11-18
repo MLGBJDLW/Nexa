@@ -11,7 +11,7 @@ use quick_xml::{
 };
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Seek},
 };
 
 const MAX_XML_BYTES: u64 = 64 * 1024 * 1024;
@@ -27,7 +27,10 @@ pub(crate) fn office_package_error(bytes: &[u8], error: impl std::fmt::Display) 
     ))
 }
 
-fn xml_part(archive: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<String, CoreError> {
+fn xml_part<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Result<String, CoreError> {
     let mut file = archive
         .by_name(name)
         .map_err(|error| CoreError::Parse(format!("Missing Office part {name}: {error}")))?;
@@ -308,13 +311,13 @@ fn slide_text(xml: &str) -> Result<String, CoreError> {
     Ok(text)
 }
 
-pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|error| office_package_error(bytes, error))?;
+pub(crate) fn presentation_slides<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> Result<Vec<String>, CoreError> {
     let mut slides = Vec::new();
     if let (Ok(presentation), Ok(rels)) = (
-        xml_part(&mut archive, "ppt/presentation.xml"),
-        xml_part(&mut archive, "ppt/_rels/presentation.xml.rels"),
+        xml_part(archive, "ppt/presentation.xml"),
+        xml_part(archive, "ppt/_rels/presentation.xml.rels"),
     ) {
         let relationships = relationships(&rels);
         let mut reader = Reader::from_str(&presentation);
@@ -347,7 +350,7 @@ pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
             .file_names()
             .map(|name| name.map(|name| name.into_owned()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| office_package_error(bytes, error))?
+            .map_err(|error| CoreError::Parse(error.to_string()))?
             .into_iter()
             .filter(|name| name.starts_with("ppt/slides/slide") && name.ends_with(".xml"))
             .collect();
@@ -358,34 +361,50 @@ pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                 .unwrap_or(u32::MAX)
         });
     }
-    let mut chunks = Vec::new();
-    for (index, part) in slides.into_iter().enumerate() {
-        let slide = index as u32 + 1;
-        append_block(
-            &mut chunks,
-            &slide_text(&xml_part(&mut archive, &part)?)?,
-            Some(format!("Slide {slide}")),
-            EvidenceLocator::Slide { slide },
-            max_chars,
-        );
-        let basename = part.rsplit('/').next().unwrap_or_default();
-        if let Ok(rels) = xml_part(&mut archive, &format!("ppt/slides/_rels/{basename}.rels")) {
-            for target in relationships(&rels)
-                .values()
-                .filter(|target| target.contains("notesSlides/"))
-            {
-                let notes = format!("ppt/{}", target.trim_start_matches("../"));
-                if let Ok(xml) = xml_part(&mut archive, &notes) {
-                    append_block(
-                        &mut chunks,
-                        &slide_text(&xml)?,
-                        Some(format!("Slide {slide} · Notes")),
-                        EvidenceLocator::Slide { slide },
-                        max_chars,
-                    );
-                }
+    Ok(slides)
+}
+
+pub(crate) fn presentation_slide_text<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    part: &str,
+    mut visit: impl FnMut(String, bool),
+) -> Result<(), CoreError> {
+    visit(slide_text(&xml_part(archive, part)?)?, false);
+    let basename = part.rsplit('/').next().unwrap_or_default();
+    if let Ok(rels) = xml_part(archive, &format!("ppt/slides/_rels/{basename}.rels")) {
+        for target in relationships(&rels)
+            .values()
+            .filter(|target| target.contains("notesSlides/"))
+        {
+            let notes = format!("ppt/{}", target.trim_start_matches("../"));
+            if let Ok(xml) = xml_part(archive, &notes) {
+                visit(slide_text(&xml)?, true);
             }
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| office_package_error(bytes, error))?;
+    let mut chunks = Vec::new();
+    for (index, part) in presentation_slides(&mut archive)?.iter().enumerate() {
+        let slide = index as u32 + 1;
+        presentation_slide_text(&mut archive, part, |text, notes| {
+            let heading = if notes {
+                format!("Slide {slide} \u{b7} Notes")
+            } else {
+                format!("Slide {slide}")
+            };
+            append_block(
+                &mut chunks,
+                &text,
+                Some(heading),
+                EvidenceLocator::Slide { slide },
+                max_chars,
+            );
+        })?;
     }
     Ok(chunks)
 }
@@ -407,96 +426,119 @@ fn cell_address(row: u32, column: u32) -> String {
 }
 
 #[cfg(feature = "document-processing")]
+fn cell_range(row: u32, columns: &[(usize, u32)], start: usize, end: usize) -> String {
+    // Offsets address the joined UTF-8 row, including newlines within a cell.
+    let first = columns[columns.partition_point(|(offset, _)| *offset <= start) - 1].1;
+    let last = columns[columns.partition_point(|(offset, _)| *offset < end) - 1].1;
+    let first_address = cell_address(row, first);
+    if first == last {
+        first_address
+    } else {
+        format!("{first_address}:{}", cell_address(row, last))
+    }
+}
+
+#[cfg(feature = "document-processing")]
 pub(crate) fn workbook_chunks(
-    path: &std::path::Path,
+    bytes: &[u8],
     max_chars: usize,
 ) -> Result<Vec<ParsedChunk>, CoreError> {
-    use calamine::{open_workbook_auto, Reader as WorkbookReader};
-    let mut workbook = open_workbook_auto(path)
+    use calamine::{open_workbook_auto_from_rs, Reader as WorkbookReader};
+    use std::fmt::Write;
+    #[derive(Default)]
+    struct Cell {
+        value: String,
+        formula: Option<String>,
+    }
+
+    let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes))
         .map_err(|error| CoreError::Parse(format!("Excel open failed: {error}")))?;
     let mut chunks = Vec::new();
     for name in workbook.sheet_names().to_vec() {
+        let mut rows: BTreeMap<u32, BTreeMap<u32, Cell>> = BTreeMap::new();
         let values = workbook
             .worksheet_range(&name)
             .map_err(|error| CoreError::Parse(format!("Sheet {name}: {error}")))?;
+        let (row_start, column_start) = values.start().unwrap_or_default();
+        for (row, column, value) in values.used_cells() {
+            rows.entry(row_start + row as u32)
+                .or_default()
+                .entry(column_start + column as u32)
+                .or_default()
+                .value = value.to_string();
+        }
+        drop(values);
         let formulas = workbook
             .worksheet_formula(&name)
             .map_err(|error| CoreError::Parse(format!("Formulas in {name}: {error}")))?;
-        let mut cells: BTreeMap<(u32, u32), (String, Option<String>)> = BTreeMap::new();
-        let (row_start, column_start) = values.start().unwrap_or_default();
-        for (row, column, value) in values.used_cells() {
-            cells.insert(
-                (row_start + row as u32, column_start + column as u32),
-                (value.to_string(), None),
-            );
-        }
         let (row_start, column_start) = formulas.start().unwrap_or_default();
         for (row, column, formula) in formulas.used_cells() {
-            cells
-                .entry((row_start + row as u32, column_start + column as u32))
+            rows.entry(row_start + row as u32)
                 .or_default()
-                .1 = Some(formula.clone());
+                .entry(column_start + column as u32)
+                .or_default()
+                .formula = Some(formula.clone());
         }
-        let mut rows: BTreeMap<u32, Vec<(u32, String)>> = BTreeMap::new();
-        for ((row, column), (value, formula)) in cells {
-            let address = cell_address(row, column);
-            let text = if let Some(formula) = formula {
-                format!(
-                    "{address}: formula ={}; cached value = {value}",
-                    formula.trim_start_matches('=')
-                )
-            } else {
-                format!("{address}: {value}")
-            };
-            rows.entry(row).or_default().push((column, text));
-        }
-        let context = rows
-            .values()
-            .take(1)
-            .flat_map(|cells| cells.iter().map(|(_, text)| text.as_str()))
-            .collect::<Vec<_>>()
-            .join(" | ");
-        let context = context.chars().take(max_chars / 3).collect::<String>();
-        let context_source = rows.first_key_value().map(|(row, cells)| {
-            (
-                *row,
-                format!(
-                    "{}:{}",
-                    cell_address(*row, cells.first().unwrap().0),
-                    cell_address(*row, cells.last().unwrap().0)
-                ),
-            )
-        });
-        for (row, cells) in rows {
-            let range = format!(
-                "{}:{}",
-                cell_address(row, cells.first().unwrap().0),
-                cell_address(row, cells.last().unwrap().0)
-            );
-            let prefix = format!("Sheet: {name}\nFirst row context: {context}\n");
-            let text = cells
-                .iter()
-                .map(|(_, text)| text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
-            for mut chunk in chunk_plaintext(
-                &text,
-                max_chars.saturating_sub(prefix.chars().count()).max(32),
-            ) {
+        drop(formulas);
+
+        let mut prefix = format!("Sheet: {name}\n");
+        let mut context_range = None;
+        let mut prefix_chars = prefix.chars().count();
+        for (index, (row, cells)) in rows.into_iter().enumerate() {
+            let mut text = String::new();
+            let mut columns = Vec::with_capacity(cells.len());
+            for (column, cell) in cells {
+                if !columns.is_empty() {
+                    text.push('\n');
+                }
+                columns.push((text.len(), column));
+                let address = cell_address(row, column);
+                if let Some(formula) = cell.formula {
+                    write!(
+                        text,
+                        "{address}: formula ={}; cached value = ",
+                        formula.trim_start_matches('=')
+                    )
+                    .unwrap();
+                } else {
+                    write!(text, "{address}: ").unwrap();
+                }
+                text.push_str(&cell.value);
+            }
+            for mut chunk in chunk_plaintext(&text, max_chars.saturating_sub(prefix_chars).max(32))
+            {
+                let EvidenceLocator::Text {
+                    byte_start,
+                    byte_end,
+                    ..
+                } = chunk.locator
+                else {
+                    unreachable!("plain text chunks always carry source offsets");
+                };
+                let range = cell_range(row, &columns, byte_start as usize, byte_end as usize);
                 chunk.chunk_index = chunks.len() as i32;
+                chunk.heading_context = Some(format!("{name}!{range}"));
                 chunk.locator = EvidenceLocator::Sheet {
                     sheet: name.clone(),
-                    range: range.clone(),
-                    context_range: context_source
-                        .as_ref()
-                        .filter(|(context_row, _)| *context_row != row && !context.is_empty())
-                        .map(|(_, range)| range.clone()),
+                    range,
+                    context_range: context_range.clone(),
                 };
-                chunk.heading_context = Some(format!("{name}!{range}"));
                 chunk.content.insert_str(0, &prefix);
                 chunk.overlap_start += prefix.len();
                 chunk.extraction_method = "native_cached_values".into();
                 chunks.push(chunk);
+            }
+            if index == 0 {
+                let end = text
+                    .char_indices()
+                    .nth(max_chars / 3)
+                    .map_or(text.len(), |(offset, _)| offset);
+                let header = text[..end].trim_end();
+                if !header.is_empty() {
+                    context_range = Some(cell_range(row, &columns, 0, header.len()));
+                    writeln!(prefix, "First row context: {header}").unwrap();
+                    prefix_chars = prefix.chars().count();
+                }
             }
         }
     }
@@ -614,6 +656,28 @@ mod tests {
                 r#"<a:p xmlns:a="a"><a:r><a:t>Speaker evidence</a:t></a:r></a:p>"#,
             ),
         ]);
+        let mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        let slide = |number| {
+            let preview = crate::preview::build_structured_preview_from_reader(
+                Cursor::new(&bytes),
+                mime,
+                "hash",
+                &crate::preview::PreviewBuildOptions {
+                    focus_slide: Some(number),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+            serde_json::to_value(preview).unwrap()["blocks"].clone()
+        };
+        let first = slide(1);
+        assert_eq!(first[0]["notes"], "Speaker evidence");
+        let second = slide(2);
+        assert_eq!(second.as_array().unwrap().len(), 1);
+        assert_eq!(second[0]["number"], 2);
+        assert_eq!(second[0]["text"], "Second result");
+        assert_eq!(slide(999), serde_json::json!([]));
         let chunks = pptx_chunks(&bytes, 2000).unwrap();
         assert_eq!(chunks[0].content, "第一张");
         assert_eq!(chunks[0].locator, EvidenceLocator::Slide { slide: 1 });
@@ -651,7 +715,7 @@ mod tests {
             ),
         ]);
         let file = tempfile::Builder::new().suffix(".xlsx").tempfile().unwrap();
-        std::fs::write(file.path(), bytes).unwrap();
+        std::fs::write(file.path(), &bytes).unwrap();
         let preview = crate::preview::build_structured_preview(
             file.path(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -666,7 +730,7 @@ mod tests {
         } else {
             panic!("expected workbook preview");
         }
-        let chunks = workbook_chunks(file.path(), 2000).unwrap();
+        let chunks = workbook_chunks(&bytes, 2000).unwrap();
         let formula = chunks
             .iter()
             .find(|chunk| chunk.content.contains("formula =SUM(C3)"))
@@ -681,5 +745,19 @@ mod tests {
                 context_range: Some("B3:C3".into())
             }
         );
+        let narrow = workbook_chunks(&bytes, 24).unwrap();
+        let tail = narrow
+            .iter()
+            .find(|chunk| chunk.content.ends_with("17"))
+            .unwrap();
+        assert_eq!(
+            tail.locator,
+            EvidenceLocator::Sheet {
+                sheet: "预算".into(),
+                range: "C4".into(),
+                context_range: Some("B3".into()),
+            }
+        );
+        assert!(!tail.content.contains("C3: 500"));
     }
 }

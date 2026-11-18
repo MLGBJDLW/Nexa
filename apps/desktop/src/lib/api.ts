@@ -678,6 +678,7 @@ export interface FilePreview {
   modifiedAt?: string | null;
   hash: string;
   lineCount: number;
+  firstLine?: number;
   truncated: boolean;
   warning?: string | null;
   structuredPreview?: StructuredPreview | null;
@@ -708,6 +709,7 @@ export interface WorkbookStructuredPreview {
 }
 
 export type DocumentPreviewBlock =
+  | { type: 'slide'; number: number; text: string; notes: string }
   | DocumentHeadingBlock
   | DocumentParagraphBlock
   | DocumentListBlock
@@ -725,6 +727,8 @@ export interface DocumentHeadingBlock {
 }
 
 export interface DocumentParagraphBlock {
+  extractedLineStart?: number;
+  extractedLineEnd?: number;
   sourceParagraph?: number;
   type: 'paragraph';
   runs: DocumentPreviewRun[];
@@ -851,11 +855,13 @@ export interface FileSaveResult {
 
 export type { WorkflowCatalogTask, WorkflowCatalogTemplate } from '../types/workflows';
 
-export const previewFile = (path: string, conversationId?: string, verifyContentHash = false) =>
+export const previewFile = (path: string, conversationId?: string, verifyContentHash = false, startLine?: number, focusSlide?: number) =>
   invoke<FilePreview>('preview_file_cmd', {
     path,
     conversationId: conversationId ?? null,
     ...(verifyContentHash ? { verifyContentHash: true } : {}),
+    ...(startLine ? { startLine } : {}),
+    ...(focusSlide ? { focusSlide } : {}),
   });
 
 export const saveTextFile = (

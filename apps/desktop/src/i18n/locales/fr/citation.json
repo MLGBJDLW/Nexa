@@ -1,6 +1,8 @@
 {
+  "extractedLines": "lignes extraites {range}",
   "paragraph": "Paragraphe {number}",
   "tableRow": "Tableau {table}, ligne {row}",
+  "speakerNotes": "Notes du présentateur",
   "slide": "Diapositive {number}",
   "locationUnknown": "Position indisponible ; analysez à nouveau cette source.",
   "version": "Version indexée",

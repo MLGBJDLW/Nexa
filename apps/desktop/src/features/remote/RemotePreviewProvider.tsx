@@ -1,16 +1,29 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Download, Loader2, X } from 'lucide-react';
 import { FilePreviewContext } from '../preview/filePreviewContext';
 import type { PreviewLocation } from '../preview/filePreviewContext';
 import type { EvidenceRef, EvidenceContext, DocumentOutline } from '../../types/evidence';
 import { EvidenceReader } from '../preview/EvidenceReader';
-import { StructuredPreviewRenderer, createPreviewLabels } from '../preview/StructuredPreview';
+import { StructuredPreviewRenderer, createPreviewLabels, locatePdfPassage } from '../preview/StructuredPreview';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { HtmlPreviewFrame } from '../../components/chat/HtmlPreviewFrame';
 import type { FilePreview, getEvidenceCard } from '../../lib/api';
 import { useTranslation } from '../../i18n';
 import type { RemoteChatClient } from './remoteClient';
 import { remoteButton } from './remoteUi';
+
+function TextPassage({ content, start, end }: { content: string; start: number; end: number }) {
+  const { t } = useTranslation();
+  const selected = useRef<HTMLElement>(null);
+  const lines = useMemo(() => content.split('\n'), [content]);
+  useEffect(() => { selected.current?.scrollIntoView({ block: 'center' }); }, [content, start, end]);
+  return <>
+    {end > lines.length && <p role="status">{t('citation.previewLocationMissing')}</p>}
+    <pre className="whitespace-pre-wrap break-words text-xs">{lines.slice(0, start - 1).join('\n')}{start > 1 && start <= lines.length && '\n'}
+      {start <= lines.length && <mark ref={selected} className="bg-accent/15 text-inherit">{lines.slice(start - 1, end).join('\n') || ' '}</mark>}
+      {end < lines.length && '\n'}{lines.slice(end).join('\n')}</pre>
+  </>;
+}
 
 export function RemotePreviewProvider({ client, children }: { client: RemoteChatClient; children: ReactNode }) {
   const { t } = useTranslation();
@@ -36,14 +49,31 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   const openFilePreview = useCallback((path: string, position?: PreviewLocation) => {
     const mine = ++generation.current;
     setPath(path); setPreview(null); setMedia(''); setError(''); setLoading(true);
-    void client.rpc<FilePreview>('files.preview', { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) }).then(async next => {
+    const params = { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) };
+    const locator = position?.locator;
+    const anchor = locator?.kind === 'text' ? { startLine: locator.lineStart }
+      : locator?.kind === 'slide' ? { focusSlide: locator.slide } : undefined;
+    const request = anchor ? client.rpc<FilePreview>('files.preview', { ...params, ...anchor }).catch(error => {
+      if (!Object.keys(anchor).some(field => String(error).includes(field))) throw error;
+      return client.rpc<FilePreview>('files.preview', params);
+    }) : client.rpc<FilePreview>('files.preview', params);
+    void request.then(async next => {
       if (mine !== generation.current) return;
       const changed = Boolean(position?.expectedHash && position.expectedHash !== next.hash);
       if (changed) next.warning = t('citation.fileChanged');
       setPreviewLocation(changed ? null : position ?? null);
       setPreview(next);
-      if (['image', 'audio', 'video'].includes(next.kind) || next.extension === '.pdf') {
-        const data = await resolveFileUrl(next.path);
+      const anchoredPdf = !changed && locatePdfPassage(next.structuredPreview, position?.locator)?.complete;
+      if (['image', 'audio', 'video'].includes(next.kind) || (next.extension === '.pdf' && !anchoredPdf)) {
+        const data = !changed && position?.expectedHash
+          ? await client.rpc<string>('files.data', { path: next.path, expectedHash: position.expectedHash }).catch(error => {
+            if (!String(error).includes('expectedHash')) throw error;
+            if (mine === generation.current) {
+              setPreviewLocation(null);
+              setPreview({ ...next, warning: t('citation.previewLocationMissing') });
+            }
+            return resolveFileUrl(next.path);
+          }) : await resolveFileUrl(next.path);
         if (mine === generation.current) setMedia(data);
       }
     }).catch(error => { if (mine === generation.current) setError(error instanceof Error ? error.message : String(error)); })
@@ -73,17 +103,14 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading && <Loader2 className="animate-spin" />}{error && <p role="alert" className="mb-4 text-sm text-danger">{error}</p>}
         {preview?.warning && <p className="mb-3 text-xs text-text-secondary">{preview.warning}</p>}
-        {preview && (['.html', '.htm'].includes(preview.extension) && preview.content != null ? <HtmlPreviewFrame source={preview.content} />
+        {preview && (preview.content != null && previewLocation?.locator?.kind === 'text'
+          ? <TextPassage content={preview.content} start={previewLocation.locator.lineStart - (preview.firstLine ?? 1) + 1} end={previewLocation.locator.lineEnd - (preview.firstLine ?? 1) + 1} />
+          : ['.html', '.htm'].includes(preview.extension) && preview.content != null ? <HtmlPreviewFrame source={preview.content} />
           : preview.kind === 'image' && media ? <img src={media} alt={preview.displayName} className="mx-auto max-h-full max-w-full object-contain" />
           : preview.kind === 'audio' && media ? <audio src={media} controls onLoadedMetadata={(event) => { if (previewLocation?.locator?.kind === 'media') event.currentTarget.currentTime = previewLocation.locator.startMs / 1000; }} className="w-full" />
           : preview.kind === 'video' && media ? <video src={media} controls playsInline onLoadedMetadata={(event) => { if (previewLocation?.locator?.kind === 'media') event.currentTarget.currentTime = previewLocation.locator.startMs / 1000; }} className="max-w-full" />
           : preview.extension === '.pdf' && media ? <iframe src={`${media}${previewLocation?.locator?.kind === 'pdf' ? `#page=${previewLocation.locator.page}` : ''}`} sandbox="" title={preview.displayName} className="h-full min-h-[70vh] w-full border-0" />
           : preview.structuredPreview ? <StructuredPreviewRenderer preview={preview.structuredPreview} locator={previewLocation?.locator} focusText={previewLocation?.focusText} labels={labels} onMouseUp={() => {}} onOpenWebLink={openWebLink} />
-          : preview.content != null && previewLocation?.locator?.kind === 'text' ? <pre className="whitespace-pre-wrap break-words text-xs">{preview.content.split('\n').map((line, index) => {
-            const locator = previewLocation.locator;
-            const selected = locator?.kind === 'text' && index + 1 >= locator.lineStart && index + 1 <= locator.lineEnd;
-            return <span key={index} className={`block ${selected ? 'bg-accent/15' : ''}`} ref={index + 1 === (locator?.kind === 'text' ? locator.lineStart : 0) ? (element) => element?.scrollIntoView({ block: 'center' }) : undefined}>{line || ' '}</span>;
-          })}</pre>
           : preview.content != null ? <StreamingMarkdown content={preview.extension === '.md' || preview.extension === '.markdown' ? preview.content : `\n\`\`\`\`${preview.language || ''}\n${preview.content}\n\`\`\`\``} isStreaming={false} reduceMotion /> : <p>{t('preview.unsupported')}</p>)}
       </div>
     </div>}

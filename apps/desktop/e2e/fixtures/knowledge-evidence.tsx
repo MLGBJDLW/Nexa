@@ -1,5 +1,6 @@
-import { StrictMode, useMemo, useState } from 'react';
+import { StrictMode, useContext, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { StreamingMarkdown } from '../../src/components/chat/StreamingMarkdown';
 import { CitationChip } from '../../src/components/chat/EvidenceCard';
 import { FilePreviewContext } from '../../src/features/preview/filePreviewContext';
 import { I18nProvider } from '../../src/i18n';
@@ -9,9 +10,12 @@ import { ResearchWorkspace } from '../../src/features/knowledge/ResearchWorkspac
 import { StructuredPreviewRenderer, createPreviewLabels } from '../../src/features/preview/StructuredPreview';
 import { useTranslation } from '../../src/i18n';
 import type { EvidenceRef } from '../../src/types/evidence';
+import type { DocumentStructuredPreview } from '../../src/lib/api';
+import { RemotePreviewProvider } from '../../src/features/remote/RemotePreviewProvider';
+import type { RemoteChatClient } from '../../src/features/remote/remoteClient';
 
 const extracted = new URLSearchParams(location.search).has('extracted');
-const historical: EvidenceRef = {sourceId:'fixture-source',documentId:'fixture-doc',revision:'revision-2026-09',documentHash:'raw-hash-500',blockId:'old',contentHash:'old-500',locator:extracted ? {kind:'extracted',section:'Pages 1, 2'} : {kind:'pdf',page:2},extractionMethod:extracted ? 'docling_layout_ocr' : 'native',status:extracted ? 'current' : 'historical'};
+const historical: EvidenceRef = {sourceId:'fixture-source',documentId:'fixture-doc',revision:'revision-2026-09',documentHash:'raw-hash-500',blockId:'old',contentHash:'old-500',locator:extracted ? {kind:'extracted',section:'Pages 1, 2'} : {kind:'pdf',page:2,extractedLineStart:7,extractedLineEnd:9},extractionMethod:extracted ? 'docling_layout_ocr' : 'native',status:extracted ? 'current' : 'historical'};
 const ref = (id: string): EvidenceRef => ({...historical,blockId:id,contentHash:`hash-${id}`});
 function ReaderFixture() {
   const [opened,setOpened] = useState(false);
@@ -28,6 +32,56 @@ function ReaderFixture() {
     loadDocumentOutline: async (_reference: EvidenceRef, after?: number|null) => ({sections:after == null ? [{reference:historical,chunkIndex:0,heading:'Original version'},{reference:ref('slow'),chunkIndex:1,heading:'Slow section'},{reference:ref('fast'),chunkIndex:2,heading:'Fast section'}] : [{reference:ref('appendix'),chunkIndex:3,heading:'Appendix'}],hasMore:after == null,nextIndex:after == null ? 2 : null}),
   }),[]);
   return <FilePreviewContext.Provider value={context}><button onClick={() => setOpened(true)}>Open historical evidence</button><output data-testid="opened-position">{JSON.stringify(position)}</output>{opened && <EvidenceReader reference={historical} onClose={() => setOpened(false)} />}</FilePreviewContext.Provider>;
+}
+function FileLinkFixture() {
+  const [opened, setOpened] = useState('');
+  const hash = 'b'.repeat(64);
+  const page = new URLSearchParams({ loc: JSON.stringify({ kind: 'pdf', page: 3 }), rev: hash });
+  return <FilePreviewContext.Provider value={{
+    openFilePreview: (path, position) => setOpened(JSON.stringify({ path, position })),
+    openWebLink: () => undefined,
+  }}>
+    <StreamingMarkdown content={`[Budget · L2–4](<file:///C:/notes/cost%20%23%25.md#L2-L4@${hash}>) and [file:/tmp/old.md:2-4|old.md] and [PDF p. 3](<file:///tmp/report.pdf#${page}>)`} isStreaming={false} reduceMotion />
+    <output data-testid="file-link-target">{opened}</output>
+  </FilePreviewContext.Provider>;
+}
+const pdfRun = (text: string) => ({ text, bold: false, italic: false, underline: false });
+const pdfPreview: DocumentStructuredPreview = { type: 'document', assets: [], blocks: [
+  { type: 'paragraph', extractedLineStart: 1, extractedLineEnd: 512, runs: [pdfRun(Array.from({ length: 512 }, (_, i) => `row ${i + 1}`).join('\n'))] },
+  { type: 'pageBreak' },
+  { type: 'paragraph', extractedLineStart: 6, extractedLineEnd: 8, runs: [pdfRun('before\nselected\nafter')] },
+  { type: 'pageBreak' },
+  { type: 'unsupported', message: 'No extractable text layer was found on this page.' },
+  { type: 'pageBreak' },
+  { type: 'paragraph', extractedLineStart: 1, extractedLineEnd: 2, runs: [pdfRun('first line\nclipped line\n[truncated]')] },
+] };
+const pdfClient = { rpc: async (method: string) => {
+  if (method === 'files.preview') return { path: 'report.pdf', displayName: 'Report', extension: '.pdf', kind: 'document', hash: 'same-revision', structuredPreview: pdfPreview };
+  if (method === 'files.data') return 'data:application/pdf;base64,JVBERi0=';
+  throw new Error(`Unexpected request: ${method}`);
+} } as unknown as RemoteChatClient;
+function PdfLinks() {
+  const { openFilePreview } = useContext(FilePreviewContext);
+  const open = (page: number, line: number) => openFilePreview('report.pdf', {
+    expectedHash: 'same-revision', locator: { kind: 'pdf', page, extractedLineStart: line, extractedLineEnd: line },
+  });
+  return <>{[[2, 7], [3, 1], [4, 2], [81, 1]].map(([page, line]) =>
+    <button key={page} onClick={() => open(page, line)}>Open page {page}</button>)}</>;
+}
+function PdfLinesFixture() {
+  const { t } = useTranslation();
+  const [cited, setCited] = useState(true);
+  if (new URLSearchParams(location.search).has('remote')) return <RemotePreviewProvider client={pdfClient}><PdfLinks /></RemotePreviewProvider>;
+  return <><button onClick={() => setCited(false)}>Clear citation</button>
+    <StructuredPreviewRenderer preview={pdfPreview} locator={cited ? { kind:'pdf', page:2, extractedLineStart:7, extractedLineEnd:8 } : undefined}
+      labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} /></>;
+}
+function SlideFixture() {
+  const { t } = useTranslation();
+  return <StructuredPreviewRenderer preview={{ type:'document', assets:[], blocks:[
+    { type:'slide', number:91, text:'Quarterly totals', notes:'Revenue excludes tax' },
+  ] }} locator={{ kind:'slide', slide:91 }} labels={createPreviewLabels(t)}
+    onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
 }
 function WorkbookFixture() {
   const {t}=useTranslation();
@@ -59,13 +113,13 @@ const fixture = {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
-    {mode === 'docx' ? <DocxFixture /> : mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
+    {mode === 'slide' ? <SlideFixture /> : mode === 'file-links' ? <FileLinkFixture /> : mode === 'pdf-lines' ? <PdfLinesFixture /> : mode === 'docx' ? <DocxFixture /> : mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
       openFilePreview: () => undefined,
       openWebLink: () => undefined,
       loadEvidence: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error('Temporary evidence read failure');
-        return fixture;
+        return { ...fixture, evidenceRef: { ...historical, blockId: fixture.chunkId } };
       },
     }}>
       <CitationChip chunkId="fixture-block" displayText="Read citation" card={undefined} />

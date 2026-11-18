@@ -139,6 +139,7 @@ pub mod task_orchestrator;
 pub mod task_run;
 pub mod task_run_presentation;
 pub mod task_timeline;
+pub mod text_window;
 pub mod theme_resource_plugin;
 pub mod tool_access;
 pub mod tool_argument_projection;

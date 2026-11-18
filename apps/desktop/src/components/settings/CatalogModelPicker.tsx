@@ -60,14 +60,18 @@ export function CatalogModelPicker({
   placeholder,
 }: CatalogModelPickerProps) {
   const { t } = useTranslation();
-  const options = useMemo(() => models.map((model) => ({
-    value: model.id,
-    label: `${model.name}${model.recommended ? ' ★' : ''}`,
-    description: catalogModelOptionDescription(model, t),
-    badge: <ProviderIcon provider={model.descriptor.providerId} model={model.id} size="xs" />,
-    keywords: [model.id, model.descriptor.family, model.descriptor.providerId, ...(model.descriptor.aliases ?? [])],
-    disabled: model.descriptor.lifecycle === 'removed' || model.descriptor.availableToCredential === false,
-  })), [models, t]);
+  const selected = models.find(model => model.id === value || model.descriptor.aliases.includes(value));
+  const savedRetirement = selected?.descriptor.lifecycle === 'removed' ? selected.id : undefined;
+  const options = useMemo(() => models
+    .filter(model => model.descriptor.lifecycle !== 'removed' || model.id === savedRetirement)
+    .map((model) => ({
+      value: model.id,
+      label: `${model.name}${model.recommended ? ' ★' : ''}`,
+      description: catalogModelOptionDescription(model, t),
+      badge: <ProviderIcon provider={model.descriptor.providerId} model={model.id} size="xs" />,
+      keywords: [model.id, model.descriptor.family, model.descriptor.providerId, ...(model.descriptor.aliases ?? [])],
+      disabled: model.descriptor.lifecycle === 'removed' || model.descriptor.availableToCredential === false,
+    })), [models, savedRetirement, t]);
 
   return (
     <div data-catalog-surface={surface}>
@@ -80,7 +84,7 @@ export function CatalogModelPicker({
         options={options}
         placeholder={placeholder ?? t('settings.selectModel')}
         searchPlaceholder={t('settings.modelSearchPlaceholder')}
-        value={models.find(model => model.id === value || model.descriptor.aliases.includes(value))?.id ?? value}
+        value={selected?.id ?? value}
       />
     </div>
   );

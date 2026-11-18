@@ -28,6 +28,15 @@ pub struct DocumentOutline {
     pub next_index: Option<i64>,
 }
 
+/// Inclusive, one-based lines in one page's extracted text stream.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtractedLineRange {
+    #[serde(rename = "extractedLineStart")]
+    pub start: u32,
+    #[serde(rename = "extractedLineEnd")]
+    pub end: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(
     tag = "kind",
@@ -45,6 +54,8 @@ pub enum EvidenceLocator {
         page: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bbox: Option<[f32; 4]>,
+        #[serde(flatten)]
+        extracted_lines: Option<ExtractedLineRange>,
     },
     Document {
         part: String,
@@ -103,6 +114,11 @@ pub(crate) fn from_record(
     status: String,
 ) -> EvidenceRef {
     let metadata: serde_json::Value = serde_json::from_str(metadata).unwrap_or_default();
+    // Embedded image records predate typed PDF locators. Their parser stored
+    // the page number at ingestion, so archived cards can use it directly.
+    let visual_source = (kind == "visual_artifact")
+        .then(|| metadata.get("source").and_then(|value| value.as_str()))
+        .flatten();
     EvidenceRef {
         source_id: card.source_id,
         document_id: card.document_id,
@@ -114,10 +130,26 @@ pub(crate) fn from_record(
             .get("locator")
             .cloned()
             .and_then(|value| serde_json::from_value(value).ok())
+            .or_else(|| {
+                if visual_source != Some("pdf_embedded_image") {
+                    return None;
+                }
+                let page = metadata
+                    .get("artifact_page")?
+                    .as_str()?
+                    .parse::<u32>()
+                    .ok()?;
+                (page > 0).then_some(EvidenceLocator::Pdf {
+                    page,
+                    bbox: None,
+                    extracted_lines: None,
+                })
+            })
             .unwrap_or_default(),
         extraction_method: metadata
             .get("extraction_method")
             .and_then(|value| value.as_str())
+            .or(visual_source)
             .unwrap_or(if kind == "summary" {
                 "model_summary"
             } else {

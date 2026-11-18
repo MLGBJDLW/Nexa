@@ -734,12 +734,17 @@ async fn mobile_notification_target(app: AppHandle) -> Result<Value, String> {
     platform::call(&app, "notificationTarget", json!({})).await
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn mobile_files(
     app: AppHandle,
     runtime: State<'_, RuntimeSlot>,
     action: String,
     relative_path: Option<String>,
+    verify_content_hash: Option<bool>,
+    start_line: Option<u32>,
+    focus_slide: Option<u32>,
+    expected_hash: Option<String>,
 ) -> Result<Value, String> {
     let state = runtime.get(&app).await?;
     match action.as_str() {
@@ -747,7 +752,13 @@ async fn mobile_files(
             file_preview::read(
                 &state.workspace_dir(),
                 relative_path.as_deref().ok_or("Choose a file")?,
-                action == "data",
+                file_preview::ReadOptions {
+                    data: action == "data",
+                    verify_hash: verify_content_hash.unwrap_or(false),
+                    start_line,
+                    focus_slide,
+                    expected_hash: expected_hash.as_deref(),
+                },
             )
             .await
         }

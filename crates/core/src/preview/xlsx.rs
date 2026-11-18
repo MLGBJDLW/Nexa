@@ -1,15 +1,15 @@
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::io::{Read, Seek};
 
-use calamine::{open_workbook, Data, Reader, Xlsx};
+use calamine::{Data, DataRef, Reader, Xlsx, XlsxError};
 
 use super::model::{
     PreviewCell, PreviewMergedRange, PreviewSheet, StructuredPreview, WorkbookPreviewLimits,
     WORKBOOK_MAX_COLUMNS, WORKBOOK_MAX_ROWS, WORKBOOK_MAX_SHEETS,
 };
 
-pub fn preview_xlsx(path: &Path) -> Result<StructuredPreview, String> {
-    let mut workbook: Xlsx<_> =
-        open_workbook(path).map_err(|e| format!("XLSX open failed for {}: {e}", path.display()))?;
+pub fn preview_xlsx(reader: impl Read + Seek) -> Result<StructuredPreview, String> {
+    let mut workbook: Xlsx<_> = Xlsx::new(reader).map_err(|e| format!("XLSX open failed: {e}"))?;
     let sheet_names = workbook.sheet_names();
     let mut sheets = Vec::new();
     let mut truncated = sheet_names.len() > WORKBOOK_MAX_SHEETS;
@@ -19,52 +19,82 @@ pub fn preview_xlsx(path: &Path) -> Result<StructuredPreview, String> {
         .take(WORKBOOK_MAX_SHEETS)
         .enumerate()
     {
-        let range = workbook
-            .worksheet_range(&name)
-            .map_err(|e| format!("XLSX sheet '{name}' read failed: {e}"))?;
-        let formulas = workbook.worksheet_formula(&name).ok();
-        let merged_ranges = workbook
-            .merge_cells_by_sheet_name(&name)
-            .unwrap_or_default();
-
-        let row_count = range.height();
-        let column_count = range.width();
+        let mut cells = BTreeMap::new();
+        let mut start = (u32::MAX, u32::MAX);
+        let mut end = (0, 0);
+        let visible = |pos: (u32, u32), start: (u32, u32)| {
+            pos.0.saturating_sub(start.0) < WORKBOOK_MAX_ROWS as u32
+                && pos.1.saturating_sub(start.1) < WORKBOOK_MAX_COLUMNS as u32
+        };
+        match workbook.worksheet_cells_reader(&name) {
+            Ok(mut reader) => {
+                while let Some(cell) = reader
+                    .next_cell_with_formula()
+                    .map_err(|e| format!("XLSX sheet '{name}' read failed: {e}"))?
+                {
+                    if cell.value == DataRef::Empty && cell.formula.is_none() {
+                        continue;
+                    }
+                    start = (start.0.min(cell.pos.0), start.1.min(cell.pos.1));
+                    end = (end.0.max(cell.pos.0), end.1.max(cell.pos.1));
+                    if visible(cell.pos, start) {
+                        // A sparse worksheet can span the whole Excel grid.
+                        // Keep only populated preview cells. A later row may
+                        // move the left edge earlier than the first used row.
+                        if cells.len() >= 2 * WORKBOOK_MAX_ROWS * WORKBOOK_MAX_COLUMNS {
+                            cells.retain(|pos, _| visible(*pos, start));
+                        }
+                        let value = Data::from(cell.value);
+                        cells.insert(
+                            cell.pos,
+                            PreviewCell {
+                                row: cell.pos.0,
+                                column: cell.pos.1,
+                                data_type: data_type_name(&value).into(),
+                                value: value.to_string(),
+                                formula: cell.formula.filter(|formula| !formula.trim().is_empty()),
+                            },
+                        );
+                    }
+                }
+            }
+            Err(XlsxError::NotAWorksheet(_)) => {}
+            Err(e) => return Err(format!("XLSX sheet '{name}' read failed: {e}")),
+        }
+        let (row_count, column_count) = if start.0 == u32::MAX {
+            start = (0, 0);
+            (0, 0)
+        } else {
+            (
+                (end.0 - start.0) as usize + 1,
+                (end.1 - start.1) as usize + 1,
+            )
+        };
+        let cells = cells
+            .into_iter()
+            .filter_map(|(pos, mut cell)| {
+                if !visible(pos, start) {
+                    return None;
+                }
+                cell.row -= start.0;
+                cell.column -= start.1;
+                Some(cell)
+            })
+            .collect();
         let preview_row_count = row_count.min(WORKBOOK_MAX_ROWS);
         let preview_column_count = column_count.min(WORKBOOK_MAX_COLUMNS);
         let sheet_truncated = row_count > WORKBOOK_MAX_ROWS || column_count > WORKBOOK_MAX_COLUMNS;
         truncated |= sheet_truncated;
 
-        let start = range.start().unwrap_or((0, 0));
-        let mut cells = Vec::new();
-        for row_offset in 0..preview_row_count {
-            for col_offset in 0..preview_column_count {
-                let row = start.0 + row_offset as u32;
-                let column = start.1 + col_offset as u32;
-                let value = range
-                    .get_value((row, column))
-                    .cloned()
-                    .unwrap_or(Data::Empty);
-                let formula = formulas
-                    .as_ref()
-                    .and_then(|formula_range| formula_range.get_value((row, column)))
-                    .filter(|formula| !formula.trim().is_empty())
-                    .cloned();
-                if matches!(value, Data::Empty) && formula.is_none() {
-                    continue;
-                }
-                cells.push(PreviewCell {
-                    row: row_offset as u32,
-                    column: col_offset as u32,
-                    value: value.to_string(),
-                    data_type: data_type_name(&value).to_string(),
-                    formula,
-                });
-            }
-        }
-
+        let merged_ranges = workbook
+            .merge_cells_by_sheet_name(&name)
+            .unwrap_or_default();
         let merged_ranges = merged_ranges
             .into_iter()
             .filter_map(|range| {
+                if range.end.0 < start.0 || range.end.1 < start.1 {
+                    return None;
+                }
                 let start_row = range.start.0.saturating_sub(start.0) as usize;
                 let start_column = range.start.1.saturating_sub(start.1) as usize;
                 if start_row >= preview_row_count || start_column >= preview_column_count {
@@ -124,6 +154,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+    use std::path::Path;
     use tempfile::tempdir;
     use zip::write::FileOptions;
 
@@ -248,7 +279,7 @@ mod tests {
         let path = dir.path().join("sample.xlsx");
         write_xlsx(&path);
 
-        let preview = preview_xlsx(&path).unwrap();
+        let preview = preview_xlsx(fs::File::open(&path).unwrap()).unwrap();
 
         let StructuredPreview::Workbook {
             sheets, truncated, ..
@@ -276,7 +307,7 @@ mod tests {
         let path = dir.path().join("large.xlsx");
         write_truncated_xlsx(&path);
 
-        let preview = preview_xlsx(&path).unwrap();
+        let preview = preview_xlsx(fs::File::open(&path).unwrap()).unwrap();
 
         let StructuredPreview::Workbook {
             sheets, truncated, ..

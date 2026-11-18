@@ -1849,7 +1849,7 @@ mod tests {
         let file = root.join("blackhole.html");
         std::fs::write(&file, "<html><body>Black hole</body></html>").unwrap();
         let db = Database::open_memory().unwrap();
-        let preview = build_file_preview(&db, &file.to_string_lossy(), None)
+        let preview = build_file_preview(&db, &file.to_string_lossy(), None, None, None)
             .expect("an explicit local file must open without resource registration");
         assert!(preview.content.as_deref().unwrap().contains("Black hole"));
         assert_eq!(preview.kind, "html");
@@ -1860,7 +1860,7 @@ mod tests {
         config.shell_access_mode = ShellAccessMode::Open;
         db.save_app_config(&config).unwrap();
         assert!(
-            build_file_preview(&db, &file.to_string_lossy(), None)
+            build_file_preview(&db, &file.to_string_lossy(), None, None, None)
                 .unwrap()
                 .agent_edit_allowed
         );
@@ -1879,7 +1879,8 @@ mod tests {
         ] {
             let path = root.join(name);
             std::fs::write(&path, [0_u8; 1024]).unwrap();
-            let preview = build_file_preview(&db, &path.to_string_lossy(), None).unwrap();
+            let preview =
+                build_file_preview(&db, &path.to_string_lossy(), None, None, None).unwrap();
             assert_eq!(preview.kind, kind);
             assert!(preview.hash.starts_with("metadata:"));
             assert!(preview.content.is_none());
@@ -1896,7 +1897,7 @@ mod tests {
         let file = root.join("blackhole.html");
         std::fs::write(&file, "<h1>Before</h1>").unwrap();
         let db = db_with_source(&source_root);
-        let preview = build_file_preview(&db, &file.to_string_lossy(), None).unwrap();
+        let preview = build_file_preview(&db, &file.to_string_lossy(), None, None, None).unwrap();
         let input = serde_json::from_value(serde_json::json!({
             "path": file, "content": "<h1>After</h1>", "expectedHash": preview.hash,
         }))
@@ -1945,8 +1946,14 @@ mod tests {
         write_minimal_docx(&file);
         let db = db_with_source(&root);
 
-        let preview = build_file_preview(&db, &file.to_string_lossy(), Some(&app_data_dir))
-            .expect("build preview");
+        let preview = build_file_preview(
+            &db,
+            &file.to_string_lossy(),
+            Some(&app_data_dir),
+            None,
+            None,
+        )
+        .expect("build preview");
 
         assert!(preview.capabilities.can_render_structured);
         assert!(!preview.editable);

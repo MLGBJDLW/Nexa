@@ -6,23 +6,10 @@ import { Badge } from '../../components/ui/Badge';
 import { useTranslation } from '../../i18n';
 import * as api from '../../lib/api';
 import { formatUserError } from '../../lib/userError';
+import { evidenceLocationLabel } from '../../lib/evidenceLocation';
 import { isWebUrl } from '../../lib/sourceDisplay';
-import type { EvidenceContext, EvidenceLocator, EvidenceRef, DocumentOutline } from '../../types/evidence';
+import type { EvidenceContext, EvidenceRef, DocumentOutline } from '../../types/evidence';
 import { useFilePreview } from './filePreviewContext';
-
-type Translate = ReturnType<typeof useTranslation>['t'];
-export function evidenceLocationLabel(locator: EvidenceLocator, t: Translate): string {
-  switch (locator.kind) {
-    case 'text': return `${t('preview.lines')} ${locator.lineStart}–${locator.lineEnd}`;
-    case 'pdf': return `${t('preview.page')} ${locator.page}`;
-    case 'document': return locator.table ? t('citation.tableRow', { table: locator.table, row: locator.row ?? 1 }) : t('citation.paragraph', { number: locator.paragraph });
-    case 'sheet': return `${locator.sheet}!${locator.range}`;
-    case 'slide': return t('citation.slide', { number: locator.slide });
-    case 'media': return `${(locator.startMs / 1000).toFixed(1)}–${(locator.endMs / 1000).toFixed(1)} s`;
-    case 'extracted': return locator.section;
-    default: return t('citation.locationUnknown');
-  }
-}
 
 export function EvidenceReader({ reference, onClose }: { reference: EvidenceRef; onClose: () => void }) {
   const { t } = useTranslation();

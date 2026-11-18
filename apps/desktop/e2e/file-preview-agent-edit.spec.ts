@@ -95,7 +95,7 @@ test.beforeEach(async ({ page }) => {
           id: 'm-assistant-file',
           conversationId: 'conv-agent-edit',
           role: 'assistant',
-          content: 'Open `D:\\Vault\\scripts\\server.py` and inspect `D:\\Vault\\docs\\manual.pdf`. Also improve `D:\\Vault\\notes\\agent-edit.md`, preview `D:\\Vault\\web\\index.html`, inspect `D:\\Vault\\docs\\office-proposal.docx`, `D:\\Vault\\docs\\structured-report.docx`, and `D:\\Vault\\sheets\\budget.xlsx`.',
+          content: 'Open `D:\\Vault\\scripts\\server.py` and inspect `D:\\Vault\\docs\\manual.pdf`. Also improve `D:\\Vault\\notes\\agent-edit.md`, preview `D:\\Vault\\web\\index.html`, inspect `D:\\Vault\\docs\\office-proposal.docx`, `D:\\Vault\\docs\\structured-report.docx`, and `D:\\Vault\\sheets\\budget.xlsx`. See [Late log passage](file:///D:/Vault/notes/audit.log#L110001-L110002@' + 'a'.repeat(64) + ').',
           toolCallId: null,
           toolCalls: [],
           artifacts: null,
@@ -655,6 +655,32 @@ test('CRLF preview selects the requested line and preserves exact text in agent 
   await page.getByTestId('file-preview-agent-send').click();
   await expect.poll(()=>page.evaluate(()=>window.__lastAgentPrompt??'')).toContain('Line range: 5');
   expect(await page.evaluate(()=>window.__lastAgentPrompt??'')).toMatch(/\nANCHOR\n/);
+});
+
+test('windowed citation selections show and copy source line numbers', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(() => {
+    const runtime = (window as any).__TAURI_INTERNALS__;
+    const invoke = runtime.invoke;
+    runtime.invoke = async (command: string, args: { startLine?: number }) => {
+      const result = await invoke(command, args);
+      if (command !== 'preview_file_cmd' || args.startLine !== 110001) return result;
+      return { ...result, path: 'D:/Vault/notes/audit.log', displayName: 'audit.log', extension: '.log',
+        kind: 'text', editable: false, agentEditAllowed: false, content: 'One\r\nTwo\r\nLater',
+        firstLine: 110001, lineCount: 3, truncated: true, hash: 'a'.repeat(64) };
+    };
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      writeText: async (text: string) => { (window as any).__copiedRequest = text; },
+    } });
+  });
+  await page.getByRole('button', { name: 'Late log passage' }).click();
+  await expect(page.getByText(/lines 110001-110002/)).toBeVisible();
+  await expect(page.getByTestId('file-preview-agent-send')).toBeDisabled();
+  await page.getByTestId('file-preview-agent-copy').click();
+  const prompt = await page.evaluate(() => (window as any).__copiedRequest);
+  expect(prompt).toContain('line range: 110001-110002');
+  expect(prompt).toContain('Preview character range: 0-8');
+  expect(prompt).toContain('One\r\nTwo');
 });
 
 test('opens an agent-requested preview once and acknowledges the actual line selection',async({page})=>{

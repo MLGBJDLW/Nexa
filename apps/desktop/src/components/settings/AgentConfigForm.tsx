@@ -26,6 +26,7 @@ import {
   catalogModelsForSnapshot,
   findProviderPreset,
   removedProviderModel,
+  retiredProviderTypes,
   getReasoningCapability,
   type ProviderPreset,
 } from "../../lib/providerPresets";
@@ -861,7 +862,7 @@ export function AgentConfigForm({
           }}
           className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
         >
-          {PROVIDER_LABEL_KEYS.map((opt) => (
+          {PROVIDER_LABEL_KEYS.filter(opt => opt.value === config?.provider || !retiredProviderTypes.has(opt.value)).map((opt) => (
             <option key={opt.value} value={opt.value}>
               {t(opt.labelKey as any)}
             </option>

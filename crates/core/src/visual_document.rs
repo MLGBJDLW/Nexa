@@ -318,21 +318,29 @@ pub fn extract_pdf_visual_artifacts_with_llm_provider_type(
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
     llm_provider_type: Option<crate::llm::ProviderType>,
 ) -> Vec<ParsedVisualArtifact> {
-    let mut artifacts = Vec::new();
     let doc = match lopdf::Document::load_mem(pdf_bytes) {
         Ok(doc) => doc,
         Err(err) => {
             tracing::debug!("PDF visual extraction skipped: {err}");
-            return artifacts;
+            return Vec::new();
         }
     };
+    pdf_visual_artifacts(&doc, ocr_config, llm_provider, llm_provider_type)
+}
 
-    let pages: Vec<(u32, lopdf::ObjectId)> = doc.get_pages().into_iter().collect();
-    for (page_number, page_id) in pages {
+#[cfg(feature = "document-processing")]
+pub(crate) fn pdf_visual_artifacts(
+    doc: &lopdf::Document,
+    ocr_config: &crate::ocr::OcrConfig,
+    llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    llm_provider_type: Option<crate::llm::ProviderType>,
+) -> Vec<ParsedVisualArtifact> {
+    let mut artifacts = Vec::new();
+    for (page_number, page_id) in doc.get_pages() {
         if artifacts.len() >= MAX_VISUAL_ARTIFACTS_PER_DOCUMENT {
             break;
         }
-        let images = crate::pdf_images::extract_images_from_pdf_page(&doc, page_id);
+        let images = crate::pdf_images::extract_images_from_pdf_page(doc, page_id);
         for image in images {
             if artifacts.len() >= MAX_VISUAL_ARTIFACTS_PER_DOCUMENT {
                 break;

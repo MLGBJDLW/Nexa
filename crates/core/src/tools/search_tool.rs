@@ -356,6 +356,7 @@ fn format_search_result(
              Source: {}\n\
              {}: {}\n\
              Title: {}\n\
+             Source location: {}\n\
              Preview:\n{}\n\
              Next: {}\n\n",
             i + 1,
@@ -372,6 +373,7 @@ fn format_search_result(
             },
             card.document_path,
             card.document_title,
+            crate::citations::source_location(card),
             preview,
             next_step,
         ));

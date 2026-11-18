@@ -42,6 +42,8 @@ pub enum PreviewBlock {
         alignment: Option<String>,
     },
     Paragraph {
+        #[serde(flatten)]
+        extracted_lines: Option<crate::evidence::ExtractedLineRange>,
         #[serde(skip_serializing_if = "Option::is_none")]
         source_paragraph: Option<u32>,
         runs: Vec<PreviewRun>,
@@ -60,6 +62,11 @@ pub enum PreviewBlock {
     Image {
         asset_id: String,
         alt: Option<String>,
+    },
+    Slide {
+        number: u32,
+        text: String,
+        notes: String,
     },
     PageBreak,
     Unsupported {

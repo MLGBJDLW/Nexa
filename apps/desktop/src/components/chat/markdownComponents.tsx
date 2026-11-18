@@ -1,6 +1,6 @@
 import { PreviewImage } from '../../features/preview/PreviewImage';
 import { isFollowupFence, parseFollowupSuggestions } from '../../lib/followupSuggestions';
-import { localFileReference } from '../../features/preview/localFileReference';
+import { fileLinkTarget } from '../../features/preview/localFileReference';
 import { MAX_HIGHLIGHT_CODE_CHARS } from '../../lib/streaming/markdownPresentation';
 import { memo, useMemo, createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
@@ -205,13 +205,13 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
   // File reference: open in default app
   if (href && href.startsWith('file:')) {
-    const filePath = localFileReference(href);
+    const { path: filePath, position } = fileLinkTarget(href);
     return (
       <button
         type="button"
         onClick={() => {
-          if (remote || canPreviewInApp(filePath)) {
-            openFilePreview(filePath);
+          if (position || remote || canPreviewInApp(filePath)) {
+            openFilePreview(filePath, position);
           } else {
             openFileInDefaultApp(filePath);
           }

@@ -2,7 +2,8 @@ import { createContext, useContext } from 'react';
 import type { getEvidenceCard } from '../../lib/api';
 import type { EvidenceRef, EvidenceLocator, EvidenceContext, DocumentOutline } from '../../types/evidence';
 
-export interface PreviewLocation { locator?: EvidenceLocator; expectedHash?: string; focusText?: string }
+type TextLines = Pick<Extract<EvidenceLocator, { kind: 'text' }>, 'kind' | 'lineStart' | 'lineEnd'>;
+export interface PreviewLocation { locator?: EvidenceLocator | TextLines; expectedHash?: string; focusText?: string }
 export interface HtmlPreviewLease { url: string; release: () => void }
 
 interface FilePreviewContextValue {

@@ -50,7 +50,7 @@ import { openNexaBrowser } from '../browser';
 import { requestNexaBrowser } from '../browser/openNexaBrowser';
 import { FilePreviewContext } from './filePreviewContext';
 import type { PreviewLocation } from './filePreviewContext';
-import type { EvidenceRef, EvidenceLocator } from '../../types/evidence';
+import type { EvidenceRef } from '../../types/evidence';
 import { EvidenceReader } from './EvidenceReader';
 import { useAgentPreviewRequests, type AgentPreviewRequest } from './useAgentPreviewRequests';
 
@@ -131,9 +131,9 @@ function formatTimestamp(value: string | null | undefined, locale: string): stri
   }).format(date);
 }
 
-function lineNumberAt(content: string, index: number): number {
+function lineNumberAt(content: string, index: number, firstLine: number): number {
   const safeIndex = Math.max(0, Math.min(index, content.length));
-  let line = 1;
+  let line = firstLine;
   for (let i = 0; i < safeIndex; i += 1) {
     if (content.charCodeAt(i) === 10) line += 1;
   }
@@ -143,6 +143,7 @@ function lineNumberAt(content: string, index: number): number {
 function getSelectionSummary(
   content: string,
   selection: TextSelectionState | null,
+  firstLine: number,
 ): TextSelectionSummary | null {
   if (!selection) return null;
   const start = Math.max(0, Math.min(selection.start, content.length));
@@ -152,8 +153,8 @@ function getSelectionSummary(
   const text = content.slice(start, end);
   if (!text.trim()) return null;
 
-  const startLine = lineNumberAt(content, start);
-  const endLine = lineNumberAt(content, Math.max(start, end - 1));
+  const startLine = lineNumberAt(content, start, firstLine);
+  const endLine = lineNumberAt(text, text.length - 1, startLine);
 
   return {
     ...selection,
@@ -252,7 +253,7 @@ function OfficeRenderedPreview({
 }: {
   rendered: api.RenderedPreview;
   labels: PreviewLabels;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
 }) {
   const [zoom, setZoom] = useState(1);
   const root = useRef<HTMLDivElement>(null);
@@ -465,7 +466,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash));
+        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash), options.locator?.kind === 'text' ? options.locator.lineStart : undefined, options.locator?.kind === 'slide' ? options.locator.slide : undefined);
         if (generation !== loadGeneration.current) return null;
         const changed = Boolean(options.expectedHash && options.expectedHash !== next.hash);
         if (changed) next.warning = t('citation.fileChanged');
@@ -563,12 +564,14 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (mode !== 'text' || locator?.kind !== 'text' || !preview?.content || !textPreview.current) return;
     const displayed = textPreview.current.value;
     const lines = displayed.split('\n');
-    if (locator.lineStart > lines.length) { setError(t('citation.previewLocationMissing')); return; }
-    const start = lines.slice(0, locator.lineStart - 1).reduce((sum, line) => sum + line.length + 1, 0);
-    const end = Math.min(displayed.length, start + lines.slice(locator.lineStart - 1, locator.lineEnd).join('\n').length);
+    const first = preview.firstLine ?? 1;
+    const startLine = locator.lineStart - first + 1, endLine = locator.lineEnd - first + 1;
+    if (startLine < 1 || startLine > lines.length) { setError(t('citation.previewLocationMissing')); return; }
+    const start = lines.slice(0, startLine - 1).reduce((sum, line) => sum + line.length + 1, 0);
+    const end = Math.min(displayed.length, start + lines.slice(startLine - 1, endLine).join('\n').length);
     textPreview.current.focus();
     textPreview.current.setSelectionRange(start, end);
-    textPreview.current.scrollTop = Math.max(0, locator.lineStart - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
+    textPreview.current.scrollTop = Math.max(0, startLine - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
     setTextSelection(selectionFromTextarea(preview.content, start, end, 'preview'));
   }, [previewLocation, preview, mode, t]);
 
@@ -666,8 +669,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty, draft, labels.reindexFailed, labels.saveFailed, labels.saved, preview]);
 
   const selectedText = useMemo(
-    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection),
-    [draft, textSelection, mode, preview?.content],
+    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection, preview?.firstLine ?? 1),
+    [draft, textSelection, mode, preview?.content, preview?.firstLine],
   );
 
   const quickActions = useMemo(
