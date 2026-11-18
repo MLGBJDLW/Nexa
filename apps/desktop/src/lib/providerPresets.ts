@@ -58,7 +58,14 @@ export interface ProviderPreset {
 
 type RawProviderPreset = Omit<ProviderPreset, 'models'> & { models: LegacyCatalogModel[] };
 
-const retiredModels = new Map((providerPresets as RawProviderPreset[]).map(preset => {
+const apiPresets = providerPresets as RawProviderPreset[];
+export const retiredProviderTypes: ReadonlySet<string> = new Set(
+  apiPresets
+    .filter(preset => preset.retired && !apiPresets.some(active => active.provider === preset.provider && !active.retired))
+    .map(preset => preset.provider),
+);
+
+const retiredModels = new Map(apiPresets.map(preset => {
   const index = new Map<string, LegacyCatalogModel>();
   for (const model of preset.models.filter(model => model.status === 'removed')) {
     for (const id of [model.id, ...(model.aliases ?? [])]) index.set(normalizeModelId(id), model);

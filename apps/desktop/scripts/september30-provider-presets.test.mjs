@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 const { build } = createRequire(import.meta.resolve('vite'))('esbuild');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/lib/providerPresets.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', write: false });
-const { findProviderModelPreset: find, findProviderPreset, isRemovedProviderModel } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+const { findProviderModelPreset: find, findProviderPreset, isRemovedProviderModel, retiredProviderTypes } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
 
 test('native models project current limits and preserve gated preview identity in the picker', () => {
   const sol = find({ provider: 'open_ai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6.1-sol' });
@@ -58,6 +58,9 @@ test('gateway reasoning controls and regional hosted models do not leak into dir
 test('confirmed retirements disappear while still-supported legacy and future shutdowns remain', () => {
   const yi = findProviderPreset({ provider: 'yi', baseUrl: 'https://api.lingyiwanwu.com/v1' });
   assert.equal(yi.models.length, 0);
+  assert.equal(retiredProviderTypes.has('yi'), true);
+  assert.equal(retiredProviderTypes.has('open_ai'), false);
+  assert.equal(retiredProviderTypes.has('custom'), false);
   for (const id of ['yi-large', 'yi-medium', 'yi-spark', 'yi-large-turbo']) assert.equal(isRemovedProviderModel('yi', id), true);
   for (const id of ['doubao-seed-code-preview-251028', 'doubao-seed-1-6-251015', 'doubao-seed-1-6-flash-250828']) assert.equal(isRemovedProviderModel('doubao', id), true);
   assert.equal(isRemovedProviderModel('doubao', 'doubao-seed-2-0-pro-260215'), false);
