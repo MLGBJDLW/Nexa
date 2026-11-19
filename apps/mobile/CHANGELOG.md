@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.15...nexa-mobile-v0.3.16) (2026-11-19)
+
+### Features
+
+- Apply a GIF, MP4 or WebM background to a phone theme. The built-in themes skill can apply a local file on the host, and paired phones can display media shared by the desktop. Videos pause when the app is hidden. With reduced motion enabled, the background stays still. [Animated themes](https://github.com/MLGBJDLW/Nexa/pull/582)
+
+### Bug Fixes
+
+- Switch between chats and return to the same model, account and reasoning setting, including GPT-6.2 Astra on native OpenAI. Sending or retrying a turn now saves the accepted model with the message. [Chat model selection](https://github.com/MLGBJDLW/Nexa/commit/946ca7597254a1f3059fb8cf8ccaeafd7c2d5977)
+- Resume a pinned task on its original provider and connection. [Pinned tasks](https://github.com/MLGBJDLW/Nexa/commit/53fb4b93d00d6746b31721c5ea468a3a9bfad385)
+
 ## [0.3.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.14...nexa-mobile-v0.3.15) (2026-11-19)
 
 ### Features
