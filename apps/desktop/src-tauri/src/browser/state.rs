@@ -639,12 +639,7 @@ impl BrowserState {
             .is_focused()
             .map_err(|error| format!("Could not read main window focus: {error}"))?;
         if !browser_host_window_allows_agent_action(visible, minimized, focused) {
-            return Err(if cfg!(windows) {
-                "Browser action requires the Nexa window to be visible and restored"
-            } else {
-                "Browser action requires the Nexa window to be visible, restored, and focused"
-            }
-            .to_string());
+            return Err(FOREGROUND_REQUIRED.into());
         }
         Ok(())
     }
@@ -4563,7 +4558,7 @@ pub struct BrowserViewportPoint {
 }
 
 pub(super) const FOREGROUND_REQUIRED: &str =
-    "Browser input paused while Nexa is in the background. Return to the window and observe again.";
+    "Browser control paused. Restore the Nexa window and return to it before observing the tab again.";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]

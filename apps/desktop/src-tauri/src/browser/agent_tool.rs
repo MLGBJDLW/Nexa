@@ -258,6 +258,7 @@ fn browser_observation_failure(
     error: &str,
 ) -> ToolResult {
     let user_owned = error.contains("control belongs to the user");
+    let needs_foreground = error == super::state::FOREGROUND_REQUIRED;
     nexa_core::tools::structured_tool_error_result_with_side_effect(
         call_id,
         if user_owned {
@@ -269,9 +270,10 @@ fn browser_observation_failure(
         serde_json::json!({
             "action":"observe", "sessionId":session_id, "tabId":tab_id,
             "recovery":if user_owned { "Wait for the user to release control; do not take it back." }
+                else if needs_foreground { super::state::FOREGROUND_REQUIRED }
                 else { "Inspect the current tab and visibility, then observe it again. Do not repeat the action that opened or changed this page." },
         }),
-        !user_owned,
+        !user_owned && !needs_foreground,
         nexa_core::tools::ToolSideEffect::NotStarted,
         None,
     )
@@ -1430,7 +1432,12 @@ impl Tool for NativeBrowserSessionTool {
                     Ok(outcome) => outcome,
                     Err(error) => {
                         progress.update(BrowserOperationPhase::Failed, serde_json::json!({}));
-                        return Err(Self::invalid(error));
+                        return Ok(browser_observation_failure(
+                            context.call_id,
+                            session_id,
+                            tab_id,
+                            &error,
+                        ));
                     }
                 };
                 let mut result = match observation_result(context.call_id, outcome.observation) {
@@ -1895,6 +1902,13 @@ mod tests {
             "Browser control belongs to the user; wait until they hand it back",
         );
         assert_eq!(user.artifacts.as_ref().unwrap()["retryable"], false);
+        let hidden = super::browser_observation_failure(
+            "call",
+            "session",
+            "tab",
+            super::super::state::FOREGROUND_REQUIRED,
+        );
+        assert_eq!(hidden.artifacts.as_ref().unwrap()["retryable"], false);
     }
     async fn unexpected_visual_capture() -> Result<serde_json::Value, String> {
         panic!("cancelled or failed wait must not capture final evidence")
