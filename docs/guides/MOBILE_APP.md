@@ -132,10 +132,11 @@ outside the observed app and keyboard pixels are masked, preserving focused text
 entry. Protected content cannot be translated or shared through this panel.
 
 Paired desktop users can open **View phone screen** in Connect after Android has
-enabled that computer's phone control. Conversely, a phone's screen tab can view
-and control a Windows window explicitly shared from Connect. These views refresh
-roughly once per second, with pause, zoom, touch controls and Stop; they are not
-high-frame-rate video streams. Stopping, collapsing or disconnecting a phone
+enabled that computer's phone control. The phone's screen tab can view a display
+or window shared from Connect, including the desktop when the user switches
+applications. Windows application windows support separately enabled input.
+These views refresh roughly once per second and offer pause, zoom and Stop.
+Stopping, collapsing or disconnecting a phone
 viewer cancels its pending control session. Input is never replayed automatically.
 
 The distribution target is a signed GitHub APK. This is not a claim of Google

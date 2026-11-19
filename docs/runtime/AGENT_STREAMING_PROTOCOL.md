@@ -195,6 +195,12 @@ remains an interruption. DeepSeek Responses instead requires
 use `[DONE]`. OpenAI Responses and DeepSeek Responses retain separate request,
 replay, usage, and terminal capability profiles.
 
+A completed native OpenAI Responses turn can issue a function call directly.
+When it includes reasoning, Nexa retains the provider's encrypted item in its
+original position, including encrypted state delivered in an output-item
+completion event. The next request pairs each completed call with its tool
+output by call ID. [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling)
+
 Context planning always keeps a concrete response reserve, but that estimate
 is not automatically a provider limit. `max_tokens` / `max_output_tokens` is
 sent only for an explicit worker override, a verified endpoint/model catalog
