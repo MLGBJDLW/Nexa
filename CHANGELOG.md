@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.19.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.16...nexa-monorepo-v0.19.17) (2026-11-19)
+
+
+### Features
+
+* **models:** update Gemini, MiniMax, OpenAI and external agent catalogs ([43c1eb3](https://github.com/MLGBJDLW/Nexa/commit/43c1eb38bd93dc75300bbbe7cfe75bc78e30a642))
+
+
+### Bug Fixes
+
+* **catalog:** apply account-scoped OpenAI shutdown dates in model pickers ([c38fb54](https://github.com/MLGBJDLW/Nexa/commit/c38fb549e32739f1f7556d00da5bf90dd5b4e888))
+* **catalog:** expose model identity matching to mobile choices ([226ec8d](https://github.com/MLGBJDLW/Nexa/commit/226ec8d6c7d27f3c688f63a4cb778313e2698f9b))
+* **catalog:** preserve MiniMax subscription model redirects ([20da8f9](https://github.com/MLGBJDLW/Nexa/commit/20da8f92209cecab4f615b2214a9352e4836cb99))
+* **models:** resolve regional embedding catalogs and retrieval settings ([ef5e7ba](https://github.com/MLGBJDLW/Nexa/commit/ef5e7ba79eee7cdfd9275030fc9d4369574a5d8c))
+* **openai:** replay completed native Responses tool calls and streamed reasoning ([c3d8be8](https://github.com/MLGBJDLW/Nexa/commit/c3d8be8e86b88cd3716c3a8fea935865a4a316c9))
+* **openai:** scope empty replay placeholders to the native provider ([76feec8](https://github.com/MLGBJDLW/Nexa/commit/76feec8d5bfc3420d8d61b10a156452fe334dee9))
+* **remote:** release the picker action when the device panel closes ([63cc170](https://github.com/MLGBJDLW/Nexa/commit/63cc1705b662c37dfac7154e952764eaf4fcddb3))
+* **remote:** share a paired desktop display without choosing an application ([784a0c2](https://github.com/MLGBJDLW/Nexa/commit/784a0c2acacd4527aba0ce0b7aa1f6038fc50d95))
+* **workspace:** share paired desktop displays and restore native OpenAI tool turns ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
+* **workspace:** share paired displays and restore native OpenAI tool turns ([#579](https://github.com/MLGBJDLW/Nexa/issues/579)) ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
+
 ## [0.19.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.15...nexa-monorepo-v0.19.16) (2026-11-18)
 
 
