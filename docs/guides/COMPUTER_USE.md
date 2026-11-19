@@ -214,17 +214,17 @@ worker retains ownership while releasing buttons and finishing cleanup. Status
 phases come from the executing worker: moving, sending input and observing the
 result; a heartbeat cannot overwrite that phase.
 
-On a foreground Windows WebView2 tab, pointer movement, clicks, drags and
-scrolling use the system cursor. Control/Shift clicks and Control + vertical
-wheel (page zoom) use Windows input. Wheel travel follows the user's scroll
-settings. The host checks focus, tab bounds and the target before dispatch.
-Switching windows pauses foreground input. When the user explicitly asks to
-work in the background, set `delivery: "background"` on that action to use the
-visible selected tab without moving the cursor. Read `pointerDelivery` for the
-actual route and observe again after a focus change.
+The Browser Workspace shows an in-page pointer at the agent's target. On
+Windows, the default route sends input directly to the visible foreground
+WebView2 tab. Moving the physical mouse alone lets the agent continue. Clicks,
+typing, user takeover and focus changes invalidate the observed state. Explicit
+`delivery: "foreground"` uses the Windows system pointer, including physical
+Control/Shift clicks and Control + vertical wheel. Explicit background
+operation uses `delivery: "background"` on the visible selected tab. Read
+`pointerDelivery` for the actual route.
 
 The browser validates each action against its current observation. Captures
-temporarily hide Nexa's click feedback. Native window capture obtains the
+temporarily hide Nexa's cursor and click feedback. Native window capture obtains the
 selected window surface. To inspect all displays, request a desktop observation.
 
 The native Windows adapter and its interactive fixtures live separately from the

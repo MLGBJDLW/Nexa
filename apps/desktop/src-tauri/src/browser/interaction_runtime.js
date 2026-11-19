@@ -597,6 +597,11 @@
   const cancelPresentation = (id) => {
     if (!presentation || presentation.id !== id) return false;
     presentation.status = 'cancelled';
+    if (presentation.cursor) {
+      presentation.cursor.remove();
+      feedbackNodes.delete(presentation.cursor);
+      presentation.cursor = null;
+    }
     return true;
   };
   runtime.presentationStatus = (id) => ({ id, status: presentation?.id === id ? presentation.status : 'unavailable' });
@@ -713,10 +718,30 @@
     runtime.refs = new Map();
   };
   runtime.previewAction = (input) => {
-    validateAction(input);
+    const { el, end } = validateAction(input);
     if (input.pointerAppearance) runtime.setPointerAppearance(input.pointerAppearance);
     if (presentation) cancelPresentation(presentation.id);
     presentation = { id: String(input.presentationId || ''), status: 'arrived' };
+    if (input.showCursor && ['move','hover','click','double_click','drag','scroll','set_checked'].includes(input.action)) {
+      const dragging = input.action === 'drag';
+      const element = dragging ? end : el;
+      const bounds = element && viewportBoundsOf(element);
+      const point = (dragging ? input.endPoint : input.point) || (bounds && {
+        x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2,
+      });
+      if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+        const cursor = document.createElement('div');
+        cursor.dataset.nexaAgentCursor = '';
+        cursor.setAttribute('aria-hidden', 'true');
+        cursor.style.cssText = 'all:initial;position:fixed;pointer-events:none;z-index:2147483647;width:16px;height:22px;clip-path:polygon(0 0,100% 62%,57% 65%,80% 95%,59% 100%,37% 69%,0 94%);';
+        cursor.style.setProperty('pointer-events', 'none', 'important');
+        cursor.style.left = point.x + 'px';
+        cursor.style.top = point.y + 'px';
+        cursor.style.backgroundColor = pointerAppearance.accent;
+        presentation.cursor = trackFeedback(cursor);
+        document.documentElement.appendChild(cursor);
+      }
+    }
     return { durationMs: 0, presentationId: presentation.id, action: input.action };
   };
   const viewportPoint = (point) => {

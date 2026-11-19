@@ -2343,7 +2343,7 @@ impl BrowserState {
                 #[cfg(windows)]
                 pointer_focus,
                 #[cfg(windows)]
-                delivery: BrowserInputDelivery::Foreground,
+                delivery: BrowserInputDelivery::default(),
                 created_at: Instant::now(),
                 tab_id: tab_id.to_string(),
                 url: snapshot.url.clone(),
@@ -2609,6 +2609,7 @@ impl BrowserState {
         let action_input = serde_json::to_string(&serde_json::json!({
             "action": request.action,
             "presentationId": progress.operation_id(),
+            "showCursor": request.delivery == BrowserInputDelivery::Webview,
             "pointerAppearance": nexa_core::agent_pointer::browser_appearance(),
             "callId": request.call_id,
             "targetRef": expected.as_ref().map(|element| &element.element_ref),
@@ -2768,7 +2769,7 @@ impl BrowserState {
                                 request.call_id,
                                 observation.lease_generation,
                             )?;
-                            observation.pointer_focus.check()?;
+                            observation.pointer_focus.check_delivery(request.delivery)?;
                             request.commit_tracker.mark_committed();
                             Ok(())
                         },
@@ -3251,7 +3252,7 @@ impl BrowserState {
             )
             .await?;
         let armed_guard = trusted_guard
-            .with_pointer_focus(Some(observation.pointer_focus))
+            .with_pointer_focus(observation.pointer_focus, request.delivery)
             .arm(
                 budget,
                 expected_input,
@@ -4565,6 +4566,8 @@ pub struct BrowserViewportPoint {
 #[serde(rename_all = "lowercase")]
 pub enum BrowserInputDelivery {
     #[default]
+    #[serde(alias = "auto")]
+    Webview,
     Foreground,
     Background,
 }

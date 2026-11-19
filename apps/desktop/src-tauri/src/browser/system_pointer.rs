@@ -60,7 +60,7 @@ impl<W: Copy> ObservedFocus<W> {
 #[derive(Clone, Copy)]
 pub(super) struct ObservedPointerFocus {
     main: isize,
-    focus: ObservedFocus<ForegroundInputWatch>,
+    focus: ObservedFocus<(ForegroundInputWatch, ForegroundInputWatch)>,
 }
 impl ObservedPointerFocus {
     pub(super) fn observe(webview: &Webview) -> Self {
@@ -71,6 +71,9 @@ impl ObservedPointerFocus {
             ObservedFocus::Background
         } else {
             ForegroundInputWatch::start()
+                .and_then(|system| {
+                    ForegroundInputWatch::for_window(main as u64).map(|window| (system, window))
+                })
                 .map(ObservedFocus::Foreground)
                 .unwrap_or(ObservedFocus::Unknown)
         };
@@ -81,18 +84,22 @@ impl ObservedPointerFocus {
         self,
         delivery: BrowserInputDelivery,
     ) -> Result<Option<ForegroundInputWatch>, String> {
-        let observed = self.check()?;
+        let foreground = unsafe { GetForegroundWindow() }.0 as isize == self.main;
+        let watch = |(system, window)| {
+            if delivery == BrowserInputDelivery::Webview {
+                window
+            } else {
+                system
+            }
+        };
+        let observed = self
+            .focus
+            .validate(foreground, |watches| watch(watches).changed())?
+            .map(watch);
         if delivery == BrowserInputDelivery::Background {
-            return Ok(None);
+            return Ok(observed);
         }
         observed.map(Some).ok_or_else(|| "Browser input paused while Nexa is in the background. Return to the window and observe again.".into())
-    }
-
-    pub(super) fn check(self) -> Result<Option<ForegroundInputWatch>, String> {
-        self.focus.validate(
-            unsafe { GetForegroundWindow() }.0 as isize == self.main,
-            ForegroundInputWatch::changed,
-        )
     }
 }
 
@@ -174,6 +181,9 @@ impl SystemPointer {
         .any(|field| observation.get(*field) != live.get(*field))
         {
             return Err("Browser viewport changed since observation. Observe again.".into());
+        }
+        if delivery != BrowserInputDelivery::Foreground {
+            return Ok(None);
         }
         let Some(watch) = foreground_watch else {
             return Ok(None);
