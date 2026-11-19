@@ -404,6 +404,18 @@
         "productReadiness": "known",
         "status": "preview",
         "lastVerifiedAt": "2026-10-24"
+      },
+      {
+        "id": "voxtral-mini-tts-2603",
+        "name": "Voxtral TTS 2",
+        "source": "official",
+        "recommended": false,
+        "productReadiness": "known",
+        "status": "deprecated",
+        "deprecationDate": "2027-04-30",
+        "replacementModelId": "voxtral-mini-tts-3-0",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.mistral.ai/models/voxtral-tts-26-03"
       }
     ],
     "voices": [
@@ -413,13 +425,19 @@
         "languages": [
           "en-US"
         ],
-        "recommended": true
+        "recommended": true,
+        "modelIds": [
+          "voxtral-mini-tts-3-0"
+        ]
       },
       {
         "id": "voice_447",
         "name": "Margaret",
         "languages": [
           "en-US"
+        ],
+        "modelIds": [
+          "voxtral-mini-tts-3-0"
         ]
       },
       {
@@ -427,6 +445,9 @@
         "name": "Rob",
         "languages": [
           "en-US"
+        ],
+        "modelIds": [
+          "voxtral-mini-tts-3-0"
         ]
       },
       {
@@ -434,6 +455,9 @@
         "name": "Marie",
         "languages": [
           "fr"
+        ],
+        "modelIds": [
+          "voxtral-mini-tts-3-0"
         ]
       },
       {
@@ -441,6 +465,9 @@
         "name": "Mei",
         "languages": [
           "zh"
+        ],
+        "modelIds": [
+          "voxtral-mini-tts-3-0"
         ]
       },
       {
@@ -461,7 +488,7 @@
       "flac",
       "opus"
     ],
-    "lastVerifiedAt": "2026-10-24",
+    "lastVerifiedAt": "2026-11-19",
     "documentationUrls": [
       "https://docs.mistral.ai/api/endpoint/audio/speech",
       "https://docs.mistral.ai/studio/audio/text-to-speech/voices"

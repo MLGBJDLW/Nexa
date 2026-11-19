@@ -324,12 +324,24 @@
         "recommended": true,
         "lastVerifiedAt": "2026-11-05",
         "documentationRef": "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime"
+      },
+      {
+        "id": "voxtral-mini-transcribe-realtime-2602",
+        "name": "Voxtral Mini Transcribe Realtime (2602)",
+        "source": "official",
+        "recommended": false,
+        "productReadiness": "known",
+        "status": "deprecated",
+        "deprecationDate": "2027-04-30",
+        "replacementModelId": "voxtral-mini-transcribe-realtime-3-0",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.mistral.ai/models/voxtral-mini-transcribe-realtime-26-02"
       }
     ],
     "documentationUrls": [
       "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime"
     ],
-    "lastVerifiedAt": "2026-11-05"
+    "lastVerifiedAt": "2026-11-19"
   },
   {
     "id": "mistral",
@@ -367,9 +379,21 @@
         "productReadiness": "known",
         "status": "preview",
         "lastVerifiedAt": "2026-10-24"
+      },
+      {
+        "id": "voxtral-mini-2602",
+        "name": "Voxtral Mini Transcribe 2",
+        "source": "official",
+        "recommended": false,
+        "productReadiness": "known",
+        "status": "deprecated",
+        "deprecationDate": "2027-04-30",
+        "replacementModelId": "voxtral-mini-transcribe-3-0",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.mistral.ai/models/voxtral-mini-transcribe-26-02"
       }
     ],
-    "lastVerifiedAt": "2026-10-24",
+    "lastVerifiedAt": "2026-11-19",
     "documentationUrls": [
       "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-files",
       "https://docs.mistral.ai/api/endpoint/audio/transcriptions"

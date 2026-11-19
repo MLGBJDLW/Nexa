@@ -319,7 +319,9 @@ impl SpeechToTextConfig {
             "mistral_realtime_asr" => {
                 matches!(
                     self.model.trim(),
-                    "voxtral-mini-transcribe-realtime-3" | "voxtral-mini-transcribe-realtime-3-0"
+                    "voxtral-mini-transcribe-realtime-2602"
+                        | "voxtral-mini-transcribe-realtime-3"
+                        | "voxtral-mini-transcribe-realtime-3-0"
                 ) && !self.api_key.trim().is_empty()
                     && self
                         .base_url
