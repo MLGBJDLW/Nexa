@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.19.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18) (2026-11-19)
+
+### Features
+
+- Ask the built-in themes skill to apply a GIF, MP4 or WebM as a background, or import the file through Appearance. Existing theme plugins keep their v2 interface. Video pauses when the app is hidden, and reduced motion keeps the background still. [Animated themes](https://github.com/MLGBJDLW/Nexa/commit/a02fc935691d18c0177664710e55eed098a5db55)
+- Follow the agent's cursor inside the active Browser Workspace tab. Tab-directed actions leave the system pointer free. [Browser cursor](https://github.com/MLGBJDLW/Nexa/commit/3d9909020be84485eb46a0c093e098074bd2bb71)
+
+### Bug Fixes
+
+- Return to a chat with its selected model, connection and reasoning setting. Native OpenAI keeps GPT-6.2 Astra selected when account defaults or conversation history finish loading. [Chat model selection](https://github.com/MLGBJDLW/Nexa/pull/582)
+- Workspace rules and skills accept tool calls that include scheduler hints or unused empty installation fields. This avoids repeated validation errors while preserving checks for conflicting arguments. [Tool argument handling](https://github.com/MLGBJDLW/Nexa/commit/0096140e535cb10225a7dce7d1111ad31953d889)
+- In the Windows browser, moving the physical mouse no longer rejects tab-directed actions. The agent pauses if the host window is hidden or the user takes over. Browser waits can continue while the page makes observable progress. [Browser continuity](https://github.com/MLGBJDLW/Nexa/pull/582)
+- Refresh provider model aliases, retirements and supported voices, including Mistral, OpenAI and regional BigModel endpoints. Update verified external agent distributions for Gemini CLI, Cursor and Junie. [Model catalog evidence](https://github.com/MLGBJDLW/Nexa/blob/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6/docs/development/MODEL_CATALOG_EVIDENCE_2026_11_19.md)
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6 -->
+
+### What's Changed
+* feat(agent): add animated skins and preserve chat and browser continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/582
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.16...nexa-monorepo-v0.19.17) (2026-11-19)
 
 
