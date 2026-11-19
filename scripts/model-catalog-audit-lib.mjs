@@ -134,6 +134,11 @@ export function normalizeDiscoveredModel(endpointId, model) {
   return {
     ...model,
     id: endpointId === 'embedding:jina' ? model.id?.replace(/^jina-ai\//, '') : model.id,
+    ...(endpointId === 'text:openai' && typeof model.shutdown_date === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(model.shutdown_date)
+      && Number.isFinite(Date.parse(model.shutdown_date))
+      && new Date(model.shutdown_date).toISOString().startsWith(model.shutdown_date)
+      ? { expiration_date: model.shutdown_date, lifecycle: model.shutdown_date < new Date().toISOString().slice(0, 10) ? 'removed' : 'deprecated' } : {}),
     ...(inputModalities ? { inputModalities } : {}),
     ...(outputModalities ? { outputModalities } : {}),
     ...(parameters ? { supportedParameters: parameters } : {}),

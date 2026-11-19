@@ -263,6 +263,7 @@ export function getReasoningCapability(input: {
 export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapshot) {
   const observed = projectSnapshotModels(snapshot);
   const preset = findProviderPreset(snapshot);
+  const nativeOpenAi = preset?.id === 'openai';
   const bundled = new Map(preset?.models.map(model => [model.id.trim().toLowerCase(), model]));
   const tombstones = new Set<string>();
   const markRemoved = (id: string, aliases: readonly string[] = []) => {
@@ -291,7 +292,8 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
         productReadiness: model.descriptor.productReadiness === 'callable' && current.descriptor.productReadiness !== 'product_ready'
           ? 'callable' : current.descriptor.productReadiness,
       } });
-    } else if (current && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
+    } else if (current && model.descriptor.lifecycle !== 'deprecated'
+        && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
       byId.set(id, {
         ...model,
         tagKey: current.tagKey,
@@ -300,16 +302,25 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
       });
     } else byId.set(id, model);
   }
-  for (const model of [...(preset?.models ?? []), ...observed]) {
-    if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
-      markRemoved(model.id, model.descriptor.aliases);
+  if (nativeOpenAi) {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const { descriptor } of byId.values()) {
+      if (descriptor.lifecycle === 'deprecated' && descriptor.deprecationDate && descriptor.deprecationDate < today) {
+        markRemoved(descriptor.id, descriptor.aliases);
+      }
+    }
+  } else {
+    for (const model of [...(preset?.models ?? []), ...observed]) {
+      if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
+        markRemoved(model.id, model.descriptor.aliases);
+      }
     }
   }
   const isChat = (model: ProviderModelPreset) => isChatModelId(model.id)
     && model.descriptor.inputModalities.includes('text') && model.descriptor.outputModalities.includes('text');
   const canSuggest = (id: string) => {
     const model = byId.get(normalizeModelId(id));
-    return model ? isChat(model) : isChatModelId(id);
+    return !isRemoved(id) && (model ? isChat(model) : isChatModelId(id));
   };
   return { models: [...byId.values()].filter(model => !isRemoved(model.id) && isChat(model)), isRemoved, canSuggest };
 }

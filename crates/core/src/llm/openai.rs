@@ -3560,10 +3560,13 @@ impl LlmProvider for OpenAiProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        let native = self.uses_native_openai_catalog();
+        let today = chrono::Utc::now().date_naive();
         Ok(self
             .discover_model_entries()
             .await?
             .into_iter()
+            .filter(|model| !native || model.shutdown_date.is_none_or(|date| date >= today))
             .map(|model| model.id)
             .collect())
     }
@@ -3572,6 +3575,16 @@ impl LlmProvider for OpenAiProvider {
         &self,
     ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
         Ok(self.openrouter_catalog_snapshot().await)
+    }
+
+    async fn discover_picker_catalog(
+        &self,
+        verified_model: Option<&str>,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        if self.uses_native_openai_catalog() || is_openrouter_config(&self.config) {
+            return Ok(Some(self.cached_catalog_snapshot(verified_model).await));
+        }
+        Ok(None)
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {

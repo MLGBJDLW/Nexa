@@ -953,6 +953,15 @@ pub trait LlmProvider: Send + Sync {
         Ok(None)
     }
 
+    /// Explicit catalog refresh for settings and mobile pickers. A successful
+    /// connection probe can retain its selected model even if the list omits it.
+    async fn discover_picker_catalog(
+        &self,
+        _verified_model: Option<&str>,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        self.model_catalog_snapshot().await
+    }
+
     /// Send a completion request and return the full response.
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError>;
 
@@ -1148,6 +1157,13 @@ impl LlmProvider for MessageValidatingProvider {
         &self,
     ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
         self.inner.model_catalog_snapshot().await
+    }
+
+    async fn discover_picker_catalog(
+        &self,
+        verified_model: Option<&str>,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        self.inner.discover_picker_catalog(verified_model).await
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {

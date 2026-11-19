@@ -37,6 +37,14 @@ const isolated = compareEndpointModels(endpoint, [{ id: 'tenant-b-only-model' }]
 const announced = compareEndpointModels(endpoint, [{ id: 'model-a', expiration_date: '2026-11-18' }]);
 assert.deepEqual(announced.lifecycleChanged, [{ id:'model-a', curated:'active', discovered:'deprecated' }]);
 assert.deepEqual(announced.expirationChanged, [{ id:'model-a', curated:null, discovered:'2026-11-18' }]);
+const openaiShutdown = compareCatalogInventory({ ...endpoint, endpointId: 'text:openai' }, [
+  { id: 'model-a', shutdown_date: '2999-01-14' },
+]);
+assert.deepEqual(openaiShutdown.lifecycleChanged, announced.lifecycleChanged);
+assert.deepEqual(openaiShutdown.expirationChanged, [{ id: 'model-a', curated: null, discovered: '2999-01-14' }]);
+assert.equal(normalizeDiscoveredModel('text:openai', { shutdown_date: '2000-01-01' }).lifecycle, 'removed');
+assert.equal(normalizeDiscoveredModel('text:tenant-a', { shutdown_date: '2027-01-14' }).expiration_date, undefined);
+assert.equal(normalizeDiscoveredModel('text:openai', { shutdown_date: '2027-02-31' }).expiration_date, undefined);
 assert.deepEqual(isolated.newIds, ['tenant-b-only-model']);
 assert.deepEqual(isolated.missingIds, ['model-a']);
 assert.equal(isolated.capabilityChanged.length, 0);

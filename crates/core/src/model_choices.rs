@@ -57,7 +57,7 @@ pub async fn cloud_model_choices(
     // A rich snapshot already includes discovery: avoid another network request
     // and two consecutive timeout windows on a slow mobile connection.
     let discovered = tokio::time::timeout(Duration::from_secs(12), async {
-        if let Ok(Some(snapshot)) = provider.model_catalog_snapshot().await {
+        if let Ok(Some(snapshot)) = provider.discover_picker_catalog(None).await {
             return Ok::<_, CoreError>(snapshot);
         }
         let live = provider.list_models().await?;
@@ -88,7 +88,11 @@ pub async fn cloud_model_choices(
             chrono::Utc::now().to_rfc3339(),
         )
     });
-    Ok(ModelChoices {
+    let selected_tombstone = snapshot
+        .tombstones
+        .iter()
+        .find(|m| m.matches_id_or_alias(selected_model));
+    let mut choices = ModelChoices {
         connection_id,
         models: snapshot
             .models
@@ -109,5 +113,12 @@ pub async fn cloud_model_choices(
         discovery_succeeded: succeeded,
         error: (!succeeded).then_some("discovery_unavailable"),
     }
-    .retain_selected(provider_key, base_url.as_deref(), selected_model))
+    .retain_selected(provider_key, base_url.as_deref(), selected_model);
+    if let Some(retired) = selected_tombstone {
+        if let Some(selected) = choices.models.iter_mut().find(|m| m.id == selected_model) {
+            selected.available = false;
+            selected.replacement_model_id = retired.replacement_model_id.clone();
+        }
+    }
+    Ok(choices)
 }
