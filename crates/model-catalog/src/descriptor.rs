@@ -259,7 +259,7 @@ impl ModelDescriptor {
         self.lifecycle != ModelLifecycle::Removed && self.available_to_credential != Some(false)
     }
 
-    pub(crate) fn matches_id_or_alias(&self, value: &str) -> bool {
+    pub fn matches_id_or_alias(&self, value: &str) -> bool {
         let value = normalize_id(value);
         normalize_id(&self.id) == value
             || self
