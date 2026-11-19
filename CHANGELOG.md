@@ -27,6 +27,16 @@
 * **tools:** keep scheduler hints and inactive skill fields out of dispatch ([0096140](https://github.com/MLGBJDLW/Nexa/commit/0096140e535cb10225a7dce7d1111ad31953d889))
 * **tools:** simplify partial change tracking after schema validation ([ff7b9a0](https://github.com/MLGBJDLW/Nexa/commit/ff7b9a0875635262dc7d2cb41f8d9f16820847a6))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6 -->
+
+### What's Changed
+* feat(agent): add animated skins and preserve chat and browser continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/582
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.16...nexa-monorepo-v0.19.17) (2026-11-19)
 
 
