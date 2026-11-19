@@ -131,6 +131,7 @@ pub struct ResponsesReplayPayload {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ResponsesReplayContract {
     OpenAi,
+    OpenAiCompatible,
     DeepSeek,
     Copilot,
 }
@@ -203,6 +204,21 @@ impl ResponsesReplayPayload {
             && item.get("status").and_then(serde_json::Value::as_str) == Some("completed")
     }
 
+    /// Inside a completed OpenAI response the item status is optional on
+    /// reasoning and function calls. A function's stable identity is call_id.
+    pub(super) fn completed_openai_item(item: &serde_json::Value) -> bool {
+        let valid_id = |id: &serde_json::Value| id.as_str().is_some_and(|id| !id.trim().is_empty());
+        let identity_valid = match item["type"].as_str() {
+            Some("function_call") => item.get("id").is_none_or(valid_id),
+            Some("reasoning") => valid_id(&item["id"]),
+            _ => return Self::completed_item(item),
+        };
+        identity_valid
+            && item
+                .get("status")
+                .is_none_or(|status| status == "completed")
+    }
+
     /// DeepSeek returns failed page reads alongside successful signed pages in
     /// completed turns. Both are terminal web results in its input contract.
     pub(super) fn failed_deepseek_web_item(item: &serde_json::Value) -> bool {
@@ -215,19 +231,16 @@ impl ResponsesReplayPayload {
                 .is_some_and(|code| !code.trim().is_empty())
     }
 
-    fn is_structurally_complete(&self, encrypted_reasoning_required: bool) -> bool {
-        self.is_complete(if encrypted_reasoning_required {
-            ResponsesReplayContract::OpenAi
-        } else {
-            ResponsesReplayContract::DeepSeek
-        })
-    }
-
     fn is_complete(&self, contract: ResponsesReplayContract) -> bool {
         if self.response_status != "completed" || self.items.is_empty() {
             return false;
         }
         let mut saw_reasoning = false;
+        let optional_reasoning = matches!(
+            contract,
+            ResponsesReplayContract::OpenAi | ResponsesReplayContract::Copilot
+        );
+        let mut call_ids = std::collections::HashSet::new();
         let deepseek_web_without_thinking = contract == ResponsesReplayContract::DeepSeek
             && self
                 .items
@@ -235,6 +248,11 @@ impl ResponsesReplayPayload {
                 .any(|item| item["type"] == "web_search_call")
             && !self.items.iter().any(|item| item["type"] == "reasoning");
         for item in &self.items {
+            let completed = if contract == ResponsesReplayContract::OpenAi {
+                Self::completed_openai_item(item)
+            } else {
+                Self::completed_item(item)
+            };
             match item.get("type").and_then(serde_json::Value::as_str) {
                 Some("reasoning") => {
                     let has_state = if contract != ResponsesReplayContract::DeepSeek {
@@ -246,7 +264,7 @@ impl ResponsesReplayPayload {
                             .and_then(serde_json::Value::as_array)
                             .is_some_and(|content| !content.is_empty())
                     };
-                    let completed = Self::completed_item(item)
+                    let completed = completed
                         || (contract == ResponsesReplayContract::Copilot
                             && item.get("status").is_none()
                             && item
@@ -259,7 +277,7 @@ impl ResponsesReplayPayload {
                     saw_reasoning = true;
                 }
                 Some("web_search_call") => {
-                    if !(Self::completed_item(item)
+                    if !(completed
                         || (contract == ResponsesReplayContract::DeepSeek
                             && Self::failed_deepseek_web_item(item)))
                     {
@@ -267,7 +285,7 @@ impl ResponsesReplayPayload {
                     }
                 }
                 Some("message") => {
-                    if !Self::completed_item(item)
+                    if !completed
                         || item
                             .get("content")
                             .and_then(serde_json::Value::as_array)
@@ -280,7 +298,9 @@ impl ResponsesReplayPayload {
                     let call_id = item
                         .get("call_id")
                         .and_then(serde_json::Value::as_str)
-                        .is_some_and(|call_id| !call_id.trim().is_empty());
+                        .is_some_and(|call_id| {
+                            !call_id.trim().is_empty() && call_ids.insert(call_id)
+                        });
                     let name = item
                         .get("name")
                         .and_then(serde_json::Value::as_str)
@@ -292,10 +312,8 @@ impl ResponsesReplayPayload {
                             serde_json::from_str::<serde_json::Value>(arguments).ok()
                         })
                         .is_some_and(|arguments| arguments.is_object());
-                    if (!saw_reasoning
-                        && contract != ResponsesReplayContract::Copilot
-                        && !deepseek_web_without_thinking)
-                        || !Self::completed_item(item)
+                    if (!saw_reasoning && !optional_reasoning && !deepseek_web_without_thinking)
+                        || !completed
                         || !call_id
                         || !name
                         || !arguments
@@ -306,24 +324,7 @@ impl ResponsesReplayPayload {
                 _ => return false,
             }
         }
-        saw_reasoning
-            || deepseek_web_without_thinking
-            || contract == ResponsesReplayContract::Copilot
-    }
-
-    fn authorizes_tool_calls(
-        &self,
-        tool_calls: &[ToolCallRequest],
-        encrypted_reasoning_required: bool,
-    ) -> bool {
-        self.authorizes_calls(
-            tool_calls,
-            if encrypted_reasoning_required {
-                ResponsesReplayContract::OpenAi
-            } else {
-                ResponsesReplayContract::DeepSeek
-            },
-        )
+        saw_reasoning || deepseek_web_without_thinking || optional_reasoning
     }
 
     fn authorizes_calls(
@@ -611,10 +612,12 @@ impl ProviderReplayPayload {
                 .iter()
                 .any(|s| s.as_ref().is_some_and(|s| !s.trim().is_empty())),
             Self::DeepSeekResponseItems(payload) => {
-                payload.is_structurally_complete(false) || payload.is_output_continuation(false)
+                payload.is_complete(ResponsesReplayContract::DeepSeek)
+                    || payload.is_output_continuation(false)
             }
             Self::OpenAiResponseItems(payload) => {
-                payload.is_structurally_complete(true) || payload.is_output_continuation(true)
+                payload.is_complete(ResponsesReplayContract::OpenAi)
+                    || payload.is_output_continuation(true)
             }
             Self::CopilotResponseItems(payload) => {
                 payload.is_complete(ResponsesReplayContract::Copilot)
@@ -680,9 +683,16 @@ impl ProviderReplayPayload {
             Self::DeepSeekResponseItems(payload) => {
                 (!route.replay_policy.requires_tool_call_payload()
                     || payload.items.iter().any(|item| item["type"] == "reasoning"))
-                    && payload.authorizes_tool_calls(tool_calls, false)
+                    && payload.authorizes_calls(tool_calls, ResponsesReplayContract::DeepSeek)
             }
-            Self::OpenAiResponseItems(payload) => payload.authorizes_tool_calls(tool_calls, true),
+            Self::OpenAiResponseItems(payload) => {
+                let contract = if route.provider_family == "openai" {
+                    ResponsesReplayContract::OpenAi
+                } else {
+                    ResponsesReplayContract::OpenAiCompatible
+                };
+                payload.authorizes_calls(tool_calls, contract)
+            }
             Self::CopilotResponseItems(payload) => {
                 payload.authorizes_calls(tool_calls, ResponsesReplayContract::Copilot)
             }

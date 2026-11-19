@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use super::model_contract::{resolve_model_contract, ToolSchemaDialect};
 use super::prompt_cache::PromptCacheProfile;
+use super::provider_turn::ResponsesReplayPayload;
 use super::reasoning_profile::resolve_reasoning_profile;
 use super::reasoning_profile::{
     ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField, ReasoningHistoryEncoding,
@@ -1735,6 +1736,8 @@ fn parse_responses_output(
     let mut replay_sequence_valid = response_completed;
     let mut has_replay_reasoning = false;
     let mut saw_unknown_output_item = false;
+    let native_openai =
+        !copilot && dialect == super::native_search::NativeSearchDialect::OpenAiResponses;
 
     for (output_index, item) in output.iter().enumerate() {
         // OpenRouter's completed Responses examples omit status on reasoning
@@ -1752,6 +1755,11 @@ fn parse_responses_output(
             normalized
         });
         let item = normalized_reasoning.as_ref().unwrap_or(item);
+        let item_completed = if native_openai {
+            ResponsesReplayPayload::completed_openai_item(item)
+        } else {
+            ResponsesReplayPayload::completed_item(item)
+        };
         match item.get("type").and_then(serde_json::Value::as_str) {
             Some(item_type) if provider_hosted_tool_identity(item_type, item).is_some() => {
                 if item_type == "web_search_call" {
@@ -1776,7 +1784,7 @@ fn parse_responses_output(
                 // Responses dialects; retain every recognized built-in item in
                 // native order so adding a non-search ToolCard cannot silently
                 // invalidate a later client-tool replay envelope.
-                let terminal = super::provider_turn::ResponsesReplayPayload::completed_item(item)
+                let terminal = item_completed
                     || (dialect == super::native_search::NativeSearchDialect::DeepSeekResponses
                         && super::provider_turn::ResponsesReplayPayload::failed_deepseek_web_item(
                             item,
@@ -1787,11 +1795,6 @@ fn parse_responses_output(
                 }
             }
             Some("message") => {
-                let item_completed = item
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty())
-                    && item.get("status").and_then(serde_json::Value::as_str) == Some("completed");
                 replay_sequence_valid &= item_completed;
                 if item_completed {
                     reasoning_replay.push(item.clone());
@@ -1891,11 +1894,6 @@ fn parse_responses_output(
                             "Responses function_call contained incomplete arguments".to_string(),
                         )
                     })?;
-                let item_completed = item
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty())
-                    && item.get("status").and_then(serde_json::Value::as_str) == Some("completed");
                 replay_sequence_valid &= item_completed;
                 if item_completed {
                     reasoning_replay.push(item.clone());
@@ -1908,11 +1906,6 @@ fn parse_responses_output(
                 });
             }
             Some("reasoning") => {
-                let item_completed = item
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty())
-                    && item.get("status").and_then(serde_json::Value::as_str) == Some("completed");
                 let has_replay_state =
                     if dialect == super::native_search::NativeSearchDialect::DeepSeekResponses {
                         item.get("content")
@@ -1986,7 +1979,11 @@ fn parse_responses_output(
         && reasoning_replay
             .iter()
             .any(|item| item["type"] == "web_search_call");
-    let provider_replay = (replay_sequence_valid && (has_replay_reasoning || hosted_web_turn))
+    // An OpenAI response can call a function directly. Replay the full native
+    // output and still require encrypted state for every reasoning item it did emit.
+    let native_tool_turn = native_openai && !tool_calls.is_empty();
+    let provider_replay = (replay_sequence_valid
+        && (has_replay_reasoning || hosted_web_turn || native_tool_turn))
         .then(|| {
             let payload = super::provider_turn::ResponsesReplayPayload {
                 response_status: response_status.clone(),
@@ -2117,10 +2114,87 @@ struct ResponsesAssembler {
     copilot: bool,
     answer: String,
     reasoning_items: HashMap<u64, ResponsesReasoningItem>,
+    // The added event may carry partial ciphertext. Only a done item can
+    // supply missing encrypted state to its matching terminal reasoning item.
+    native_reasoning: HashMap<String, Option<serde_json::Value>>,
     terminal_seen: bool,
     hosted_tools: HashMap<String, ProviderHostedToolEvent>,
     client_tool_item_ids: HashMap<String, String>,
     client_tools: HashMap<String, ResponsesClientToolAssembly>,
+}
+
+impl ResponsesAssembler {
+    fn reconcile_native_reasoning(
+        &mut self,
+        response: &mut serde_json::Value,
+    ) -> Result<(), CoreError> {
+        if self.native_reasoning.is_empty() || response["status"] != "completed" {
+            return Ok(());
+        }
+        let output = response["output"].as_array_mut().ok_or_else(|| {
+            CoreError::StreamIncomplete("OpenAI terminal response omitted its output".into())
+        })?;
+        for item in output.iter_mut() {
+            if item["type"] != "reasoning" {
+                continue;
+            }
+            let Some(mut done) = item["id"]
+                .as_str()
+                .and_then(|id| self.native_reasoning.remove(id))
+                .flatten()
+            else {
+                continue;
+            };
+            let done = &mut done["item"];
+            if !ResponsesReplayPayload::completed_openai_item(done) {
+                return Err(CoreError::StreamIncomplete(
+                    "OpenAI completed a response with an unfinished reasoning item".into(),
+                ));
+            }
+            if done["encrypted_content"]
+                .as_str()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                item["encrypted_content"] = done["encrypted_content"].take();
+            }
+        }
+        if self.native_reasoning.is_empty() {
+            return Ok(());
+        }
+        // Some terminals omit entire items already delivered via output_item.done.
+        // Restore only completed reasoning at the server's original output_index.
+        let incomplete = || {
+            CoreError::StreamIncomplete(
+                "OpenAI terminal output omitted a reasoning item without a matching completion"
+                    .into(),
+            )
+        };
+        let mut missing = std::collections::BTreeMap::new();
+        for event in self.native_reasoning.drain().map(|(_, event)| event) {
+            let mut event = event.ok_or_else(incomplete)?;
+            let index = event["output_index"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .ok_or_else(incomplete)?;
+            let item = event["item"].take();
+            if !ResponsesReplayPayload::completed_openai_item(&item)
+                || missing.insert(index, item).is_some()
+            {
+                return Err(incomplete());
+            }
+        }
+        let mut remaining = std::mem::take(output).into_iter();
+        for (index, item) in missing {
+            let preceding = index
+                .checked_sub(output.len())
+                .filter(|count| *count <= remaining.len())
+                .ok_or_else(incomplete)?;
+            output.extend(remaining.by_ref().take(preceding));
+            output.push(item);
+        }
+        output.extend(remaining);
+        Ok(())
+    }
 }
 
 struct ResponsesReasoningItem {
@@ -2716,6 +2790,28 @@ fn project_responses_stream_event(
         return Ok(events);
     }
     match event_type {
+        "response.output_item.added" | "response.output_item.done"
+            if !projection.copilot
+                && dialect == super::native_search::NativeSearchDialect::OpenAiResponses
+                && value["item"]["type"] == "reasoning" =>
+        {
+            let id = value["item"]["id"]
+                .as_str()
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    CoreError::StreamIncomplete(
+                        "OpenAI streamed a reasoning item without its identity".into(),
+                    )
+                })?;
+            let slot = projection
+                .native_reasoning
+                .entry(id.to_string())
+                .or_default();
+            if event_type == "response.output_item.done" {
+                *slot = Some(value);
+            }
+            Ok(Vec::new())
+        }
         "response.output_text.delta" => {
             let delta = value
                 .get("delta")
@@ -2811,6 +2907,7 @@ fn project_responses_stream_event(
                     "{event_type} omitted the authoritative response payload"
                 ))
             })?;
+            projection.reconcile_native_reasoning(&mut response)?;
             let mut events = project_terminal_provider_hosted_tools(&response, projection, dialect);
             events.extend(finalize_terminal_client_tools(&mut response, projection)?);
             let mut completed = parse_responses_output(
@@ -3140,6 +3237,13 @@ impl OpenAiProvider {
                 self.config.base_url.as_deref(),
             )
         {
+            // The SDK omits this output-only provenance from later input;
+            // keep the original provider item intact in the durable envelope.
+            for item in body["input"].as_array_mut().into_iter().flatten() {
+                if let Some(item) = item.as_object_mut() {
+                    item.remove("created_by");
+                }
+            }
             if let Some(reasoning) = openai_pro_preset(&request.model)
                 .and_then(|preset| preset.capabilities.as_ref()?.reasoning.as_ref())
             {
@@ -9822,6 +9926,95 @@ data: [DONE]
         );
         let private = endpoint_config(ProviderType::DeepSeek, "https://private.example/v1");
         assert!(!is_direct_deepseek_responses_request(&private, &request));
+    }
+
+    #[test]
+    fn native_gpt62_sol_replays_completed_tool_turn_without_a_safe_restart() {
+        use crate::llm::provider_turn::ProviderTurnEnvelope;
+        let provider =
+            OpenAiProvider::new(endpoint_config(ProviderType::OpenAi, DEFAULT_BASE_URL)).unwrap();
+        let mut request = endpoint_reasoning_request("gpt-6.2-sol");
+        request.provider_type = Some(ProviderType::OpenAi);
+        let route = provider.route_snapshot(&request);
+        assert_eq!(route.replay_policy, ReasoningReplayPolicy::OpaqueSignature);
+        let dialect = super::super::native_search::NativeSearchDialect::OpenAiResponses;
+        let capability = generic_responses_capability(dialect);
+        let call = serde_json::json!({"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{}","created_by":"provider"});
+        let reasoning = serde_json::json!({"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"final-state"});
+
+        for output in [vec![call.clone()], vec![reasoning.clone(), call.clone()]] {
+            let response = parse_responses_completion(
+                serde_json::json!({"status":"completed","output":output}),
+                dialect,
+                capability,
+            )
+            .unwrap();
+            let calls = response.tool_calls.unwrap();
+            let envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+                "turn",
+                "sample",
+                route.clone(),
+                "",
+                None,
+                None,
+                calls.clone(),
+                true,
+                response.provider_replay,
+            );
+            assert!(envelope.authorizes_tool_dispatch());
+            let mut assistant = Message::text(Role::Assistant, "");
+            assistant.tool_calls = Some(calls);
+            assistant.set_provider_turn(envelope);
+            let history = [
+                assistant,
+                Message::text_with_name(Role::Tool, "contents", "call_1"),
+            ];
+            let projected =
+                crate::llm::reasoning_replay::prepare_provider_replay_history(&history, &route);
+            assert_eq!(projected.omitted_units, 0);
+            request.messages = projected.messages;
+            let wire = provider.responses_body(&request, dialect, None).unwrap();
+            let input = wire["input"].as_array().unwrap();
+            assert_eq!(input.len(), output.len() + 1);
+            assert_eq!(input[output.len() - 1]["call_id"], "call_1");
+            assert!(input[output.len() - 1].get("created_by").is_none());
+            assert_eq!(input.last().unwrap()["type"], "function_call_output");
+            if output.len() == 2 {
+                assert_eq!(input[0], reasoning);
+            }
+        }
+
+        let mut sparse = reasoning.clone();
+        sparse.as_object_mut().unwrap().remove("encrypted_content");
+        for terminal in [vec![sparse, call.clone()], vec![call.clone()]] {
+            let mut stream = ResponsesAssembler::default();
+            let done = serde_json::json!({"type":"response.output_item.done","output_index":0,"item":reasoning});
+            project_responses_stream_event(done, &mut stream, dialect, capability).unwrap();
+            let terminal = serde_json::json!({"type":"response.completed","response":{"status":"completed","output":terminal}});
+            let events =
+                project_responses_stream_event(terminal, &mut stream, dialect, capability).unwrap();
+            let replay = events
+                .into_iter()
+                .find_map(|event| match event {
+                    ProviderStreamEvent::ReplayState { replay } => Some(*replay),
+                    _ => None,
+                })
+                .unwrap();
+            assert!(replay.is_present());
+            let crate::llm::provider_turn::ProviderReplayPayload::OpenAiResponseItems(payload) =
+                replay
+            else {
+                panic!("expected native OpenAI replay");
+            };
+            assert_eq!(payload.items, [reasoning.clone(), call.clone()]);
+        }
+        let mut stream = ResponsesAssembler::default();
+        let added = serde_json::json!({"type":"response.output_item.added","output_index":0,"item":reasoning});
+        project_responses_stream_event(added, &mut stream, dialect, capability).unwrap();
+        let terminal = serde_json::json!({"type":"response.completed","response":{"status":"completed","output":[call]}});
+        assert!(
+            project_responses_stream_event(terminal, &mut stream, dialect, capability).is_err()
+        );
     }
 
     #[test]
