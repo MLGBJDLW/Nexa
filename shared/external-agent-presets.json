@@ -234,53 +234,53 @@
     "env": {},
     "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp",
     "registryId": "claude-acp",
-    "registryVersion": "0.108.0",
+    "registryVersion": "0.108.1",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-darwin-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-darwin-arm64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "e0850a19689c14db31a71a655cfdd50d5e298dfdfe10e0ea6c16770508eea836"
+          "sha256": "218dcbbce0460a00e09328cf039c9984f4abaff584fec8a85bed7a89e256222c"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-darwin-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-darwin-x64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "b2d1d83bd6a21dbbb8c1eb07234ebf51cae64dbc76485947acf1fd7d6a9871d9"
+          "sha256": "9baa579fea200b312232395358edc790bfedcc8dba4045d256defa94372d71b1"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-arm64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-linux-arm64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "969d747d0d662663e2aab56667be5819e2716890c2188e32672ac7ab4e47873f"
+          "sha256": "8397696e22c8fc3b2e7f9ab9f8d66da810fe37e80a47f48f486ced5aabc2b867"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-x64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-linux-x64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "30a744c1cba84c551beb418dfbccdff71f6e33e98c46d95727a00d1c45f7df69"
+          "sha256": "c98b908736f8572acbebf2d9a8e53660961341731e9c9019cd6fb7b53b02e822"
         },
         "linux-aarch64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-arm64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-linux-arm64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "53746deebc7361f1a3bb9b35ca254f4edb46e47f1d71983fdbed9e0338a1f416"
+          "sha256": "af7ff90cc55ab196fb1dc51a601c8bf6de060bbc0a6ed0c8df433b5ad04c812c"
         },
         "linux-x86_64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-x64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-linux-x64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "db16785fd1d04b5e91c944b651bcf3b55f914956b497849e4c6f3125c071739b"
+          "sha256": "36b46056ba3d6ce5a4a072cca6a4aa899f49c92f8edd54f25a3b37a505529199"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-windows-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-windows-arm64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "529a6dbd2921b0060d922a376737ea35dbf25a178f51064d04bc1260564fea6a"
+          "sha256": "a243da5ddea1bc2906f020757c0c300009d6c331a01ec39e5e40e9e5a241aaf3"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-windows-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.1/claude-agent-acp-windows-x64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "0b2e7079febace92156a7a2ede68f4faab1e343162b4b0d1ec855660515910ff"
+          "sha256": "c7916add7f634b72047d6826be8ba9c90b869550a2bc49d6aed9ee732b01e0ba"
         }
       },
       "npx": {
-        "package": "@agentclientprotocol/claude-agent-acp@0.108.0"
+        "package": "@agentclientprotocol/claude-agent-acp@0.108.1"
       }
     }
   },
@@ -891,11 +891,11 @@
     "env": {},
     "docsUrl": "https://github.com/features/copilot/cli/",
     "registryId": "github-copilot-cli",
-    "registryVersion": "1.0.113",
+    "registryVersion": "1.0.114",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@github/copilot@1.0.113",
+        "package": "@github/copilot@1.0.114",
         "args": [
           "--acp"
         ]
@@ -1021,18 +1021,18 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@xai-official/grok@1.0.89",
+      "@xai-official/grok@1.0.90",
       "agent",
       "stdio"
     ],
     "env": {},
     "docsUrl": "https://x.ai/cli",
     "registryId": "grok-build",
-    "registryVersion": "1.0.89",
+    "registryVersion": "1.0.90",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@xai-official/grok@1.0.89",
+        "package": "@xai-official/grok@1.0.90",
         "args": [
           "agent",
           "stdio"
@@ -1127,51 +1127,57 @@
     "env": {},
     "docsUrl": "https://junie.jetbrains.com",
     "registryId": "junie",
-    "registryVersion": "4020.10.0",
+    "registryVersion": "4100.5.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-macos-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-macos-aarch64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "ad103a996f0a4f5cee051f858bdf0fc33d4ee83b7c9219971d485046f084cd3c"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-macos-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-macos-amd64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "5c018341afb28703174a27f3a5367fd67cd9ad905377a0ad9ee4ca6568dea7b1"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-linux-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-linux-aarch64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "b35af126bc488f5830650e93a008d537fd6e4e1de372cd7b76e9fa86d8c85b04"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-linux-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-linux-amd64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "a1843e6f744c21ba64dd04b75688359f20156bad9aa58ebb1b14b21c98773d11"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-windows-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-windows-amd64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "8397ac593d24f3f6a42fc776f64d5f770a6e1827e620a59cd565bf7a73450e3b"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-windows-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4100.5/junie-release-4100.5-windows-aarch64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "d31c7c8e51d72e7cb73da2ddc9cbee427e1b3d24fd7250267147b9b1ef26d603"
         }
       }
     }
@@ -1282,13 +1288,13 @@
     "env": {},
     "docsUrl": "https://kimchi.dev",
     "registryId": "kimchi",
-    "registryVersion": "1.35.1",
+    "registryVersion": "1.36.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_darwin_arm64.tar.gz",
-          "sha256": "21b002dcd41b326e41d47aeaaa4c0e2adeebc13ac120244034349bf713d11862",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.36.0/kimchi_darwin_arm64.tar.gz",
+          "sha256": "4c8809b41b8728f7145567425abec032a92d4fd382deec26f8d1168873f92ef4",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1296,8 +1302,8 @@
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_darwin_amd64.tar.gz",
-          "sha256": "0341300611a25c3acecf8a005f0f01449c254353cccad6e1f317ba0045b36230",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.36.0/kimchi_darwin_amd64.tar.gz",
+          "sha256": "6d23907dd0572fe62bbf509b0ff6ec207aec48c8a40db6b16aeaee425e5b5e92",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1305,8 +1311,8 @@
           ]
         },
         "linux-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_linux_arm64.tar.gz",
-          "sha256": "b4f68458634a0e7757c521fe3aedaedeff591414ab440323b5bcd5f6eb935048",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.36.0/kimchi_linux_arm64.tar.gz",
+          "sha256": "17964358a424be11d969104be10932d0f5e691af26540d776c1408584821fad9",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1314,8 +1320,8 @@
           ]
         },
         "linux-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_linux_amd64.tar.gz",
-          "sha256": "e10d774e828be73f698144f912e0018f32340f6840b83e1f38f1736a889acd6e",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.36.0/kimchi_linux_amd64.tar.gz",
+          "sha256": "ec1efc71ea0ca231e6113d0816cfd0e2359eb157f4ccc6aa9750df014f7ed986",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1323,8 +1329,8 @@
           ]
         },
         "windows-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_windows_amd64.zip",
-          "sha256": "11fb3e00f07eac9c5cc1d39b3db738ddba3865c53a610e5a46c25b2872ff0db9",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.36.0/kimchi_windows_amd64.zip",
+          "sha256": "0d35d19dc5cdcdfccf938d849f734662c4056172b557cc2441f39ac92bf16166",
           "cmd": "./bin/kimchi.exe",
           "args": [
             "--mode",
@@ -1456,17 +1462,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@minimax-ai/code@0.2.7",
+      "@minimax-ai/code-acp@0.7.7",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://agent.minimax.io",
     "registryId": "minimax-code",
-    "registryVersion": "0.2.7",
+    "registryVersion": "0.7.7",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@minimax-ai/code@0.2.7",
+        "package": "@minimax-ai/code-acp@0.7.7",
         "args": [
           "acp"
         ]
@@ -1964,17 +1970,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@qoder-ai/qodercli@1.1.91",
+      "@qoder-ai/qodercli@1.1.92",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://qoder.com",
     "registryId": "qoder",
-    "registryVersion": "1.1.91",
+    "registryVersion": "1.1.92",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@qoder-ai/qodercli@1.1.91",
+        "package": "@qoder-ai/qodercli@1.1.92",
         "args": [
           "--acp"
         ]

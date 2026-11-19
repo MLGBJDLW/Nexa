@@ -751,6 +751,86 @@
         "replacementModelId": "gpt-6.1-sol"
       },
       {
+        "id": "gpt-5.1",
+        "name": "GPT-5.1",
+        "aliases": [
+          "gpt-5.1-2025-11-13"
+        ],
+        "source": "official",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-04-01",
+        "replacementModelId": "gpt-6-sol",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "none",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gpt-5",
+        "name": "GPT-5",
+        "aliases": [
+          "gpt-5-2025-08-07"
+        ],
+        "source": "official",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-6.1-sol",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "gpt-5-mini",
         "name": "GPT-5 Mini",
         "capabilities": {
@@ -1210,6 +1290,64 @@
             "effortBudgetExclusive": true
           }
         }
+      },
+      {
+        "id": "google/gemini-4-neon",
+        "name": "Google: Gemini 4 Neon",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://openrouter.ai/api/v1/models/google/gemini-4-neon/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "audio",
+          "file",
+          "image",
+          "text",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        },
+        "releaseDate": "2026-11-18"
       },
       {
         "id": "openai/gpt-6.2-sol",
@@ -5296,7 +5434,6 @@
           "logprobs",
           "max_tokens",
           "min_p",
-          "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
@@ -5313,7 +5450,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://openrouter.ai/z-ai/glm-5.2",
         "maxOutputTokens": 943718
       },
@@ -8261,9 +8398,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://openrouter.ai/z-ai/glm-5.1",
-        "maxOutputTokens": 182476,
+        "maxOutputTokens": 131072,
         "status": "deprecated",
         "deprecationDate": "2026-11-20"
       },
@@ -10518,11 +10655,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
-        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2.5/endpoints",
         "maxOutputTokens": 235929,
-        "status": "deprecated",
-        "deprecationDate": "2026-11-18",
+        "status": "active",
         "recommended": false
       },
       {
@@ -15419,9 +15555,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-r1-0528",
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32000
       },
       {
         "id": "anthropic/claude-opus-4",
@@ -16542,9 +16678,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://openrouter.ai/google/gemma-3-27b-it",
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 16384
       },
       {
         "id": "thedrummer/skyfall-36b-v2",
@@ -22569,7 +22705,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-19",
         "releaseDate": "2026-10-17",
         "inputModalities": [
           "text",
@@ -22581,7 +22717,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 393216,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -22750,7 +22886,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-10-18",
+        "lastVerifiedAt": "2026-11-19",
         "releaseDate": "2026-10-16",
         "inputModalities": [
           "text"
@@ -22761,7 +22897,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 131072,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -24675,6 +24811,71 @@
         ]
       },
       {
+        "id": "gemini-4-neon",
+        "name": "Gemini 4 Neon",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "gated",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-19",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-neon",
+        "releaseDate": "2026-11-18",
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
+      },
+      {
         "id": "gemini-4-argon",
         "name": "Gemini 4 Argon",
         "source": "official",
@@ -26075,6 +26276,66 @@
         },
         "documentationRef": "https://aistudio.google.com/docs/models/gemini-4-hydrogen",
         "releaseDate": "2026-11-12"
+      },
+      {
+        "id": "gemini-4-neon",
+        "name": "Gemini 4 Neon",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-19",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://aistudio.google.com/docs/models/gemini-4-neon",
+        "releaseDate": "2026-11-18"
       },
       {
         "id": "gemini-4-carbon",
@@ -27682,7 +27943,7 @@
     "baseUrl": "https://api.minimax.io/v1",
     "requiresApiKey": true,
     "icon": "🌊",
-    "description": "MiniMax M3.1 Flash, M3, and compatible M2 models",
+    "description": "MiniMax M3.1 Flash and M3 multimodal coding models",
     "capabilities": {
       "vision": false
     },
@@ -27799,9 +28060,9 @@
             }
           }
         },
-        "status": "deprecated",
-        "lastVerifiedAt": "2026-10-13",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
@@ -27820,9 +28081,9 @@
             }
           }
         },
-        "status": "deprecated",
-        "lastVerifiedAt": "2026-10-13",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
@@ -27840,9 +28101,9 @@
             }
           }
         },
-        "status": "deprecated",
-        "lastVerifiedAt": "2026-10-13",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
@@ -27861,9 +28122,9 @@
             }
           }
         },
-        "status": "deprecated",
-        "lastVerifiedAt": "2026-10-13",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,

@@ -858,7 +858,7 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
         || normalized.starts_with("gemini-3.8-flash")
         || matches!(
             normalized.as_str(),
-            "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen"
+            "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen" | "gemini-4-neon"
         ) {
         "low"
     } else {
@@ -869,7 +869,7 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
         ReasoningEffort::Low => "low",
         ReasoningEffort::Medium => "medium",
         ReasoningEffort::XHigh | ReasoningEffort::Max | ReasoningEffort::Ultra
-            if normalized == "gemini-4-hydrogen" =>
+            if matches!(normalized.as_str(), "gemini-4-hydrogen" | "gemini-4-neon") =>
         {
             "xhigh"
         }
@@ -883,20 +883,7 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
 
 fn thinking_budget_to_level(model: &str, budget: u32) -> String {
     match budget {
-        ..=128
-            if {
-                let normalized = normalized_model_name(model).to_ascii_lowercase();
-                normalized.starts_with("gemini-3.7-flash")
-                    || normalized.starts_with("gemini-3.8-flash")
-                    || matches!(
-                        normalized.as_str(),
-                        "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen"
-                    )
-            } =>
-        {
-            "low"
-        }
-        ..=128 => "minimal",
+        ..=128 => return normalize_thinking_level(model, &ReasoningEffort::Minimal),
         129..=4_096 => "low",
         4_097..=16_384 => "medium",
         _ => "high",
@@ -3488,6 +3475,10 @@ mod tests {
             normalize_thinking_level("gemini-4-hydrogen", &ReasoningEffort::Max),
             "xhigh"
         );
+        assert_eq!(
+            normalize_thinking_level("models/gemini-4-neon", &ReasoningEffort::XHigh),
+            "xhigh"
+        );
     }
 
     #[test]
@@ -3496,6 +3487,7 @@ mod tests {
             "models/gemini-3.7-flash",
             "models/gemini-3.8-flash",
             "models/gemini-4-hydrogen",
+            "models/gemini-4-neon",
         ] {
             for (reasoning_effort, thinking_budget) in
                 [(Some(ReasoningEffort::Minimal), None), (None, Some(128))]

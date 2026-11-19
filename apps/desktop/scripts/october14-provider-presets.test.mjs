@@ -182,6 +182,14 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   assert.equal(hydrogen.capabilities.reasoning.defaultEffort, 'high');
   assert.deepEqual(hydrogen.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh']);
   assert.equal(model('openrouter', 'google/gemini-4-hydrogen').capabilities.reasoning.defaultEffort, 'medium');
+  for (const id of ['google', 'vertex']) {
+    const neon = model(id, 'gemini-4-neon');
+    assert.equal(neon.maxOutputTokens, 65_536);
+    assert.equal(neon.access, 'account_enablement');
+    assert.deepEqual(neon.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh']);
+    assert.equal(neon.capabilities.reasoning.defaultEffort, 'high');
+  }
+  assert.equal(model('openrouter', 'google/gemini-4-neon').capabilities.reasoning.defaultEffort, 'medium');
   assert.equal(model('openrouter', 'thinkingmachines/inkling-2-small').supportsTools, true);
   assert.equal(model('openrouter', 'particle-ai/particle-1:free').capabilities.reasoning.mode, 'optional');
   assert.equal(model('siliconflow', 'Pro/zai-org/GLM-5.1').status, 'removed');
