@@ -284,12 +284,13 @@ impl AgentLoopGuard {
         let interaction = crate::tools::unified_control::effective_request(call);
         if !is_error && interaction.name == "browser_session" {
             let action = serde_json::from_str::<Value>(&interaction.arguments).ok();
-            if action
-                .as_ref()
-                .and_then(|args| args.get("action"))
-                .and_then(Value::as_str)
-                == Some("observe")
-            {
+            if matches!(
+                action
+                    .as_ref()
+                    .and_then(|args| args.get("action"))
+                    .and_then(Value::as_str),
+                Some("observe" | "wait_for")
+            ) {
                 if let Some(data) = artifacts.and_then(|value| value.get("data")) {
                     if let Some(content_hash) = data
                         .get("contentHash")
@@ -910,9 +911,13 @@ mod tests {
 
     #[test]
     fn changed_browser_observations_are_progress_but_random_ids_are_not() {
-        for screenshot_field in ["screenshotHash", "screenshot"] {
+        for (action, screenshot_field) in [
+            ("observe", "screenshotHash"),
+            ("observe", "screenshot"),
+            ("wait_for", "screenshot"),
+        ] {
             let mut guard = AgentLoopGuard::new();
-            let mut observe = call(r#"{"action":"observe","tabId":"tab"}"#);
+            let mut observe = call(&serde_json::json!({"action":action,"tabId":"tab"}).to_string());
             observe.name = "browser_session".into();
             for index in 0..8 {
                 assert!(guard
