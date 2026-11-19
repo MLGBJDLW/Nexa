@@ -29,6 +29,8 @@ pub struct EmbeddingProviderPreset {
     pub name: String,
     pub provider: String,
     pub base_url: String,
+    #[serde(default)]
+    pub workspace_region: Option<String>,
     pub description: String,
     #[serde(default)]
     pub api_style: EmbeddingApiStyle,
@@ -84,25 +86,15 @@ pub fn find_embedding_model(base_url: &str, model: &str) -> Option<EmbeddingMode
 
 pub fn find_embedding_provider(base_url: &str) -> Option<&'static EmbeddingProviderPreset> {
     static PRESETS: OnceLock<Vec<EmbeddingProviderPreset>> = OnceLock::new();
+    let normalized = normalize_base_url(base_url);
+    let region = crate::provider_catalog::alibaba_workspace_region(&normalized);
     PRESETS
         .get_or_init(|| load_embedding_provider_presets().expect("embedded catalog must be valid"))
         .iter()
         .find(|preset| {
-            normalize_base_url(&preset.base_url) == normalize_base_url(base_url)
-                || (preset.id == "alibaba-model-studio-cn" && is_model_studio_workspace(base_url))
+            normalize_base_url(&preset.base_url) == normalized
+                || (region.is_some() && preset.workspace_region.as_deref() == region)
         })
-}
-
-fn is_model_studio_workspace(base_url: &str) -> bool {
-    url::Url::parse(base_url).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str().is_some_and(|host| {
-                ["cn-beijing", "ap-southeast-1", "cn-hongkong"]
-                    .iter()
-                    .any(|region| host.ends_with(&format!(".{region}.maas.aliyuncs.com")))
-            })
-            && url.path().trim_end_matches('/') == "/compatible-mode/v1"
-    })
 }
 
 pub(crate) fn normalize_base_url(base_url: &str) -> String {
@@ -144,5 +136,21 @@ mod tests {
         .expect("qwen model");
         assert!(qwen.supports_dimension_override);
         assert_eq!(qwen.dimensions, 1024);
+
+        let singapore = "https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1";
+        assert_eq!(
+            find_embedding_model(singapore, "text-embedding-v3")
+                .unwrap()
+                .allowed_dimensions,
+            [512, 768, 1024]
+        );
+        assert!(find_embedding_model(singapore, "qwen3.7-text-embedding-flash").is_none());
+        let hong_kong = "https://workspace.cn-hongkong.maas.aliyuncs.com/compatible-mode/v1";
+        assert_eq!(find_embedding_provider(hong_kong).unwrap().models.len(), 1);
+        assert!(find_embedding_model(hong_kong, "text-embedding-v4").is_some());
+        assert!(find_embedding_provider(
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        )
+        .is_none());
     }
 }

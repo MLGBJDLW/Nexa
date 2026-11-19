@@ -12,6 +12,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
 fn retrieval_task_profile(base_url: &str, model: &str) -> &'static str {
+    if base_url.trim_end_matches('/') == "http://localhost:11434/v1"
+        && matches!(model, "embeddinggemma" | "embeddinggemma:latest")
+    {
+        return "embeddinggemma-retrieval-v1";
+    }
     if base_url.trim_end_matches('/') == "https://api.jina.ai/v1" {
         return match model {
             "jina-code-embeddings-0.5b" | "jina-code-embeddings-1.5b" => "jina-nl2code-v1",
@@ -279,29 +284,29 @@ impl ApiEmbedder {
         }
         if self.base_url == "https://openrouter.ai/api/v1" {
             body["encoding_format"] = json!("float");
-            match retrieval_task_profile(&self.base_url, &self.model) {
-                "gemini-2-retrieval-v1" => {
-                    body["input"] = json!(texts
-                        .iter()
-                        .map(|text| if query {
-                            format!("task: search result | query: {text}")
-                        } else {
-                            format!("title: none | text: {text}")
-                        })
-                        .collect::<Vec<_>>());
-                }
-                "nvidia-query-passage-v1" => {
-                    body["input_type"] = json!(if query { "query" } else { "passage" });
-                }
-                "cohere-search-input-type-v1" => {
-                    body["input_type"] = json!(if query {
-                        "search_query"
+        }
+        match retrieval_task_profile(&self.base_url, &self.model) {
+            "gemini-2-retrieval-v1" | "embeddinggemma-retrieval-v1" => {
+                body["input"] = json!(texts
+                    .iter()
+                    .map(|text| if query {
+                        format!("task: search result | query: {text}")
                     } else {
-                        "search_document"
-                    });
-                }
-                _ => {}
+                        format!("title: none | text: {text}")
+                    })
+                    .collect::<Vec<_>>());
             }
+            "nvidia-query-passage-v1" => {
+                body["input_type"] = json!(if query { "query" } else { "passage" });
+            }
+            "cohere-search-input-type-v1" => {
+                body["input_type"] = json!(if query {
+                    "search_query"
+                } else {
+                    "search_document"
+                });
+            }
+            _ => {}
         }
         if self.request_dimensions && self.style != EmbeddingApiStyle::Gemini {
             let parameter = self.dimension_parameter.as_deref().unwrap_or(
@@ -519,6 +524,16 @@ mod tests {
         assert_eq!(
             google.request(&["document"], false).1["encoding_format"],
             "float"
+        );
+        let local = client("http://localhost:11434/v1", "embeddinggemma", 256);
+        assert_eq!(
+            local.request(&["question"], true).1["input"][0],
+            "task: search result | query: question"
+        );
+        assert_eq!(local.request(&["document"], false).1["dimensions"], 256);
+        assert_eq!(
+            local.request(&["document"], false).1["input"][0],
+            "title: none | text: document"
         );
         let old_identity = json!([
             "api-v2",

@@ -396,6 +396,39 @@ export function canonicalModelProviderId(presetId: string, adapterProvider: stri
   return adapterProvider;
 }
 
+export function alibabaWorkspaceRegion(baseUrl: string): string | null {
+  try {
+    const url = new URL(baseUrl);
+    if (
+      url.protocol !== 'https:' ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname.replace(/\/+$/, '') !== '/compatible-mode/v1'
+    ) {
+      return null;
+    }
+    const host = url.hostname.toLowerCase();
+    for (const [suffix, region] of [
+      ['.cn-hongkong.maas.aliyuncs.com', 'cn-hongkong'],
+      ['.cn-beijing.maas.aliyuncs.com', 'cn-beijing'],
+      ['.ap-southeast-1.maas.aliyuncs.com', 'ap-southeast-1'],
+    ]) {
+      if (!host.endsWith(suffix)) continue;
+      const workspaceId = host.slice(0, -suffix.length);
+      return workspaceId.length > 0 &&
+        !workspaceId.includes('.') &&
+        workspaceId !== 'trial' &&
+        workspaceId !== 'token-plan' ? region : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function inferModelCatalogRegion(baseUrl: string | null | undefined): string {
   const value = (baseUrl ?? '').trim().toLowerCase();
   if (!value || value.includes('localhost') || value.includes('127.0.0.1')) return 'local';

@@ -104,7 +104,8 @@ fn parse_builtin_catalog() -> Result<BuiltinModelCatalog, String> {
                         .and_then(Value::as_bool)
                         .unwrap_or(false)
                 });
-            let region = infer_region(&base_url);
+            let region = optional_string(&preset, "workspaceRegion")
+                .unwrap_or_else(|| infer_region(&base_url));
             let endpoint_id = format!("{}:{}", surface.wire_name(), preset_id);
             let endpoint = ProviderEndpoint {
                 id: endpoint_id.clone(),

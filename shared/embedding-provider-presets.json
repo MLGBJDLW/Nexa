@@ -42,7 +42,7 @@
     "name": "Alibaba Model Studio Embeddings (Beijing)",
     "provider": "alibaba_model_studio",
     "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "description": "Qwen text embeddings. Use your workspace console endpoint (Beijing, Singapore, or Hong Kong); existing DashScope URLs remain editable.",
+    "description": "Qwen text embeddings in Beijing. Use the regional endpoint or your Beijing workspace URL.",
     "models": [
       {
         "id": "qwen3.7-text-embedding",
@@ -62,15 +62,16 @@
           2560
         ],
         "maxBatchSize": 20,
-        "lastVerifiedAt": "2026-09-30",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai",
+        "contextTokens": 128000
       },
       {
         "id": "qwen3.7-text-embedding-flash",
         "name": "Qwen3.7 Text Embedding Flash",
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-09-30",
+        "lastVerifiedAt": "2026-11-19",
         "dimensions": 1024,
         "supportsDimensionOverride": true,
         "allowedDimensions": [
@@ -82,7 +83,8 @@
         "maxBatchSize": 20,
         "recommended": false,
         "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen3-7-text-embedding-flash",
-        "productReadiness": "known"
+        "productReadiness": "known",
+        "contextTokens": 128000
       },
       {
         "id": "text-embedding-v4",
@@ -95,7 +97,7 @@
         "regions": [
           "cn-beijing"
         ],
-        "lastVerifiedAt": "2026-08-01",
+        "lastVerifiedAt": "2026-11-19",
         "productReadiness": "known",
         "allowedDimensions": [
           64,
@@ -106,7 +108,8 @@
           1024,
           1536,
           2048
-        ]
+        ],
+        "contextTokens": 8192
       },
       {
         "id": "text-embedding-v3",
@@ -157,7 +160,118 @@
       }
     ],
     "apiStyle": "openai_embeddings",
-    "maxBatchSize": 10
+    "maxBatchSize": 10,
+    "workspaceRegion": "cn-beijing"
+  },
+  {
+    "id": "alibaba-model-studio-sg",
+    "name": "Alibaba Model Studio Embeddings (Singapore)",
+    "provider": "alibaba_model_studio",
+    "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "description": "Qwen text embeddings in Singapore. Use the regional endpoint or your Singapore workspace URL.",
+    "models": [
+      {
+        "id": "qwen3.7-text-embedding",
+        "name": "Qwen3.7 Text Embedding",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "recommended": true,
+        "source": "official",
+        "productReadiness": "known",
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "maxBatchSize": 20,
+        "contextTokens": 128000,
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai"
+      },
+      {
+        "id": "text-embedding-v4",
+        "name": "Text Embedding v4",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "recommended": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "allowedDimensions": [
+          64,
+          128,
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "contextTokens": 8192,
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai"
+      },
+      {
+        "id": "text-embedding-v3",
+        "name": "Text Embedding v3",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "maxBatchSize": 10,
+        "contextTokens": 8192,
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "allowedDimensions": [
+          512,
+          768,
+          1024
+        ],
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai"
+      }
+    ],
+    "apiStyle": "openai_embeddings",
+    "maxBatchSize": 10,
+    "workspaceRegion": "ap-southeast-1"
+  },
+  {
+    "id": "alibaba-model-studio-hk",
+    "name": "Alibaba Model Studio Embeddings (Hong Kong)",
+    "provider": "alibaba_model_studio",
+    "baseUrl": "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "Qwen text embeddings in Hong Kong. Use the regional endpoint or your Hong Kong workspace URL.",
+    "models": [
+      {
+        "id": "text-embedding-v4",
+        "name": "Text Embedding v4",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "recommended": true,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "allowedDimensions": [
+          64,
+          128,
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "contextTokens": 8192,
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai"
+      }
+    ],
+    "apiStyle": "openai_embeddings",
+    "maxBatchSize": 10,
+    "workspaceRegion": "cn-hongkong"
   },
   {
     "id": "jina",
@@ -781,7 +895,7 @@
         "lastVerifiedAt": "2026-09-26"
       }
     ],
-    "documentationUrl": "https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入"
+    "documentationUrl": "https://docs.bigmodel.cn/api-reference/妯″瀷-api/鏂囨湰宓屽叆"
   },
   {
     "id": "baidu-qianfan",
@@ -935,11 +1049,12 @@
         "supportsDimensionOverride": false,
         "contextTokens": 32000,
         "source": "official",
-        "status": "active",
+        "status": "legacy",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-4"
       },
       {
         "id": "voyage-law-2",
@@ -948,11 +1063,12 @@
         "supportsDimensionOverride": false,
         "contextTokens": 16000,
         "source": "official",
-        "status": "active",
+        "status": "legacy",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-4"
       },
       {
         "id": "voyage-3-large",
@@ -969,8 +1085,9 @@
         "source": "official",
         "status": "legacy",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-4-large"
       },
       {
         "id": "voyage-3.5",
@@ -987,8 +1104,9 @@
         "source": "official",
         "status": "legacy",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-4"
       },
       {
         "id": "voyage-3.5-lite",
@@ -1005,8 +1123,9 @@
         "source": "official",
         "status": "legacy",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-4-lite"
       },
       {
         "id": "voyage-code-3",
@@ -1023,8 +1142,9 @@
         "source": "official",
         "status": "legacy",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-code-4"
       },
       {
         "id": "voyage-code-2",
@@ -1035,8 +1155,9 @@
         "source": "official",
         "status": "legacy",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://www.mongodb.com/docs/voyageai/models/"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.voyageai.com/docs/choose-a-model",
+        "replacementModelId": "voyage-code-4"
       },
       {
         "id": "voyage-3",
@@ -2228,6 +2349,20 @@
         "source": "official",
         "productReadiness": "known",
         "lastVerifiedAt": "2026-09-26"
+      },
+      {
+        "id": "embeddinggemma",
+        "aliases": ["embeddinggemma:latest"],
+        "name": "EmbeddingGemma",
+        "dimensions": 768,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [128, 256, 512, 768],
+        "contextTokens": 2048,
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://ollama.com/library/embeddinggemma"
       }
     ],
     "documentationUrl": "https://docs.ollama.com/api/openai-compatibility"

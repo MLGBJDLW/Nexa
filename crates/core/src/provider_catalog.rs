@@ -397,6 +397,14 @@ pub(crate) fn provider_for_preset_endpoint(base_url: Option<&str>) -> Option<&'s
 }
 
 pub(crate) fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
+    match alibaba_workspace_region(base_url)? {
+        "cn-beijing" => Some("alibaba-model-studio"),
+        "ap-southeast-1" => Some("qwen-cloud-intl"),
+        _ => None,
+    }
+}
+
+pub(crate) fn alibaba_workspace_region(base_url: &str) -> Option<&'static str> {
     let Ok(url) = reqwest::Url::parse(base_url) else {
         return None;
     };
@@ -412,16 +420,17 @@ pub(crate) fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str
     }
     let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
     [
-        (".cn-beijing.maas.aliyuncs.com", "alibaba-model-studio"),
-        (".ap-southeast-1.maas.aliyuncs.com", "qwen-cloud-intl"),
+        (".cn-beijing.maas.aliyuncs.com", "cn-beijing"),
+        (".ap-southeast-1.maas.aliyuncs.com", "ap-southeast-1"),
+        (".cn-hongkong.maas.aliyuncs.com", "cn-hongkong"),
     ]
     .into_iter()
-    .find_map(|(suffix, preset_id)| {
+    .find_map(|(suffix, region)| {
         let workspace_id = host.strip_suffix(suffix)?;
         (!workspace_id.is_empty()
             && !workspace_id.contains('.')
             && !matches!(workspace_id, "trial" | "token-plan"))
-        .then_some(preset_id)
+        .then_some(region)
     })
 }
 

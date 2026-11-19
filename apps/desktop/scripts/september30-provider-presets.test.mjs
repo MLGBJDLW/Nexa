@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
 
 const { build } = createRequire(import.meta.resolve('vite'))('esbuild');
-const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/lib/providerPresets.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', write: false });
-const { findProviderModelPreset: find, findProviderPreset, isRemovedProviderModel, retiredProviderTypes } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+async function loadPresets(filename) {
+  const compiled = await build({ entryPoints: [fileURLToPath(new URL(filename, import.meta.url))], bundle: true, platform: 'node', format: 'esm', write: false });
+  return import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+}
+const { findProviderModelPreset: find, findProviderPreset, isRemovedProviderModel, retiredProviderTypes } = await loadPresets('../src/lib/providerPresets.ts');
 
 test('native models project current limits and preserve gated preview identity in the picker', () => {
   const sol = find({ provider: 'open_ai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6.1-sol' });
@@ -82,11 +84,17 @@ test('Ling 3.1 Flash keeps its Beijing activation and toggle-only reasoning cont
   }
 });
 
-test('new embedding models keep model-specific vector dimensions and batch limits', () => {
-  const presets = JSON.parse(readFileSync(new URL('../../../shared/embedding-provider-presets.json', import.meta.url), 'utf8'));
+test('embedding models keep regional vector dimensions and batch limits', async () => {
+  const { EMBEDDING_PROVIDER_PRESETS: presets, findEmbeddingProviderPreset } = await loadPresets('../src/lib/embeddingProviderPresets.ts');
   const qwen = presets.find(preset => preset.id === 'alibaba-model-studio-cn').models;
   assert.deepEqual(qwen.find(model => model.id === 'qwen3.7-text-embedding').allowedDimensions, [256, 512, 768, 1024, 1536, 2048, 2560]);
   assert.equal(qwen.find(model => model.id === 'qwen3.7-text-embedding-flash').maxBatchSize, 20);
+  const workspace = host => `https://${host}.maas.aliyuncs.com/compatible-mode/v1`;
+  const singapore = findEmbeddingProviderPreset(workspace('example.ap-southeast-1'));
+  assert.equal(singapore.id, 'alibaba-model-studio-sg');
+  assert.deepEqual(singapore.models.find(model => model.id === 'text-embedding-v3').allowedDimensions, [512, 768, 1024]);
+  assert.deepEqual(findEmbeddingProviderPreset(workspace('example.cn-hongkong')).models.map(model => model.id), ['text-embedding-v4']);
+  assert.equal(findEmbeddingProviderPreset(workspace('token-plan.cn-beijing')), null);
   for (const id of ['embed-v5.0-pro', 'embed-v5.0-fast']) {
     const model = presets.find(preset => preset.id === 'cohere').models.find(model => model.id === id);
     assert.equal(model.dimensions, 2048);

@@ -12,6 +12,7 @@ import type {
   ReasoningCapability,
 } from './providerTypes';
 import {
+  alibabaWorkspaceRegion,
   attachModelDescriptors,
   canonicalModelProviderId,
   inferModelCatalogRegion,
@@ -123,42 +124,6 @@ function providerKeyForPresetLookup(provider: string, normalizedBaseUrl: string)
   return isLegacyQwenPayg ? "alibaba_model_studio" : provider;
 }
 
-function alibabaWorkspacePresetId(
-  provider: string,
-  normalizedBaseUrl: string,
-): string | null {
-  if (provider !== 'alibaba_model_studio' || !normalizedBaseUrl) return null;
-  try {
-    const url = new URL(normalizedBaseUrl);
-    if (
-      url.protocol !== 'https:' ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname.replace(/\/+$/, '') !== '/compatible-mode/v1'
-    ) {
-      return null;
-    }
-    const host = url.hostname.toLowerCase();
-    for (const [suffix, presetId] of [
-      ['.cn-beijing.maas.aliyuncs.com', 'alibaba-model-studio'],
-      ['.ap-southeast-1.maas.aliyuncs.com', 'qwen-cloud-intl'],
-    ]) {
-      if (!host.endsWith(suffix)) continue;
-      const workspaceId = host.slice(0, -suffix.length);
-      return workspaceId.length > 0 &&
-        !workspaceId.includes('.') &&
-        workspaceId !== 'trial' &&
-        workspaceId !== 'token-plan' ? presetId : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function cloudPresetId(provider: string, baseUrl: string): string | null {
   if (provider !== 'vertex' && provider !== 'bedrock') return null;
   try {
@@ -198,7 +163,9 @@ export function findProviderPreset(input: {
     // Alibaba recommends workspace-dedicated PAYG hosts in production. They
     // share their regional model contract while credentials and cache identities
     // remain bound to the exact workspace URL elsewhere.
-    const workspacePresetId = alibabaWorkspacePresetId(lookupProvider, normalizedBaseUrl);
+    const region = lookupProvider === 'alibaba_model_studio' ? alibabaWorkspaceRegion(input.baseUrl ?? '') : null;
+    const workspacePresetId = region === 'cn-beijing' ? 'alibaba-model-studio'
+      : region === 'ap-southeast-1' ? 'qwen-cloud-intl' : null;
     if (workspacePresetId) {
       return PROVIDER_PRESETS.find((preset) => preset.id === workspacePresetId) ?? null;
     }
