@@ -241,18 +241,18 @@
   "screenUp": "Scroll up",
   "screenDown": "Scroll down",
   "screenType": "Type in the focused field",
-  "screenWaiting": "Waiting for a shared screen. Select a window on the computer, or enable phone control on Android.",
+  "screenWaiting": "正在等待電腦或手機開始分享螢幕。",
   "screenHint": "Live images pause while this view is hidden. Input is never replayed after a connection interruption.",
-  "screenShareWindow": "Share this computer window",
-  "screenChooseWindow": "Choose a window",
+  "screenShareSource": "顯示器或應用程式視窗",
+  "screenChooseSource": "選擇顯示器或視窗",
   "screenShare": "Share with this device",
   "screenViewPhone": "View phone screen",
-  "screenSharing": "Sharing this window until you stop or this device disconnects.",
+  "screenSharing": "正在與已配對的裝置分享，直到停止或中斷連線。",
   "screenBack": "Back",
   "liveBackground": "Live screen sharing is running",
   "liveReturn": "Return to Live",
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "此平台暫不支援原生視窗共享。可使用 Live 中的系統螢幕選擇器；仍可查看已授權的 Android 手機。"
+  "screenHostUnsupported": "此桌面環境無法擷取螢幕。你仍可查看已授權的 Android 手機。"
 }

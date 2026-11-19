@@ -32,6 +32,10 @@ control this phone** is enabled in phone settings. The existing foreground-task
 notification provides Stop. Reconnection retains an enabled session but never
 replays uncertain input; restarting the phone app requires enabling control again.
 
+In **Computer chat**, open **Device screen** to view a display or application
+window shared from the paired desktop. Windows users can share the primary
+display in one click or select another monitor. Display sharing is view-only.
+
 ```sh
 npm ci --prefix apps/desktop
 npm ci --prefix apps/mobile

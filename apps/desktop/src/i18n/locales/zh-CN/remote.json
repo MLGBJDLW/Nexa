@@ -241,18 +241,18 @@
   "screenUp": "向上滚动",
   "screenDown": "向下滚动",
   "screenType": "输入到当前聚焦的文本框",
-  "screenWaiting": "等待共享屏幕。请在电脑选择窗口，或在 Android 上开启手机控制。",
+  "screenWaiting": "等待电脑或手机开始共享屏幕。",
   "screenHint": "隐藏此视图时暂停获取画面。连接中断后不会重放任何输入操作。",
-  "screenShareWindow": "共享此电脑的窗口",
-  "screenChooseWindow": "选择窗口",
+  "screenShareSource": "显示器或应用窗口",
+  "screenChooseSource": "选择显示器或窗口",
   "screenShare": "向此设备共享",
   "screenViewPhone": "查看手机屏幕",
-  "screenSharing": "正在共享此窗口，直到停止或此设备断开连接。",
+  "screenSharing": "正在向已配对设备共享，直到停止或断开连接。",
   "screenBack": "返回",
   "liveBackground": "实时屏幕共享正在运行",
   "liveReturn": "返回 Live",
   "screenBusy": "等待上一次操作完成。",
   "screenZoom": "切换画面缩放",
   "screenFocus": "聚焦窗口",
-  "screenHostUnsupported": "此平台暂不支持原生窗口共享。可使用 Live 中的系统屏幕选择器；仍可查看已授权的 Android 手机。"
+  "screenHostUnsupported": "此桌面环境无法捕获屏幕。你仍可查看已授权的 Android 手机。"
 }

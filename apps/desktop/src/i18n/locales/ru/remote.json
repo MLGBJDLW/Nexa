@@ -241,18 +241,18 @@
   "screenUp": "Scroll up",
   "screenDown": "Scroll down",
   "screenType": "Type in the focused field",
-  "screenWaiting": "Waiting for a shared screen. Select a window on the computer, or enable phone control on Android.",
+  "screenWaiting": "Ожидание начала показа экрана на компьютере или телефоне.",
   "screenHint": "Live images pause while this view is hidden. Input is never replayed after a connection interruption.",
-  "screenShareWindow": "Share this computer window",
-  "screenChooseWindow": "Choose a window",
+  "screenShareSource": "Монитор или окно приложения",
+  "screenChooseSource": "Выберите монитор или окно",
   "screenShare": "Share with this device",
   "screenViewPhone": "View phone screen",
-  "screenSharing": "Sharing this window until you stop or this device disconnects.",
+  "screenSharing": "Экран доступен сопряжённому устройству до остановки показа или разрыва соединения.",
   "screenBack": "Back",
   "liveBackground": "Live screen sharing is running",
   "liveReturn": "Return to Live",
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "Native window sharing is currently available on Windows. Use the system screen picker in Live where supported. You can still view an authorized Android phone."
+  "screenHostUnsupported": "Эта среда не поддерживает захват экрана. Просмотр экрана авторизованного телефона Android по-прежнему доступен."
 }
