@@ -12,6 +12,7 @@ import type {
   ReasoningCapability,
 } from './providerTypes';
 import {
+  alibabaWorkspaceRegion,
   attachModelDescriptors,
   canonicalModelProviderId,
   inferModelCatalogRegion,
@@ -123,42 +124,6 @@ function providerKeyForPresetLookup(provider: string, normalizedBaseUrl: string)
   return isLegacyQwenPayg ? "alibaba_model_studio" : provider;
 }
 
-function alibabaWorkspacePresetId(
-  provider: string,
-  normalizedBaseUrl: string,
-): string | null {
-  if (provider !== 'alibaba_model_studio' || !normalizedBaseUrl) return null;
-  try {
-    const url = new URL(normalizedBaseUrl);
-    if (
-      url.protocol !== 'https:' ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname.replace(/\/+$/, '') !== '/compatible-mode/v1'
-    ) {
-      return null;
-    }
-    const host = url.hostname.toLowerCase();
-    for (const [suffix, presetId] of [
-      ['.cn-beijing.maas.aliyuncs.com', 'alibaba-model-studio'],
-      ['.ap-southeast-1.maas.aliyuncs.com', 'qwen-cloud-intl'],
-    ]) {
-      if (!host.endsWith(suffix)) continue;
-      const workspaceId = host.slice(0, -suffix.length);
-      return workspaceId.length > 0 &&
-        !workspaceId.includes('.') &&
-        workspaceId !== 'trial' &&
-        workspaceId !== 'token-plan' ? presetId : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function cloudPresetId(provider: string, baseUrl: string): string | null {
   if (provider !== 'vertex' && provider !== 'bedrock') return null;
   try {
@@ -198,7 +163,9 @@ export function findProviderPreset(input: {
     // Alibaba recommends workspace-dedicated PAYG hosts in production. They
     // share their regional model contract while credentials and cache identities
     // remain bound to the exact workspace URL elsewhere.
-    const workspacePresetId = alibabaWorkspacePresetId(lookupProvider, normalizedBaseUrl);
+    const region = lookupProvider === 'alibaba_model_studio' ? alibabaWorkspaceRegion(input.baseUrl ?? '') : null;
+    const workspacePresetId = region === 'cn-beijing' ? 'alibaba-model-studio'
+      : region === 'ap-southeast-1' ? 'qwen-cloud-intl' : null;
     if (workspacePresetId) {
       return PROVIDER_PRESETS.find((preset) => preset.id === workspacePresetId) ?? null;
     }
@@ -296,6 +263,7 @@ export function getReasoningCapability(input: {
 export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapshot) {
   const observed = projectSnapshotModels(snapshot);
   const preset = findProviderPreset(snapshot);
+  const nativeOpenAi = preset?.id === 'openai';
   const bundled = new Map(preset?.models.map(model => [model.id.trim().toLowerCase(), model]));
   const tombstones = new Set<string>();
   const markRemoved = (id: string, aliases: readonly string[] = []) => {
@@ -324,7 +292,8 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
         productReadiness: model.descriptor.productReadiness === 'callable' && current.descriptor.productReadiness !== 'product_ready'
           ? 'callable' : current.descriptor.productReadiness,
       } });
-    } else if (current && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
+    } else if (current && model.descriptor.lifecycle !== 'deprecated'
+        && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
       byId.set(id, {
         ...model,
         tagKey: current.tagKey,
@@ -333,16 +302,25 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
       });
     } else byId.set(id, model);
   }
-  for (const model of [...(preset?.models ?? []), ...observed]) {
-    if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
-      markRemoved(model.id, model.descriptor.aliases);
+  if (nativeOpenAi) {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const { descriptor } of byId.values()) {
+      if (descriptor.lifecycle === 'deprecated' && descriptor.deprecationDate && descriptor.deprecationDate < today) {
+        markRemoved(descriptor.id, descriptor.aliases);
+      }
+    }
+  } else {
+    for (const model of [...(preset?.models ?? []), ...observed]) {
+      if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
+        markRemoved(model.id, model.descriptor.aliases);
+      }
     }
   }
   const isChat = (model: ProviderModelPreset) => isChatModelId(model.id)
     && model.descriptor.inputModalities.includes('text') && model.descriptor.outputModalities.includes('text');
   const canSuggest = (id: string) => {
     const model = byId.get(normalizeModelId(id));
-    return model ? isChat(model) : isChatModelId(id);
+    return !isRemoved(id) && (model ? isChat(model) : isChatModelId(id));
   };
   return { models: [...byId.values()].filter(model => !isRemoved(model.id) && isChat(model)), isRemoved, canSuggest };
 }

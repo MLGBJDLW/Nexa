@@ -2233,7 +2233,7 @@ pub async fn test_agent_connection_cmd(
         .filter(|model_id| !model_id.is_empty())
         .unwrap_or_else(|| config.model.trim());
     if let Some(snapshot) = provider
-        .model_catalog_snapshot()
+        .discover_picker_catalog(Some(verified_model_id))
         .await
         .map_err(|e| e.to_string())?
     {
@@ -2280,7 +2280,7 @@ pub async fn refresh_provider_model_catalog_cmd(
     let refreshed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
 
     if let Some(snapshot) = provider
-        .model_catalog_snapshot()
+        .discover_picker_catalog(None)
         .await
         .map_err(|e| e.to_string())?
     {

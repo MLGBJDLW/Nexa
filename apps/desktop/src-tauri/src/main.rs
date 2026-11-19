@@ -1260,6 +1260,7 @@ fn main() {
             commands::list_desktop_windows_cmd,
             commands::capture_desktop_window_cmd,
             remote_screen::remote_screen_share_cmd,
+            remote_screen::remote_screen_picker_reply_cmd,
             remote_screen::remote_screen_status_cmd,
             remote_screen::remote_phone_screen_cmd,
             remote_screen::remote_phone_screen_open_cmd,

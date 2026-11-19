@@ -474,7 +474,7 @@ impl RemoteHost for DesktopHost {
             ScreenStatus => Ok(app.state::<crate::remote_screen::RemoteScreenState>().status(owner)),
             ScreenFrame => crate::remote_screen::frame(app, owner).await,
             ScreenInput { input } => crate::remote_screen::input(app, owner, input).await,
-            ScreenStop => { app.state::<crate::remote_screen::RemoteScreenState>().stop(owner); crate::app_events::emit_main_window_event(app, "remote:screen-changed", &()); Ok(json!({"active":false})) },
+            ScreenStop => { app.state::<crate::remote_screen::RemoteScreenState>().stop_share(owner); crate::app_events::emit_main_window_event(app, "remote:screen-changed", &()); Ok(json!({"active":false})) },
             PhoneControlResult { .. } => Err("Phone results are owned by the authenticated transport.".into()),
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },

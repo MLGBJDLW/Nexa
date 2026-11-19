@@ -73,20 +73,44 @@ pub fn monitors() -> Result<Vec<UserShareMonitor>, String> {
 }
 
 pub fn capture_monitor(id: &str) -> Result<String, String> {
-    use base64::Engine;
+    Ok(read_selected_monitor(id)?.encoded())
+}
+
+impl Frame {
+    fn encoded(&self) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(&self.jpeg)
+    }
+}
+
+pub fn observe_monitor(id: &str) -> Result<serde_json::Value, String> {
+    let frame = read_selected_monitor(id)?;
+    Ok(serde_json::json!({
+        "controlAvailable": false,
+        "image": {"width": frame.width, "height": frame.height, "mimeType": "image/jpeg", "base64": frame.encoded()}
+    }))
+}
+
+fn read_selected_monitor(id: &str) -> Result<Frame, String> {
     let _pixels = super::platform::PhysicalPixels::enter().map_err(|e| e.to_string())?;
-    let monitor = native::read_monitors()?
-        .into_iter()
-        .find(|monitor| monitor.id == id)
-        .ok_or("The selected monitor is no longer connected")?;
-    let area = Area {
-        x: monitor.x,
-        y: monitor.y,
-        width: monitor.width,
-        height: monitor.height,
+    let selected_area = || -> Result<Area, String> {
+        let monitor = native::read_monitors()?
+            .into_iter()
+            .find(|monitor| monitor.id == id)
+            .ok_or("The selected monitor is no longer connected")?;
+        Ok(Area {
+            x: monitor.x,
+            y: monitor.y,
+            width: monitor.width,
+            height: monitor.height,
+        })
     };
+    let area = selected_area()?;
     let frame = native::read_frame(area)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(frame.jpeg))
+    if selected_area()? != area {
+        return Err("The selected display moved during capture. Request a fresh frame.".into());
+    }
+    Ok(frame)
 }
 
 pub(super) fn capture_desktop() -> Result<DesktopFrame, String> {

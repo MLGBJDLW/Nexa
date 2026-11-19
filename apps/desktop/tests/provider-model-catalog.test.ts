@@ -142,6 +142,14 @@ function testPreviousReleaseCatalog(): void {
     'an existing account receives the current release ordering');
   assertEqual(nativeModels.find(model => model.id === 'gpt-5.6')?.recommended, false,
     'a previous release recommendation must not shadow the bundled recommendation');
+  const sol = nativeModels.find(model => model.id === 'gpt-6.2-sol')!.descriptor;
+  previous.descriptors = [{ ...sol, lifecycle: 'deprecated', recommended: false, deprecationDate: '2999-01-01' }];
+  previous.tombstones = [{ ...sol, id: 'gpt-5.2-pro-2025-12-11', lifecycle: 'removed', aliases: [] }];
+  const announced = catalogModelsForSnapshot(previous);
+  assertEqual(announced.find(model => model.id === sol.id)?.recommended, false, 'an announced shutdown disables recommendation');
+  assert(announced.some(model => model.id === 'gpt-5.2-pro'), 'a retired snapshot leaves the rolling model selectable');
+  previous.descriptors[0].deprecationDate = '2000-01-01';
+  assert(!catalogModelsForSnapshot(previous).some(model => model.id === sol.id), 'a stored shutdown survives offline picker refresh');
 }
 
 testPreviousReleaseCatalog();

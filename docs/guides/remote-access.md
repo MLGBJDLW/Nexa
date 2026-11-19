@@ -4,10 +4,14 @@
 
 ## Paired screens
 
-In desktop **Connect**, expand a connected device's **Screen** controls and select
-a Windows window. Enable control separately before sharing. The paired phone or
-browser gains a Screen tab for that exact window; it cannot select another source
-or silently renew a grant. The desktop's global sharing banner remains available
+In desktop **Connect**, expand a connected device's **Screen** controls. On Windows,
+the primary display is preselected. Select **Share with this device** to show the
+whole display, including the desktop and changes between applications. You can also
+choose another monitor or an application window. On hosts that offer a system screen
+picker, choose a surface in the OS dialog. The paired phone or browser opens the
+selected source in its Screen tab. Full-display and system-picker shares are view-only.
+For mouse and keyboard control, select a Windows application window and enable
+control before sharing. The desktop's global sharing banner remains available
 across navigation and provides Stop. Disconnect, revocation and app restart remove
 the grant, including pending starts.
 
@@ -20,7 +24,7 @@ fit/native-size zoom. This is deliberate screen interaction, not a video-streami
 or continuous-drag implementation. Actions are never automatically replayed.
 
 Native desktop window sharing/control currently requires Windows. Other desktop
-hosts can use the Live system screen picker where supported and can view an
+hosts can share through the system screen picker where supported and can view an
 authorized Android phone. Android screenshots require Android 11+, accessibility
 permission and an unobstructed non-sensitive app. iOS arbitrary cross-app control
 is not supported. See [Live](LIVE.md) and [Mobile app](MOBILE_APP.md) for capture and

@@ -1,5 +1,6 @@
 import embeddingProviderPresets from "../../../../shared/embedding-provider-presets.json";
 import {
+  alibabaWorkspaceRegion,
   attachModelDescriptors,
   canonicalModelProviderId,
   inferModelCatalogRegion,
@@ -31,6 +32,7 @@ export interface EmbeddingProviderPreset {
   description: string;
   apiStyle?: 'openai_embeddings' | 'voyage_embeddings' | 'cohere_embeddings' | 'gemini_embeddings' | 'jina_embeddings';
   maxBatchSize?: number;
+  workspaceRegion?: string;
   requiresApiKey?: boolean;
   models: EmbeddingModelPreset[];
 }
@@ -46,7 +48,7 @@ export const EMBEDDING_PROVIDER_PRESETS: EmbeddingProviderPreset[] =
       surface: 'embedding',
       providerId: canonicalModelProviderId(preset.id, preset.provider),
       endpointId: modelEndpointId('embedding', preset.id),
-      region: inferModelCatalogRegion(preset.baseUrl),
+      region: preset.workspaceRegion ?? inferModelCatalogRegion(preset.baseUrl),
       apiStyle: preset.apiStyle ?? 'openai_embeddings',
     }) as EmbeddingModelPreset[],
   }));
@@ -62,16 +64,11 @@ export function defaultEmbeddingModel(preset: EmbeddingProviderPreset): Embeddin
 
 export function findEmbeddingProviderPreset(baseUrl: string): EmbeddingProviderPreset | null {
   const normalized = normalizeModelEndpointUrl(baseUrl);
-  return EMBEDDING_PROVIDER_PRESETS.find(
-    (preset) => normalizeModelEndpointUrl(preset.baseUrl) === normalized || (preset.id === 'alibaba-model-studio-cn' && isModelStudioWorkspace(baseUrl)),
+  const region = alibabaWorkspaceRegion(baseUrl);
+  return EMBEDDING_PROVIDER_PRESETS.find(preset =>
+    normalizeModelEndpointUrl(preset.baseUrl) === normalized
+    || (region !== null && preset.workspaceRegion === region),
   ) ?? null;
-}
-
-function isModelStudioWorkspace(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl);
-    return url.protocol === 'https:' && ['cn-beijing', 'ap-southeast-1', 'cn-hongkong'].some(region => url.hostname.endsWith(`.${region}.maas.aliyuncs.com`)) && url.pathname.replace(/\/$/, '') === '/compatible-mode/v1';
-  } catch { return false; }
 }
 
 export function embeddingApiKeyRequired(baseUrl: string): boolean {

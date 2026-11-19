@@ -1,14 +1,18 @@
-//! OpenRouter's account-scoped model metadata, using the existing catalog hook.
+//! Account-scoped metadata for OpenAI and OpenRouter catalogs.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
 use crate::error::CoreError;
-use crate::model_catalog::{ModelModality, ReasoningCapability, ThinkingBudgetCapability};
-use crate::provider_catalog::{build_effective_model_catalog, ProviderModelCatalogSnapshot};
+use crate::model_catalog::{
+    ModelLifecycle, ModelModality, ReasoningCapability, ThinkingBudgetCapability,
+};
+use crate::provider_catalog::{
+    build_effective_model_catalog, ModelLifecycleStatus, ProviderModelCatalogSnapshot,
+};
 
 use super::{is_openrouter_config, OpenAiProvider};
 
@@ -29,6 +33,7 @@ pub(super) struct ModelEntry {
     endpoints: Option<Vec<String>>,
     operation: Option<String>,
     completion_chat: Option<bool>,
+    pub(super) shutdown_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +68,7 @@ impl From<RawModelEntry> for ModelEntry {
             reasoning: take(&mut raw.fields, "reasoning"),
             endpoints: take(&mut raw.fields, "endpoints"),
             operation: take(&mut raw.fields, "type"),
+            shutdown_date: take(&mut raw.fields, "shutdown_date"),
             completion_chat: raw
                 .fields
                 .get("capabilities")
@@ -125,6 +131,19 @@ type AccountCache = VecDeque<(String, Arc<tokio::sync::Mutex<CachedDiscovery>>)>
 fn account_cache(provider: &OpenAiProvider) -> Arc<tokio::sync::Mutex<CachedDiscovery>> {
     // Hash the complete identity without retaining credentials in cache keys.
     let mut hasher = blake3::Hasher::new();
+    hasher.update(
+        crate::provider_registry::canonical_provider_key(provider.config.provider_type).as_bytes(),
+    );
+    hasher.update(&[0]);
+    hasher.update(
+        provider
+            .config
+            .org_id
+            .as_deref()
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    hasher.update(&[0]);
     hasher.update(provider.base_url().as_bytes());
     hasher.update(&[0]);
     hasher.update(
@@ -201,6 +220,14 @@ impl ModelEntry {
 }
 
 impl OpenAiProvider {
+    pub(super) fn uses_native_openai_catalog(&self) -> bool {
+        self.config.provider_type == super::super::ProviderType::OpenAi
+            && super::super::provider_boundary::is_openai_public_endpoint(
+                self.config.provider_type,
+                self.config.base_url.as_deref(),
+            )
+    }
+
     pub(super) async fn discover_model_entries(&self) -> Result<Vec<ModelEntry>, CoreError> {
         tokio::time::timeout(CATALOG_TIMEOUT, async {
             let transport = self.transport.for_request()?;
@@ -277,6 +304,13 @@ impl OpenAiProvider {
         if !is_openrouter_config(&self.config) {
             return None;
         }
+        Some(self.cached_catalog_snapshot(None).await)
+    }
+
+    pub(super) async fn cached_catalog_snapshot(
+        &self,
+        verified_model: Option<&str>,
+    ) -> ProviderModelCatalogSnapshot {
         let cache = account_cache(self);
         // Fit the caller's twelve-second cloud-choice deadline, including lock
         // waiting, parsing and fallback. A rich fallback avoids a second fetch.
@@ -291,7 +325,7 @@ impl OpenAiProvider {
                     }
                     Err(error) => {
                         cached.refresh_succeeded = false;
-                        tracing::warn!("OpenRouter model discovery unavailable; preserving last known catalog: {error}");
+                        tracing::warn!("Model discovery unavailable; preserving last known catalog: {error}");
                     }
                 }
                 // Failure cooldown prevents every turn retrying an unavailable API.
@@ -303,9 +337,10 @@ impl OpenAiProvider {
             self,
             models.as_deref().map(Vec::as_slice),
             refreshed_at.as_deref(),
+            verified_model,
         );
         snapshot.live_discovery_succeeded = succeeded;
-        Some(snapshot)
+        snapshot
     }
 }
 
@@ -313,16 +348,25 @@ fn snapshot_from_models(
     provider: &OpenAiProvider,
     models: Option<&[ModelEntry]>,
     refreshed_at: Option<&str>,
+    verified_model: Option<&str>,
 ) -> ProviderModelCatalogSnapshot {
     let mut snapshot = build_effective_model_catalog(
         crate::provider_registry::canonical_provider_key(provider.config.provider_type),
         provider.config.base_url.as_deref(),
         models.map(|models| models.iter().map(|model| model.id.clone()).collect()),
-        None,
+        verified_model,
         refreshed_at
             .map(str::to_owned)
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
     );
+    if provider.uses_native_openai_catalog() {
+        apply_openai_shutdowns(
+            &mut snapshot,
+            models.unwrap_or_default(),
+            chrono::Utc::now().date_naive(),
+        );
+        return snapshot;
+    }
     for model in models.into_iter().flatten() {
         let Some(descriptor) = snapshot
             .descriptors
@@ -448,6 +492,83 @@ fn snapshot_from_models(
     snapshot
 }
 
+fn apply_openai_shutdowns(
+    snapshot: &mut ProviderModelCatalogSnapshot,
+    rows: &[ModelEntry],
+    today: chrono::NaiveDate,
+) {
+    // An account can list a dated snapshot and its rolling alias separately.
+    // Apply each announcement to its exact wire ID.
+    let live: HashMap<_, _> = rows
+        .iter()
+        .map(|m| (m.id.as_str(), m.shutdown_date))
+        .collect();
+    let mut dates = HashMap::new();
+    for model in &snapshot.descriptors {
+        if model.lifecycle == ModelLifecycle::Deprecated {
+            if let Some(date) = model
+                .deprecation_date
+                .as_deref()
+                .and_then(|s| s.parse::<chrono::NaiveDate>().ok())
+            {
+                for id in std::iter::once(&model.id).chain(&model.aliases) {
+                    dates.insert(id.clone(), date);
+                }
+            }
+        }
+    }
+    dates.extend(
+        rows.iter()
+            .filter_map(|m| Some((m.id.clone(), m.shutdown_date?))),
+    );
+    let shutdown = |id: &str| dates.get(id).copied();
+    let mut aliases = Vec::new();
+    for descriptor in &mut snapshot.descriptors {
+        let base_date = shutdown(&descriptor.id);
+        for alias in std::mem::take(&mut descriptor.aliases) {
+            if live.contains_key(alias.as_str()) && shutdown(&alias) != base_date {
+                let mut exact = descriptor.clone();
+                exact.id = alias;
+                exact.aliases.clear();
+                exact.recommended = false;
+                aliases.push(exact);
+            } else if base_date.is_none() || shutdown(&alias) == base_date {
+                descriptor.aliases.push(alias);
+            }
+        }
+    }
+    snapshot.descriptors.extend(aliases);
+    snapshot.descriptors.retain_mut(|descriptor| {
+        let Some(date) = shutdown(&descriptor.id) else {
+            return true;
+        };
+        descriptor.deprecation_date = Some(date.to_string());
+        descriptor.recommended = false;
+        if live
+            .get(descriptor.id.as_str())
+            .is_some_and(Option::is_some)
+        {
+            descriptor.last_verified_at = Some(snapshot.refreshed_at.clone());
+        }
+        if date < today {
+            descriptor.lifecycle = ModelLifecycle::Removed;
+            descriptor.available_to_credential = Some(false);
+            snapshot.tombstones.push(descriptor.clone());
+            return false;
+        }
+        descriptor.lifecycle = ModelLifecycle::Deprecated;
+        true
+    });
+    snapshot.models.retain_mut(|entry| {
+        let Some(date) = shutdown(&entry.id) else {
+            return true;
+        };
+        entry.status = ModelLifecycleStatus::Deprecated;
+        entry.recommended = false;
+        date >= today
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,7 +594,7 @@ mod tests {
             "context_length":1048576,"top_provider":{"max_completion_tokens":65536},
             "reasoning":{"mandatory":true,"supported_efforts":["low","high"],"default_effort":"high"}
         }]})).unwrap();
-        let snapshot = snapshot_from_models(&provider(), Some(&models.data), None);
+        let snapshot = snapshot_from_models(&provider(), Some(&models.data), None, None);
         let descriptor = snapshot
             .descriptors
             .iter()
@@ -499,6 +620,72 @@ mod tests {
             .unwrap();
         assert_eq!(entry.supports_tools, Some(true));
         assert_eq!(entry.reasoning_efforts, ["low", "high"]);
+    }
+
+    #[test]
+    fn native_shutdown_dates_apply_only_to_the_reporting_account_and_endpoint() {
+        let today = chrono::Utc::now().date_naive().to_string();
+        let expired = "gpt-5.2-pro-2025-12-11";
+        let tombstone = "gpt-4.1-nano";
+        let models: ModelsResponse = serde_json::from_value(serde_json::json!({"data":[
+            {"id":"gpt-6.2-sol","shutdown_date":today},
+            {"id":"gpt-6.2-astra","shutdown_date":"2027-02-31"},
+            {"id":"gpt-5.2-pro","shutdown_date":null},
+            {"id":expired,"shutdown_date":"2000-01-01"},
+            {"id":tombstone,"shutdown_date":today}
+        ]}))
+        .unwrap();
+        let mut direct = provider();
+        direct.config.provider_type = ProviderType::OpenAi;
+        direct.config.base_url = None;
+        let snapshot =
+            snapshot_from_models(&direct, Some(&models.data), None, Some("verified-only"));
+        assert!(snapshot.capability_probe_succeeded);
+        assert!(snapshot.models.iter().any(|m| m.id == "verified-only"));
+        let sol = snapshot
+            .descriptors
+            .iter()
+            .find(|m| m.id == "gpt-6.2-sol")
+            .unwrap();
+        assert_eq!(sol.lifecycle, ModelLifecycle::Deprecated);
+        assert_eq!(sol.deprecation_date.as_deref(), Some(today.as_str()));
+        for id in [expired, tombstone] {
+            assert!(snapshot.models.iter().all(|m| m.id != id));
+            assert!(snapshot
+                .tombstones
+                .iter()
+                .any(|m| m.matches_id_or_alias(id) && m.lifecycle == ModelLifecycle::Removed));
+        }
+        assert!(snapshot.models.iter().any(|m| m.id == "gpt-5.2-pro"));
+        assert!(!sol.recommended);
+        assert_eq!(
+            snapshot
+                .models
+                .iter()
+                .find(|m| m.id == sol.id)
+                .unwrap()
+                .status,
+            ModelLifecycleStatus::Deprecated
+        );
+        assert_eq!(
+            snapshot
+                .descriptors
+                .iter()
+                .find(|m| m.id == "gpt-6.2-astra")
+                .unwrap()
+                .lifecycle,
+            ModelLifecycle::Active
+        );
+        let cache = account_cache(&direct);
+        direct.config.org_id = Some("another-organization".into());
+        assert!(!Arc::ptr_eq(&cache, &account_cache(&direct)));
+        direct.config.base_url = Some("https://private.example/v1".into());
+        assert!(!direct.uses_native_openai_catalog());
+        let router = snapshot_from_models(&provider(), Some(&models.data), None, None);
+        assert!(router
+            .descriptors
+            .iter()
+            .all(|m| m.id != sol.id || m.deprecation_date.is_none()));
     }
 
     #[test]
@@ -532,11 +719,11 @@ mod tests {
     #[test]
     fn openrouter_catalog_missing_metadata_preserves_curated_facts() {
         let provider = provider();
-        let fallback = snapshot_from_models(&provider, None, None);
+        let fallback = snapshot_from_models(&provider, None, None, None);
         let models: ModelsResponse =
             serde_json::from_value(serde_json::json!({"data":[{"id":"google/gemini-4-carbon"}]}))
                 .unwrap();
-        let live = snapshot_from_models(&provider, Some(&models.data), None);
+        let live = snapshot_from_models(&provider, Some(&models.data), None, None);
         let previous = fallback
             .descriptors
             .iter()
@@ -550,7 +737,7 @@ mod tests {
         assert_eq!(current.capabilities, previous.capabilities);
         assert_eq!(current.limits, previous.limits);
         let withdrawn: ModelsResponse = serde_json::from_value(serde_json::json!({"data":[{"id":"google/gemini-4-carbon","supported_parameters":["tools"]}]})).unwrap();
-        let withdrawn = snapshot_from_models(&provider, Some(&withdrawn.data), None);
+        let withdrawn = snapshot_from_models(&provider, Some(&withdrawn.data), None, None);
         assert!(withdrawn
             .descriptors
             .iter()

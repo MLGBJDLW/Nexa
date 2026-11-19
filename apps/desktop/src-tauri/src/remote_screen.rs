@@ -10,15 +10,84 @@ use std::{
         Arc, Mutex,
     },
 };
-use tauri::{AppHandle, Manager};
+use tauri::{ipc::Channel, AppHandle, Manager};
+
+#[derive(serde::Deserialize)]
+pub struct PickerImage {
+    base64: String,
+    width: u32,
+    height: u32,
+}
+
+struct PickerRequest {
+    id: uuid::Uuid,
+    reply: tokio::sync::oneshot::Sender<Option<PickerImage>>,
+}
+
+struct SystemPicker {
+    events: Channel<Option<uuid::Uuid>>,
+    pending: Mutex<Option<PickerRequest>>,
+}
+
+impl Drop for SystemPicker {
+    fn drop(&mut self) {
+        let _ = self.events.send(None);
+    }
+}
+
+impl SystemPicker {
+    async fn capture(&self) -> Result<Value, String> {
+        let id = uuid::Uuid::new_v4();
+        let (reply, receiver) = tokio::sync::oneshot::channel();
+        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(PickerRequest { id, reply });
+        self.events.send(Some(id)).map_err(|e| e.to_string())?;
+        let image = tokio::time::timeout(std::time::Duration::from_secs(10), receiver)
+            .await
+            .map_err(|_| "The system screen picker did not supply a frame in time.")?
+            .ok()
+            .flatten()
+            .ok_or("The selected screen is unavailable.")?;
+        Ok(
+            json!({"controlAvailable":false, "image":{"mimeType":"image/jpeg",
+            "width":image.width,"height":image.height,"base64":image.base64}}),
+        )
+    }
+}
 
 struct Share {
     id: String,
     source: String,
+    picker: Option<SystemPicker>,
     control: bool,
     gate: tokio::sync::Mutex<()>,
     stopped: nexa_core::agent::CancellationToken,
     ready: AtomicBool,
+}
+impl Share {
+    async fn capture(&self) -> Result<Value, String> {
+        if let Some(picker) = &self.picker {
+            return picker.capture().await;
+        }
+        if let Some(monitor) = self.source.strip_prefix("monitor:") {
+            #[cfg(windows)]
+            {
+                let monitor = monitor.to_owned();
+                return tokio::task::spawn_blocking(move || {
+                    computer_use_tool::monitors::observe_monitor(&monitor)
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = monitor;
+                return Err("Use the system screen picker on this platform.".into());
+            }
+        }
+        computer_use_tool::observe_user_share_window(&self.source, &self.id)
+            .await
+            .map_err(|e| e.to_string())
+    }
 }
 impl Drop for Share {
     fn drop(&mut self) {
@@ -81,6 +150,9 @@ impl RemoteScreenState {
                     true
                 }
             });
+        self.stop_share(owner);
+    }
+    pub fn stop_share(&self, owner: &str) {
         if let Some(share) = self
             .grants
             .lock()
@@ -117,9 +189,7 @@ impl RemoteScreenState {
             .get(owner)
             .filter(|share| share.ready.load(Ordering::Acquire) && !share.stopped.is_cancelled())
             .cloned()
-            .ok_or(
-                "Choose a window and enable screen sharing for this device on the computer.".into(),
-            )
+            .ok_or("Choose a display or window and enable sharing on the computer.".into())
     }
     pub fn status(&self, owner: &str) -> Value {
         self.share(owner)
@@ -143,18 +213,28 @@ pub async fn remote_screen_share_cmd(
     device_id: String,
     source: Option<String>,
     control: bool,
+    webview: tauri::Webview,
+    picker_events: Option<tauri::ipc::JavaScriptChannelId>,
 ) -> Result<Value, String> {
+    let picker = picker_events.map(|id| SystemPicker {
+        events: id.channel_on(webview),
+        pending: Mutex::new(None),
+    });
     let screens = app.state::<RemoteScreenState>();
-    screens.stop(&device_id);
     if let Some(source) = source {
         let server = app.state::<RemoteState>().server()?;
         if !server.connected_device_ids().contains(&device_id) {
             return Err("Connect this paired device before sharing.".into());
         }
         let id = format!("remote-screen:{}", uuid::Uuid::new_v4());
+        if source.starts_with("picker:") != picker.is_some() {
+            return Err("The selected system capture session is unavailable.".into());
+        }
+        let control = control && !source.starts_with("monitor:") && picker.is_none();
         let share = Arc::new(Share {
             id,
             source,
+            picker,
             control,
             gate: tokio::sync::Mutex::new(()),
             stopped: Default::default(),
@@ -165,15 +245,51 @@ pub async fn remote_screen_share_cmd(
         screens.begin(&device_id, share.clone());
         let validated = tokio::select! {
             _ = share.stopped.cancelled() => Err("Screen sharing was stopped before it started.".into()),
-            result = computer_use_tool::observe_user_share_window(&share.source, &share.id) => result.map(|_| ()).map_err(|e|e.to_string()),
+            result = share.capture() => result.map(|_| ()),
         };
         if server.shutdown.is_cancelled() || !server.connected_device_ids().contains(&device_id) {
             share.stopped.cancel();
         }
-        screens.finish_grant(&device_id, &share, validated)?;
+        let result = screens.finish_grant(&device_id, &share, validated);
+        crate::app_events::emit_main_window_event(&app, "remote:screen-changed", &());
+        result?;
+    } else {
+        screens.stop_share(&device_id);
+        crate::app_events::emit_main_window_event(&app, "remote:screen-changed", &());
     }
-    crate::app_events::emit_main_window_event(&app, "remote:screen-changed", &());
     Ok(screens.status(&device_id))
+}
+
+/// Local system picker callback. Match both the source and the outstanding pull
+/// so that late frames and track-ended notifications cannot affect a new share.
+#[tauri::command]
+pub fn remote_screen_picker_reply_cmd(
+    app: AppHandle,
+    device_id: String,
+    source: String,
+    request_id: Option<uuid::Uuid>,
+    image: Option<PickerImage>,
+) {
+    let screens = app.state::<RemoteScreenState>();
+    let mut grants = screens.grants.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(share) = grants
+        .get(&device_id)
+        .filter(|share| share.source == source)
+    else {
+        return;
+    };
+    let Some(picker) = &share.picker else { return };
+    if let Some(request_id) = request_id {
+        let mut pending = picker.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(request) = pending.take_if(|request| request.id == request_id) {
+            let _ = request.reply.send(image);
+        }
+    } else {
+        share.stopped.cancel();
+        grants.remove(&device_id);
+        drop(grants);
+        crate::app_events::emit_main_window_event(&app, "remote:screen-changed", &());
+    }
 }
 
 #[cfg(test)]
@@ -183,6 +299,7 @@ mod tests {
         Arc::new(Share {
             id: uuid::Uuid::new_v4().to_string(),
             source: "test-window".into(),
+            picker: None,
             control: true,
             gate: tokio::sync::Mutex::new(()),
             stopped: Default::default(),
@@ -226,6 +343,23 @@ mod tests {
         assert!(new.stopped.is_cancelled());
         assert!(screens.share("phone").is_err());
     }
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires an interactive Windows display"]
+    async fn paired_monitor_supplies_a_view_only_frame() {
+        let monitors =
+            serde_json::to_value(computer_use_tool::monitors::monitors().unwrap()).unwrap();
+        let id = monitors[0]["id"].as_str().expect("a connected display");
+        let mut share = pending();
+        Arc::get_mut(&mut share).unwrap().source = format!("monitor:{id}");
+        let frame = share.capture().await.unwrap();
+        assert_eq!(frame["controlAvailable"], false);
+        assert!(frame.get("observationId").is_none());
+        let image = &frame["image"];
+        assert_eq!(image["mimeType"], "image/jpeg");
+        assert!(image["base64"].as_str().unwrap().starts_with("/9j/"));
+        assert!(image["width"].as_u64().unwrap() > 0 && image["height"].as_u64().unwrap() > 0);
+    }
     #[tokio::test]
     async fn paired_inputs_pass_the_real_computer_control_argument_contract() {
         let directory = tempfile::tempdir().unwrap();
@@ -268,8 +402,9 @@ pub async fn frame(app: &AppHandle, owner: &str) -> Result<Value, String> {
         .try_lock()
         .map_err(|_| "The previous screen operation is still finishing.")?;
     let mut result = tokio::select! {
+        biased;
         _ = share.stopped.cancelled() => return Err("Screen sharing stopped.".into()),
-        result = computer_use_tool::observe_user_share_window(&share.source, &share.id) => result.map_err(|e|e.to_string())?,
+        result = share.capture() => result?,
     };
     result["controlAvailable"] = json!(share.control && result["controlAvailable"] == true);
     Ok(result)

@@ -52,9 +52,15 @@ test('retired routes are removed while future shutdowns remain deprecated', () =
     assert.equal(kimi.recommended, false);
     assert.equal(isRemovedProviderModel('moonshot', model), false);
   }
-  const minimax = find({ provider: 'open_ai', baseUrl: 'https://api.minimax.io/v1', model: 'MiniMax-M2.7' });
-  assert.equal(minimax.descriptor.lifecycle, 'deprecated');
-  assert.equal(minimax.descriptor.deprecationDate, '2026-11-18');
+  for (const id of ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5', 'MiniMax-M2.5-highspeed']) {
+    const alias = find({ provider: 'open_ai', baseUrl: 'https://api.minimax.io/v1', model: id });
+    assert.equal(alias.descriptor.lifecycle, 'legacy');
+    assert.equal(alias.descriptor.access, 'account_enablement');
+    assert.equal(alias.descriptor.replacementModelId, 'MiniMax-M3.1-Flash');
+    assert.equal(alias.recommended, false);
+    assert.equal(isRemovedProviderModel('minimax', id), false);
+  }
+  assert.equal(isRemovedProviderModel('alibaba-model-studio', 'MiniMax/MiniMax-M2.7'), false);
   const images = read('image-provider-presets');
   for (const id of ['qwen-dashscope-cn','qwen-dashscope-intl']) {
     const row = images.find(p => p.id === id).models.find(m => m.id === 'qwen-image-2.1-turbo');

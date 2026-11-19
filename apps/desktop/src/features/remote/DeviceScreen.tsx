@@ -4,7 +4,7 @@ import { useTranslation } from '../../i18n';
 import { remoteButton, remoteField } from './remoteUi';
 
 export interface ScreenFrame {
-  observationId: string; windowId?: number; packageName?: string; title?: string; controlAvailable?: boolean;
+  observationId?: string; windowId?: number; packageName?: string; title?: string; controlAvailable?: boolean;
   image?: { base64: string; mimeType: string; width: number; height: number };
   nodes?: { nodeId: number; focused: boolean; editable: boolean; scrollable: boolean }[];
   code?: string; message?: string;
@@ -49,6 +49,7 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
           const next = await (capturing.current = transport.frame());
           if (mine !== generation.current) return;
           if (!next.image) throw new Error(next.message || t('remote.screenUnavailable'));
+          if (next.controlAvailable === false) setControl(false);
           setFrame(next); setCaptureError(''); setFresh(true); captureValid.current = true;
         } catch (error) { if (mine === generation.current) { setCaptureError(String(error)); setFresh(false); captureValid.current = false; } }
         finally { working.current = false; capturing.current = null; }
@@ -63,7 +64,7 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
   }, [transport, active, t]);
   const send = async (action: string, values: Record<string, unknown> = {}) => {
     const observed = current.current;
-    if (!control || !active || !observed || !fresh) return;
+    if (!control || !active || !observed?.observationId || observed.controlAvailable === false || !fresh) return;
     if (inputPending.current) { setError(t('remote.screenBusy')); return; }
     inputPending.current = true; setActing(true); setError('');
     const mine = generation.current;

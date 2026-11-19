@@ -105,7 +105,7 @@ click. Input checks the active menu owner, popup identity, current command and
 position, and the window and item under the click point. A click can request
 `expected_window_title` to verify an exact parent title in the resulting capture.
 Menu dismissal and other visual changes are reported independently of that condition.
-Pixel-only paired screen sharing keeps the granted window's frame.
+For paired window sharing, each image stays within the granted window's frame.
 [Windows menu ownership](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-guithreadinfo)
 
 Window screenshots and UI Automation use physical pixels. Native workers enter

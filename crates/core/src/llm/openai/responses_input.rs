@@ -39,6 +39,7 @@ fn validate_responses_input_items(
     let mut call_ids = std::collections::HashSet::new();
     let mut output_ids = std::collections::HashSet::new();
     let mut pending_call_ids = std::collections::HashMap::new();
+    let mut groups = assistant_output_groups.iter().peekable();
 
     for (index, item) in items.iter().enumerate() {
         let item_type = item
@@ -48,12 +49,18 @@ fn validate_responses_input_items(
         // A provider response is an ordered group: reasoning, assistant text,
         // hosted tools and client calls can interleave inside it. Only a new
         // message/response must wait for every client output from that group.
-        let continues_native_output = assistant_output_groups.iter().any(|group| {
-            group.contains(&index)
-                && pending_call_ids
-                    .values()
-                    .all(|call_index| group.contains(call_index))
-        });
+        while groups.peek().is_some_and(|group| group.end <= index) {
+            groups.next();
+        }
+        let group = groups.peek().copied();
+        let continues_native_output = || {
+            group.is_some_and(|group| {
+                group.contains(&index)
+                    && pending_call_ids
+                        .values()
+                        .all(|call_index| group.contains(call_index))
+            })
+        };
         match item_type {
             "function_call" => {
                 let call_id = responses_call_id(item).ok_or_else(|| {
@@ -66,11 +73,7 @@ fn validate_responses_input_items(
                         "Responses input contains duplicate function_call call_id {call_id}"
                     )));
                 }
-                if !pending_call_ids.is_empty()
-                    && assistant_output_groups
-                        .iter()
-                        .any(|group| group.start == index)
-                {
+                if !pending_call_ids.is_empty() && group.is_some_and(|group| group.start == index) {
                     return Err(CoreError::Llm(
                         "Responses input starts another response before pending tool outputs"
                             .into(),
@@ -96,7 +99,9 @@ fn validate_responses_input_items(
                 }
                 pending_call_ids.remove(call_id);
             }
-            "message" | "reasoning" if !pending_call_ids.is_empty() && !continues_native_output => {
+            "message" | "reasoning"
+                if !pending_call_ids.is_empty() && !continues_native_output() =>
+            {
                 let mut pending = pending_call_ids.keys().cloned().collect::<Vec<_>>();
                 pending.sort();
                 return Err(CoreError::Llm(format!(
@@ -107,7 +112,7 @@ fn validate_responses_input_items(
             item_type
                 if provider_hosted_tool_identity(item_type, item).is_some()
                     && !pending_call_ids.is_empty()
-                    && !continues_native_output =>
+                    && !continues_native_output() =>
             {
                 let mut pending = pending_call_ids.keys().cloned().collect::<Vec<_>>();
                 pending.sort();
@@ -180,6 +185,8 @@ pub(super) fn responses_input_items(
         let mut content = Vec::new();
         for part in &message.parts {
             match part {
+                ContentPart::Text { text }
+                    if text.is_empty() && !replay_items.is_empty() && message.provider_turn().is_some_and(|turn| turn.route.provider_family == "openai") => {}
                 ContentPart::Text { text } if !text.trim().is_empty() || !(message.has_images() || message.has_documents()) => content.push(serde_json::json!({
                     "type": if message.role == Role::Assistant { "output_text" } else { "input_text" },
                     "text": text,
