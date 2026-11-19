@@ -32,7 +32,13 @@ export function DesktopDeviceScreen({ deviceId, connected }: {deviceId: string; 
   const selectedAvailable = windowSelected || (selected === 'picker' && systemPicker)
     || monitors.some(monitor => `monitor:${monitor.id}` === selected);
   const supported = monitors.length > 0 || windows.supported === true || systemPicker;
-  useEffect(() => () => change.current?.abort(), [deviceId, connected, expanded]);
+  useEffect(() => {
+    setChanging(false);
+    return () => {
+      change.current?.abort();
+      change.current = null;
+    };
+  }, [deviceId, connected, expanded]);
   useEffect(() => {
     let disposed = false;
     if (!connected) { opening.current++; setSharing(false); setView(null); return; }
@@ -66,7 +72,9 @@ export function DesktopDeviceScreen({ deviceId, connected }: {deviceId: string; 
       else await invoke('remote_screen_share_cmd', {deviceId, source: start ? selected : null, control: windowSelected && control});
       if (!pending.signal.aborted) setSharing(start);
     } catch (error) { if (!pending.signal.aborted) setError(String(error)); }
-    finally { change.current = null; setChanging(false); }
+    finally {
+      if (change.current === pending) { change.current = null; setChanging(false); }
+    }
   };
   return <div className="w-full space-y-3">
     <button className={remoteButton} disabled={!connected} onClick={() => { if (expanded) { opening.current++; if (view) void transport.stop().catch(error => setError(String(error))); setView(null); } setExpanded(value => !value); }}>{t('remote.screenTitle')}</button>
