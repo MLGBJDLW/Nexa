@@ -8,6 +8,8 @@ test.beforeEach(async ({ page }) => {
     let registry = { version: 2, initialized: true, revision: 1, activeThemeId: 'dark', plugins: [
       { id: 'clip', name: 'Clip', theme: { background: { kind: 'video', assetId: 'a'.repeat(64) } } },
       { id: 'gif', name: 'GIF', theme: { background: { kind: 'image', assetId: 'b'.repeat(64) } } },
+      { id: 'webp', name: 'WebP', theme: { background: { kind: 'image', assetId: 'c'.repeat(64) } } },
+      { id: 'png', name: 'APNG', theme: { background: { kind: 'image', assetId: 'd'.repeat(64) } } },
     ] };
     const metrics = { reads: 0, active: 0, peak: 0, bytes: 0, delay: 0, hydrate: 0, failures: 0, hang: false };
     const blockedReads: Array<() => void> = [];
@@ -38,8 +40,8 @@ test.beforeEach(async ({ page }) => {
         unregisterCallback(id: number) { callbacks.delete(id); },
         async invoke(cmd: string, args: Record<string, unknown> = {}) {
           if (cmd === 'resolve_theme_background_cmd') {
-            const video = args.assetId === 'a'.repeat(64);
-            return { assetId: args.assetId, mediaType: video ? 'video/webm' : 'image/gif', path: '/e2e/fixtures/theme-loop.' + (video ? 'webm' : 'gif') };
+            const ext = ({ a: 'webm', b: 'gif', c: 'webp', d: 'png' } as Record<string, string>)[String(args.assetId)[0]];
+            return { assetId: args.assetId, mediaType: ext === 'webm' ? 'video/webm' : 'image/' + ext, path: '/e2e/fixtures/theme-loop.' + ext };
           }
           if (cmd === 'plugin:event|listen') { const id = next++; listeners.set(id, { event: String(args.event), handler: Number(args.handler) }); return id; }
           if (cmd === 'plugin:event|unlisten') { listeners.delete(Number(args.eventId)); return; }
@@ -78,11 +80,14 @@ test('animated backgrounds follow theme changes, visibility, and reduced motion'
   await expect(video).toHaveCount(1);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(video).toHaveCount(0);
-  await page.evaluate(() => (window as any).__changeAppearance('gif'));
   const image = () => page.locator('.app-theme-backdrop').evaluate(element => (element as HTMLElement).style.getPropertyValue('--theme-background-image'));
-  await expect.poll(image).toBe('none');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await expect.poll(image).toContain('theme-loop.gif');
+  for (const kind of ['gif', 'webp', 'png']) {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(kind => (window as any).__changeAppearance(kind), kind);
+    await expect.poll(image).toContain('blob:');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect.poll(image).toContain('theme-loop.' + kind);
+  }
   await page.evaluate(() => (window as any).__changeAppearance('dark'));
   await expect.poll(image).toBe('');
 });

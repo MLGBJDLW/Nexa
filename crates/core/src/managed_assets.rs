@@ -99,10 +99,8 @@ impl ManagedLocalAssetStore {
     }
 
     pub fn import_theme_background(&self, source: &Path) -> Result<ManagedAsset, CoreError> {
-        let file = fs::File::open(source)?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_THEME_BACKGROUND_BYTES
-        {
+        let (file, metadata) = open_theme_file(source)?;
+        if metadata.len() == 0 || metadata.len() > MAX_THEME_BACKGROUND_BYTES {
             return Err(CoreError::InvalidInput(format!(
                 "Theme background must be a regular file between 1 byte and {MAX_THEME_BACKGROUND_BYTES} bytes."
             )));
@@ -215,8 +213,8 @@ impl ManagedLocalAssetStore {
             if !path.is_file() {
                 continue;
             }
-            let file = fs::File::open(&path)?;
-            let bytes = file.metadata()?.len();
+            let (file, metadata) = open_theme_file(&path)?;
+            let bytes = metadata.len();
             let mut header = Vec::new();
             file.take(512).read_to_end(&mut header)?;
             let media_type = detect_theme_media_type(&header)
@@ -271,6 +269,25 @@ impl ManagedLocalAssetStore {
         }
         Ok((removed_files, removed_bytes))
     }
+}
+
+fn open_theme_file(path: &Path) -> Result<(fs::File, fs::Metadata), CoreError> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Opening a FIFO can block indefinitely before handle metadata is available.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(CoreError::InvalidInput(
+            "Choose a regular file for the theme background.".into(),
+        ));
+    }
+    Ok((file, metadata))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -435,6 +452,26 @@ mod tests {
             Some("image/png")
         );
         assert_eq!(detect_image_media_type(b"wallpaper.png"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn theme_import_rejects_a_fifo_without_waiting_for_a_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("background.gif");
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is a valid NUL-terminated path in a private temporary directory.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let store = ManagedLocalAssetStore::new(root.path(), root.path());
+        let (complete, result) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = complete.send(store.import_theme_background(&path));
+        });
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(3)),
+            Ok(Err(CoreError::InvalidInput(_)))
+        ));
     }
 
     #[test]
