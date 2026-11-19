@@ -249,6 +249,9 @@ test.beforeEach(async ({ page }) => {
           return model === 'large-context' ? 1000000 : 16384;
         }
         case 'list_conversations_cmd':
+          if (localStorage.getItem('e2e-model-peer-chat')) {
+            conversations.peer ??= { ...conversations['conv-model-switch'], id: 'peer', title: 'Other model chat', model: 'tiny-context' };
+          }
           return Object.values(conversations).map(clone);
         case 'list_projects_cmd':
           return [];
@@ -1262,6 +1265,47 @@ test('reasoning slider and list share one save queue across a view switch', asyn
   await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low', 'medium']);
   await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Medium');
   await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1)?.reasoningEffort)).toBe('medium');
+});
+
+test('reopening a chat restores Astra while its prior history request settles', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-model-peer-chat', '1'));
+  await page.goto('/chat/conv-model-switch');
+  const model = page.getByTestId('agent-model-picker-trigger');
+  await expect(model).toContainText('tiny-context');
+  await page.locator('a[href="/settings"]').first().click();
+  await expect(page.getByTestId('settings-page')).toBeVisible();
+  await page.evaluate(() => {
+    const state = window as any;
+    const host = state.__TAURI_INTERNALS__;
+    const invoke = host.invoke;
+    host.invoke = async (command: string, args: unknown) => {
+      const snapshot = await invoke(command, args);
+      if (command === 'get_conversation_timeline_page_cmd' && !state.__releaseModelHistory) {
+        await new Promise<void>(resolve => { state.__releaseModelHistory = resolve; });
+      }
+      return snapshot;
+    };
+  });
+  await page.goBack();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__releaseModelHistory)).toBe('function');
+  await model.click();
+  await page.getByTestId('agent-model-option-cfg-tiny-gpt-6.2-astra').click();
+  await expect(model).toHaveAttribute('title', /gpt-6.2-astra$/);
+  await page.evaluate(async () => {
+    (window as any).__releaseModelHistory();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(model).toHaveAttribute('title', /gpt-6.2-astra$/);
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/chat/peer');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(model).toContainText('tiny-context');
+  await page.goBack();
+  await expect(model).toHaveAttribute('title', /gpt-6.2-astra$/);
+  await page.getByTestId('chat-input-textarea').fill('Continue with Astra.');
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.modelSelection?.model)).toBe('gpt-6.2-astra');
 });
 
 test('model and effort changes never update another conversation or the global default', async ({ page }) => {
