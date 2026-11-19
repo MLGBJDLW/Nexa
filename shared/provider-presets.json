@@ -28060,14 +28060,15 @@
             }
           }
         },
-        "status": "removed",
+        "status": "legacy",
+        "access": "account_enablement",
         "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
         "deprecationDate": "2026-11-18",
-        "replacementModelId": "MiniMax-M3"
+        "replacementModelId": "MiniMax-M3.1-Flash"
       },
       {
         "id": "MiniMax-M2.7-highspeed",
@@ -28081,14 +28082,15 @@
             }
           }
         },
-        "status": "removed",
+        "status": "legacy",
+        "access": "account_enablement",
         "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
         "deprecationDate": "2026-11-18",
-        "replacementModelId": "MiniMax-M3"
+        "replacementModelId": "MiniMax-M3.1-Flash"
       },
       {
         "id": "MiniMax-M2.5",
@@ -28101,14 +28103,15 @@
             }
           }
         },
-        "status": "removed",
+        "status": "legacy",
+        "access": "account_enablement",
         "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
         "deprecationDate": "2026-11-18",
-        "replacementModelId": "MiniMax-M3"
+        "replacementModelId": "MiniMax-M3.1-Flash"
       },
       {
         "id": "MiniMax-M2.5-highspeed",
@@ -28122,14 +28125,15 @@
             }
           }
         },
-        "status": "removed",
+        "status": "legacy",
+        "access": "account_enablement",
         "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
         "maxOutputTokens": 204800,
         "recommended": false,
         "deprecationDate": "2026-11-18",
-        "replacementModelId": "MiniMax-M3"
+        "replacementModelId": "MiniMax-M3.1-Flash"
       },
       {
         "id": "MiniMax-M2.1",
