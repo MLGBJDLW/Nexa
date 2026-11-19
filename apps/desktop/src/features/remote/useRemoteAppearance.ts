@@ -44,7 +44,7 @@ export function useRemoteAppearance(client: RemoteChatClient | null, followLangu
     const supported = availableLocales.find(locale => locale.code === language);
     if (followLanguage && supported) setLocale(supported.code);
   }, [availableLocales, followLanguage, language, setLocale]);
-  const registry = client ? currentPreferences?.appearance : localAppearance;
+  const registry = client ? currentPreferences?.appearance : localAppearance?.revision ? localAppearance : undefined;
   const id = !client || choice.theme === 'desktop' ? registry?.activeThemeId : choice.theme;
   const plugin = registry?.plugins.find(plugin => plugin.id === id);
   const activeTheme = useMemo(() => {
