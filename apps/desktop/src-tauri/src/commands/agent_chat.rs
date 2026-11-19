@@ -16,6 +16,7 @@ use crate::desktop_agent_session::{
     DesktopRunningAgentStopRequest, DesktopToolVisualInterpreterRequest,
 };
 use nexa_core::approval::ToolApprovalMode;
+use nexa_core::conversation::TurnModelRoute;
 use nexa_core::llm::ReasoningEffort;
 use nexa_core::mixture_of_agents::{
     AgentCollaborationMode, MoaAdvisor, MoaPreset, MoaPresetId, MoaProvider,
@@ -201,20 +202,26 @@ fn capability_registry_may_select_text_route(agent_config_override_is_authoritat
     !agent_config_override_is_authoritative
 }
 
-fn remember_interactive_launch_model(
-    db: &nexa_core::db::Database,
-    conversation_id: &str,
-    config: &DbAgentConfig,
+fn launch_model_route<'a>(
+    config: &'a DbAgentConfig,
+    selection: &'a nexa_core::conversation::TurnModelSelection,
     workflow_run_id: Option<&str>,
     resumes_existing_run: bool,
-) -> Result<(), String> {
+) -> TurnModelRoute<'a> {
     // Background and continued runs own their immutable run policy. Delivery
     // into a chat must not change that chat's next interactive model choice.
     if workflow_run_id.is_none() && !resumes_existing_run {
-        db.persist_conversation_model(conversation_id, config)
-            .map_err(|error| error.to_string())?;
+        TurnModelRoute::Conversation {
+            provider: &config.provider,
+            connection_id: &config.id,
+            selection,
+        }
+    } else {
+        TurnModelRoute::RunOnly {
+            provider: Some(&config.provider),
+            model: Some(&config.model),
+        }
     }
-    Ok(())
 }
 
 struct InteractionSubmissionArtifact {
@@ -648,13 +655,6 @@ pub(super) async fn launch_desktop_agent_chat_turn(
         None
     };
     let resumes_existing_run = resumed_run_id.is_some();
-    remember_interactive_launch_model(
-        &state.db,
-        &conversation_id,
-        &db_config,
-        task_orchestrator_run_id.as_deref(),
-        resumes_existing_run,
-    )?;
     let run_lifecycle_guard = if let Some(resumed_run_id) = resumed_run_id.as_deref() {
         Some(
             agent_state
@@ -725,13 +725,19 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             }
         }),
     };
+    let selection = nexa_core::conversation::TurnModelSelection::from(&db_config);
+    let route = launch_model_route(
+        &db_config,
+        &selection,
+        task_orchestrator_run_id.as_deref(),
+        resumes_existing_run,
+    );
     let launch_result = if let Some(retry_message_id) = retry_from_message_id.as_deref() {
-        state.db.retry_agent_turn_and_run(
+        state.db.retry_agent_turn_with_route(
             &user_msg,
             retry_message_id,
             &task_title_from_message(&message),
-            Some(&db_config.provider),
-            Some(&db_config.model),
+            route,
             &idempotency_key,
         )
     } else if let Some(checkpoint_id) = resume_checkpoint_id.as_deref() {
@@ -743,16 +749,13 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             checkpoint_id,
         )
     } else {
-        state
-            .db
-            .create_agent_turn_and_run_with_interaction_response(
-                &user_msg,
-                &task_title_from_message(&message),
-                Some(&db_config.provider),
-                Some(&db_config.model),
-                &idempotency_key,
-                interaction_response.as_ref(),
-            )
+        state.db.create_agent_turn_with_route(
+            &user_msg,
+            &task_title_from_message(&message),
+            route,
+            &idempotency_key,
+            interaction_response.as_ref(),
+        )
     };
     let mut launch_record = match launch_result {
         Ok(launch_record) => launch_record,
@@ -1863,39 +1866,16 @@ mod initialization_error_tests {
             .unwrap()
         };
         let chat = config("chat", "chat-model");
-        let scheduled = config("schedule", "scheduled-model");
-        let conversation = db
-            .create_conversation(&CreateConversationInput {
-                provider: chat.provider.clone(),
-                model: chat.model.clone(),
-                system_prompt: None,
-                collection_context: None,
-                project_id: None,
-                persona_id: None,
-            })
-            .unwrap();
-        super::remember_interactive_launch_model(&db, &conversation.id, &chat, None, false)
-            .unwrap();
-        let before = db.get_conversation(&conversation.id).unwrap();
-        super::remember_interactive_launch_model(
-            &db,
-            &conversation.id,
-            &scheduled,
-            Some("scheduled-run"),
-            false,
-        )
-        .unwrap();
-        super::remember_interactive_launch_model(&db, &conversation.id, &scheduled, None, true)
-            .unwrap();
-        let after = db.get_conversation(&conversation.id).unwrap();
-        assert_eq!(after.agent_config_id, before.agent_config_id);
-        assert_eq!(after.model_selection, before.model_selection);
-        assert_eq!(after.model, "chat-model");
-        super::remember_interactive_launch_model(&db, &conversation.id, &scheduled, None, false)
-            .unwrap();
-        assert_eq!(
-            db.get_conversation(&conversation.id).unwrap().model,
-            "scheduled-model"
+        let selection = (&chat).into();
+        for (workflow, resumed) in [(Some("scheduled-run"), false), (None, true)] {
+            assert!(matches!(
+                super::launch_model_route(&chat, &selection, workflow, resumed),
+                super::TurnModelRoute::RunOnly { .. }
+            ));
+        }
+        assert!(
+            matches!(super::launch_model_route(&chat, &selection, None, false),
+            super::TurnModelRoute::Conversation { connection_id, selection: bound, .. } if connection_id == chat.id && bound == &selection)
         );
     }
 

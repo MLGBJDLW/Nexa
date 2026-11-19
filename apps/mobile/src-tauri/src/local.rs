@@ -8,7 +8,7 @@ use nexa_core::{
     approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
     conversation::{
         conversation_message_is_model_history, conversation_message_to_llm, AgentTaskRun,
-        ConversationMessage, ImageAttachment, TurnModelSelection,
+        ConversationMessage, ImageAttachment, TurnModelRoute, TurnModelSelection,
     },
     db::Database,
     db_executor::DatabaseExecutor,
@@ -395,17 +395,6 @@ impl LocalRuntime {
             .map_err(err)?;
         let token = host.cancel_token();
         let channel = host.begin(self, &token).await?;
-        if workflow_run.is_none() && checkpoint_id.is_none() {
-            if let Err(error) = self.db.persist_conversation_selection(
-                &conversation.id,
-                &saved.provider,
-                &saved.id,
-                &TurnModelSelection::from(&saved),
-            ) {
-                host.end(channel).await;
-                return Err(err(error));
-            }
-        }
         let persisted = if let Some(checkpoint) = &checkpoint_id {
             self.db.resume_agent_turn_from_checkpoint(
                 &message,
@@ -415,13 +404,21 @@ impl LocalRuntime {
                 checkpoint,
             )
         } else {
-            self.db.create_agent_turn_and_run(
-                &message,
-                &text,
-                Some(&settings.provider_type),
-                Some(&settings.model),
-                &request_id,
-            )
+            let selection = TurnModelSelection::from(&saved);
+            let route = if workflow_run.is_some() {
+                TurnModelRoute::RunOnly {
+                    provider: Some(&saved.provider),
+                    model: Some(&saved.model),
+                }
+            } else {
+                TurnModelRoute::Conversation {
+                    provider: &saved.provider,
+                    connection_id: &saved.id,
+                    selection: &selection,
+                }
+            };
+            self.db
+                .create_agent_turn_with_route(&message, &text, route, &request_id, None)
         };
         let persisted = persisted.and_then(|launch| {
             if let Some(id) = &workflow_run {

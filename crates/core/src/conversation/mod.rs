@@ -13,7 +13,7 @@ mod task_artifact_metadata;
 mod task_history;
 mod task_recovery;
 mod timeline;
-pub use model_selection::TurnModelSelection;
+pub use model_selection::{TurnModelRoute, TurnModelSelection};
 pub use task_history::AgentTaskHistoryItem;
 pub use timeline::{
     ConversationTimelineCursor, ConversationTimelineDetails, ConversationTimelineEntry,
@@ -2511,6 +2511,24 @@ impl Database {
         model: Option<&str>,
         idempotency_key: &str,
     ) -> Result<AgentTurnLaunchRecord, CoreError> {
+        self.retry_agent_turn_with_route(
+            message,
+            retry_from_user_message_id,
+            title,
+            TurnModelRoute::RunOnly { provider, model },
+            idempotency_key,
+        )
+    }
+
+    pub fn retry_agent_turn_with_route(
+        &self,
+        message: &ConversationMessage,
+        retry_from_user_message_id: &str,
+        title: &str,
+        route: TurnModelRoute<'_>,
+        idempotency_key: &str,
+    ) -> Result<AgentTurnLaunchRecord, CoreError> {
+        let (provider, model) = route.provider_model();
         let idempotency_key = idempotency_key.trim();
         let retry_from_user_message_id = retry_from_user_message_id.trim();
         if idempotency_key.is_empty() || idempotency_key.len() > 256 {
@@ -2605,6 +2623,7 @@ impl Database {
             });
         }
 
+        ensure_conversation_writable(&tx, &message.conversation_id)?;
         let (anchor_role, anchor_sort_order): (String, i64) = tx
             .query_row(
                 "SELECT role, sort_order
@@ -2690,10 +2709,7 @@ impl Database {
                 &image_attachments_json,
             ],
         )?;
-        tx.execute(
-            "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?1",
-            rusqlite::params![&message.conversation_id],
-        )?;
+        route.update_conversation(&tx, &message.conversation_id)?;
         let inserted_turn = tx.execute(
             "INSERT INTO conversation_turns
                  (id, conversation_id, launch_project_id, user_message_id, route_kind, status)
@@ -2751,6 +2767,24 @@ impl Database {
         idempotency_key: &str,
         interaction_response: Option<&SubmitInteractionResponse>,
     ) -> Result<AgentTurnLaunchRecord, CoreError> {
+        self.create_agent_turn_with_route(
+            message,
+            title,
+            TurnModelRoute::RunOnly { provider, model },
+            idempotency_key,
+            interaction_response,
+        )
+    }
+
+    pub fn create_agent_turn_with_route(
+        &self,
+        message: &ConversationMessage,
+        title: &str,
+        route: TurnModelRoute<'_>,
+        idempotency_key: &str,
+        interaction_response: Option<&SubmitInteractionResponse>,
+    ) -> Result<AgentTurnLaunchRecord, CoreError> {
+        let (provider, model) = route.provider_model();
         let idempotency_key = idempotency_key.trim();
         if idempotency_key.is_empty() {
             return Err(CoreError::InvalidInput(
@@ -2890,10 +2924,7 @@ impl Database {
                 &image_attachments_json,
             ],
         )?;
-        tx.execute(
-            "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?1",
-            rusqlite::params![&message.conversation_id],
-        )?;
+        route.update_conversation(&tx, &message.conversation_id)?;
         let inserted_turn = tx.execute(
             "INSERT INTO conversation_turns
                  (id, conversation_id, launch_project_id, user_message_id, route_kind, status)
@@ -6652,13 +6683,24 @@ mod tests {
             image_attachments: None,
         };
 
+        let selection = TurnModelSelection {
+            model: "gpt-5".into(),
+            reasoning_effort: Some("high".into()),
+            reasoning_enabled: Some(true),
+            thinking_budget: None,
+        };
+        let route = |connection_id| TurnModelRoute::Conversation {
+            provider: "openai",
+            connection_id,
+            selection: &selection,
+        };
         let first = db
-            .create_agent_turn_and_run(
+            .create_agent_turn_with_route(
                 &message,
                 "Start exactly once",
-                Some("openai"),
-                Some("gpt-5"),
+                route("account-a"),
                 "client-request-1",
+                None,
             )
             .unwrap();
         assert!(!first.reused);
@@ -6676,16 +6718,23 @@ mod tests {
         let mut retried_message = message.clone();
         retried_message.id = "message-retry".to_string();
         let retry = db
-            .create_agent_turn_and_run(
+            .create_agent_turn_with_route(
                 &retried_message,
                 "Start exactly once",
-                Some("openai"),
-                Some("gpt-5"),
+                route("account-b"),
                 "client-request-1",
+                None,
             )
             .unwrap();
 
         assert!(retry.reused);
+        assert_eq!(
+            db.get_conversation(&conversation.id)
+                .unwrap()
+                .agent_config_id
+                .as_deref(),
+            Some("account-a")
+        );
         assert_eq!(retry.run_id, first.run_id);
         assert_eq!(retry.turn_id, first.turn_id);
         assert_eq!(retry.user_message_id, first.user_message_id);
@@ -6721,6 +6770,38 @@ mod tests {
         assert!(error
             .to_string()
             .contains("already used for different input"));
+        assert_eq!(db.get_messages(&conversation.id).unwrap().len(), 1);
+        db.conn().execute_batch("CREATE TEMP TRIGGER reject_launch BEFORE INSERT ON agent_task_runs BEGIN SELECT RAISE(ABORT,'launch rejected'); END").unwrap();
+        let rejected = db.create_agent_turn_with_route(
+            &retried_message,
+            "Rejected",
+            route("account-b"),
+            "client-request-2",
+            None,
+        );
+        assert!(rejected
+            .unwrap_err()
+            .to_string()
+            .contains("launch rejected"));
+        db.archive_conversation(&conversation.id).unwrap();
+        let archived = db.create_agent_turn_with_route(
+            &retried_message,
+            "Archived",
+            route("account-b"),
+            "client-request-3",
+            None,
+        );
+        assert!(archived
+            .unwrap_err()
+            .to_string()
+            .contains("archived conversation"));
+        assert_eq!(
+            db.get_conversation(&conversation.id)
+                .unwrap()
+                .agent_config_id
+                .as_deref(),
+            Some("account-a")
+        );
         assert_eq!(db.get_messages(&conversation.id).unwrap().len(), 1);
     }
 
