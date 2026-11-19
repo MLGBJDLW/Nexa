@@ -52,7 +52,10 @@ impl<W: Copy> ObservedFocus<W> {
         match (self, foreground) {
             (Self::Background, false) => Ok(None),
             (Self::Foreground(watch), true) if !changed(watch) => Ok(Some(watch)),
-            _ => Err("The browser foreground or physical input changed since observation. Observe again.".into()),
+            (Self::Foreground(_), false) => Err(super::state::FOREGROUND_REQUIRED.into()),
+            (Self::Background, true) => Err("Nexa returned to the foreground after observation. Observe the active tab again.".into()),
+            (Self::Unknown, _) => Err("The physical input monitor was unavailable at observation. Wait for it to recover and observe again.".into()),
+            (Self::Foreground(_), true) => Err("User input changed since observation. Observe the tab again after the user finishes.".into()),
         }
     }
 }
@@ -99,7 +102,9 @@ impl ObservedPointerFocus {
         if delivery == BrowserInputDelivery::Background {
             return Ok(observed);
         }
-        observed.map(Some).ok_or_else(|| "Browser input paused while Nexa is in the background. Return to the window and observe again.".into())
+        observed
+            .map(Some)
+            .ok_or_else(|| super::state::FOREGROUND_REQUIRED.into())
     }
 }
 

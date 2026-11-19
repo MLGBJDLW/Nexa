@@ -4562,6 +4562,9 @@ pub struct BrowserViewportPoint {
     pub y: f64,
 }
 
+pub(super) const FOREGROUND_REQUIRED: &str =
+    "Browser input paused while Nexa is in the background. Return to the window and observe again.";
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BrowserInputDelivery {
