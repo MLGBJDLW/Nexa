@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.15...nexa-mobile-v0.3.16) (2026-11-19)
+
+
+### Features
+
+* **agent:** add animated skins and preserve chat and browser continuity ([3c69b3c](https://github.com/MLGBJDLW/Nexa/commit/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6))
+* **agent:** add animated skins and preserve chat and browser continuity ([#582](https://github.com/MLGBJDLW/Nexa/issues/582)) ([3c69b3c](https://github.com/MLGBJDLW/Nexa/commit/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6))
+* **appearance:** apply managed animated backgrounds across desktop and phone ([a02fc93](https://github.com/MLGBJDLW/Nexa/commit/a02fc935691d18c0177664710e55eed098a5db55))
+
+
+### Bug Fixes
+
+* **chat:** commit the conversation model with the accepted turn ([946ca75](https://github.com/MLGBJDLW/Nexa/commit/946ca7597254a1f3059fb8cf8ccaeafd7c2d5977))
+* **mobile:** lock media range support and preserve the initial device theme ([b96dbfa](https://github.com/MLGBJDLW/Nexa/commit/b96dbfa11f977fc7d2648e0adbe4d56d45c58e96))
+* **mobile:** restore each chat model and account across navigation ([48baab8](https://github.com/MLGBJDLW/Nexa/commit/48baab8856174e75bed37ee5977daee308257ebc))
+* **mobile:** verify the provider when resuming a pinned task ([53fb4b9](https://github.com/MLGBJDLW/Nexa/commit/53fb4b93d00d6746b31721c5ea468a3a9bfad385))
+
 ## [0.3.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.14...nexa-mobile-v0.3.15) (2026-11-19)
 
 ### Features
