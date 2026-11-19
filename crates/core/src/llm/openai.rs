@@ -4965,6 +4965,7 @@ mod tests {
             assert_eq!(body["include"][0], "reasoning.encrypted_content");
             assert_eq!(body["tools"][0]["type"], "function");
             assert_eq!(body["tools"][0]["strict"], false);
+            assert_eq!(body["model"], model);
             assert!(body.get("temperature").is_none());
             request.reasoning_enabled = Some(false);
             let body = build_generic_responses_request(
