@@ -1480,11 +1480,10 @@ impl ToolRegistry {
         if !records_native_changes
             && (tool.categories().contains(&ToolCategory::FileSystem)
                 || matches!(name, "download_asset" | "generate_image"))
+            && tool.access_profile(&parsed_arguments).can_write
         {
-            if tool.access_profile(&parsed_arguments).can_write {
-                if let Some(scope) = &file_changes {
-                    scope.mark_partial(call_id);
-                }
+            if let Some(scope) = &file_changes {
+                scope.mark_partial(call_id);
             }
         }
         Ok(result)
