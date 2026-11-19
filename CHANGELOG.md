@@ -21,6 +21,16 @@
 * **workspace:** share paired desktop displays and restore native OpenAI tool turns ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
 * **workspace:** share paired displays and restore native OpenAI tool turns ([#579](https://github.com/MLGBJDLW/Nexa/issues/579)) ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 64d1e0d13f1e8cf07c29eaf031cf56fb063a2917 -->
+
+### What's Changed
+* fix(workspace): share paired desktop displays and restore native OpenAI tool turns by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/579
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.16...nexa-monorepo-v0.19.17
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.15...nexa-monorepo-v0.19.16) (2026-11-18)
 
 
