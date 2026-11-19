@@ -1136,7 +1136,7 @@ fn screenshot_point_aliases_share_the_flat_coordinate_validation() {
             &ComputerControlTool.parameters_schema(),
         )
         .unwrap();
-        serde_json::from_str::<ControlArgs>(&normalized)
+        serde_json::from_value::<ControlArgs>(normalized)
     };
     for point in [
         serde_json::json!({"x":37,"y":18}),

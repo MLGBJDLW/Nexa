@@ -1507,7 +1507,7 @@ mod tests {
                     &tool.parameters_schema(),
                 )
                 .unwrap();
-                let args: OfficeArtifactArgs = serde_json::from_str(&normalized).unwrap();
+                let args: OfficeArtifactArgs = serde_json::from_value(normalized).unwrap();
                 assert_eq!(Path::new(&args.workspace_root), workspace);
                 assert_eq!(
                     resolve_workspace(

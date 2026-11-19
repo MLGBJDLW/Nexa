@@ -231,8 +231,13 @@ mod tests {
             .as_str()
             .unwrap();
         let acknowledge =
-            serde_json::json!({"action":"acknowledge","path":"child/new.txt","revision":revision})
+            serde_json::json!({"action":"acknowledge","path":"child/new.txt","revision":revision, "waitForPrevious":true})
                 .to_string();
+        let (invocation, error) =
+            filtered.prepare_invocation_for_scheduling("workspace_rules", "ack", &acknowledge);
+        assert!(error.is_none());
+        assert!(invocation.wait_for_previous);
+        assert!(invocation.arguments.get("wait_for_previous").is_none());
         assert!(
             !filtered
                 .execute("workspace_rules", context("ack", &acknowledge))

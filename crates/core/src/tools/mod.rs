@@ -425,6 +425,12 @@ pub fn invocation_waits_for_previous(args: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+struct PreparedToolExecution<'a> {
+    tool: &'a dyn Tool,
+    arguments: serde_json::Value,
+    wait_for_previous: bool,
+}
+
 /// Trust metadata attached to tool artifacts that may be injected into model
 /// context or shown in the UI. Retrieved content is normally evidence, not
 /// instruction.
@@ -1349,14 +1355,16 @@ impl ToolRegistry {
         ctx: ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
         let public_control = name == unified_control::TOOL_NAME;
-        let (tool, arguments) = match self.prepare_execution(name, ctx.call_id, ctx.arguments) {
+        let prepared = match self.prepare_execution(name, ctx.call_id, ctx.arguments) {
             Ok(prepared) => prepared,
             Err(result) => return Ok(result),
         };
+        let tool = prepared.tool;
+        let parsed_arguments = prepared.arguments;
+        let arguments = parsed_arguments.to_string();
         let name = tool.name();
         let call_id = ctx.call_id;
         let workspace = ctx.workspace.or(self.workspace.as_ref());
-        let parsed_arguments = serde_json::from_str(&arguments).unwrap_or_default();
         let rule_targets = crate::workspace_rules::invocation_targets(&parsed_arguments);
         let rules = workspace
             .filter(|_| {
@@ -1473,8 +1481,7 @@ impl ToolRegistry {
             && (tool.categories().contains(&ToolCategory::FileSystem)
                 || matches!(name, "download_asset" | "generate_image"))
         {
-            let args = serde_json::from_str(&arguments).unwrap_or_default();
-            if tool.access_profile(&args).can_write {
+            if tool.access_profile(&parsed_arguments).can_write {
                 if let Some(scope) = &file_changes {
                     scope.mark_partial(call_id);
                 }
@@ -1490,14 +1497,12 @@ impl ToolRegistry {
         arguments: &str,
     ) -> (ToolInvocation, Option<ToolResult>) {
         match self.prepare_execution(name, call_id, arguments) {
-            Ok((tool, normalized)) => (
-                self.build_invocation(
-                    call_id,
-                    tool.name(),
-                    serde_json::from_str(&normalized).expect("normalized JSON"),
-                ),
-                None,
-            ),
+            Ok(prepared) => {
+                let mut invocation =
+                    self.build_invocation(call_id, prepared.tool.name(), prepared.arguments);
+                invocation.wait_for_previous = prepared.wait_for_previous;
+                (invocation, None)
+            }
             Err(error) => (
                 self.build_invocation(
                     call_id,
@@ -1524,7 +1529,7 @@ impl ToolRegistry {
         name: &str,
         call_id: &str,
         arguments: &str,
-    ) -> Result<(&'a dyn Tool, String), ToolResult> {
+    ) -> Result<PreparedToolExecution<'a>, ToolResult> {
         let prepared = self.prepare_execution_inner(name, call_id, arguments);
         if name == unified_control::TOOL_NAME {
             prepared.map_err(|result| self.public_control_error_contract(result, true))
@@ -1574,7 +1579,7 @@ impl ToolRegistry {
         name: &str,
         call_id: &str,
         arguments: &str,
-    ) -> Result<(&'a dyn Tool, String), ToolResult> {
+    ) -> Result<PreparedToolExecution<'a>, ToolResult> {
         if name == unified_control::TOOL_NAME {
             if let Some(definition) = self.definition(name) {
                 let schema = definition.parameters;
@@ -1596,8 +1601,7 @@ impl ToolRegistry {
                         )
                     },
                 )?;
-                let value = serde_json::from_str(&normalized).expect("normalized JSON");
-                let routed = unified_control::route_call(name, &value)
+                let routed = unified_control::route_call(name, &normalized)
                     .map_err(|message| {
                         tool_contract_error_result(
                             call_id,
@@ -1655,7 +1659,21 @@ impl ToolRegistry {
 
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
-            Ok(arguments) => {
+            Ok(mut arguments) => {
+                let wait_for_previous = invocation_waits_for_previous(&arguments);
+                // Strip the registry-added control before handler validation, permissions
+                // and dispatch. A connector can own this name in its native schema.
+                if arguments.get("wait_for_previous").is_some()
+                    && tool.parameters_schema()["properties"]
+                        .get("wait_for_previous")
+                        .is_none()
+                    && schema["properties"].get("wait_for_previous").is_some()
+                {
+                    arguments
+                        .as_object_mut()
+                        .expect("normalized object")
+                        .remove("wait_for_previous");
+                }
                 if name == "manage_skill" {
                     if let Err(error) = manage_skill_tool::validate_arguments(&arguments) {
                         return Err(tool_contract_error_result(
@@ -1667,7 +1685,8 @@ impl ToolRegistry {
                     }
                 }
                 if name == "code_review" {
-                    if let Err(error) = code_review_tool::validate_arguments(&arguments) {
+                    if let Err(error) = code_review_tool::validate_arguments(&arguments.to_string())
+                    {
                         return Err(tool_contract_error_result(
                             call_id,
                             "invalid_code_review_arguments",
@@ -1677,7 +1696,8 @@ impl ToolRegistry {
                     }
                 }
                 if name == "mcp_context" {
-                    if let Err(error) = mcp_context_tool::validate_arguments(&arguments) {
+                    if let Err(error) = mcp_context_tool::validate_arguments(&arguments.to_string())
+                    {
                         return Err(tool_contract_error_result(
                             call_id,
                             "invalid_mcp_content_arguments",
@@ -1687,13 +1707,11 @@ impl ToolRegistry {
                     }
                 }
                 if name == "run_shell" {
-                    let value: serde_json::Value =
-                        serde_json::from_str(&arguments).expect("normalized JSON");
-                    let program = value
+                    let program = arguments
                         .get("program")
                         .and_then(serde_json::Value::as_str)
                         .or_else(|| {
-                            value
+                            arguments
                                 .get("command")
                                 .and_then(serde_json::Value::as_str)
                                 .and_then(|command| command.split_whitespace().next())
@@ -1704,7 +1722,11 @@ impl ToolRegistry {
                             serde_json::json!({"tool": target.name(), "parameters": target.definition().parameters}), true));
                     }
                 }
-                Ok((tool, arguments))
+                Ok(PreparedToolExecution {
+                    tool,
+                    arguments,
+                    wait_for_previous,
+                })
             }
             Err((code, message)) => {
                 if let Ok(mut value) = parse_tool_arguments_value(arguments) {
@@ -2119,7 +2141,7 @@ fn normalize_tool_arguments(
     tool_name: &str,
     arguments: &str,
     schema: &serde_json::Value,
-) -> Result<String, (&'static str, String)> {
+) -> Result<serde_json::Value, (&'static str, String)> {
     let payload = strip_json_code_fence(arguments);
     let mut value = match serde_json::from_str::<serde_json::Value>(payload.as_ref()) {
         Ok(value) => value,
@@ -2139,6 +2161,9 @@ fn normalize_tool_arguments(
         ));
     }
     normalize_tool_argument_value(&mut value, schema);
+    if tool_name == "manage_skill" {
+        manage_skill_tool::omit_inactive_install_defaults(&mut value);
+    }
     if let Some(issue) = file_tool_contract::argument_issue(tool_name, &value) {
         return Err((issue.code, issue.message));
     }
@@ -2162,12 +2187,7 @@ fn normalize_tool_arguments(
     if let Some(sandbox) = internal_sandbox {
         value["_nexaIsolationSandbox"] = sandbox;
     }
-    serde_json::to_string(&value).map_err(|error| {
-        (
-            "invalid_arguments_json",
-            format!("Failed to normalize tool arguments: {error}"),
-        )
-    })
+    Ok(value)
 }
 
 fn nearest_tool_names(requested: &str, available: &[String]) -> Vec<String> {
@@ -2860,14 +2880,12 @@ mod tests {
             .expect("generate_image should be registered")
             .parameters_schema();
 
-        let normalized = normalize_tool_arguments(
+        let value = normalize_tool_arguments(
             "generate_image",
             r#"{"prompt":"A ready legacy prompt"}"#,
             &schema,
         )
         .expect("legacy prompt-only calls should reach the tool runtime");
-        let value: serde_json::Value =
-            serde_json::from_str(&normalized).expect("normalized arguments should be JSON");
 
         assert_eq!(value["prompt"], "A ready legacy prompt");
         assert!(value.get("prompt_mode").is_none());
@@ -2881,14 +2899,12 @@ mod tests {
             .expect("generate_image should be registered")
             .parameters_schema();
 
-        let normalized = normalize_tool_arguments(
+        let value = normalize_tool_arguments(
             "generate_image",
             r#"{"prompt":"A legacy enhanced prompt","promptExtend":true}"#,
             &schema,
         )
         .expect("legacy prompt enhancement should reach the tool runtime");
-        let value: serde_json::Value =
-            serde_json::from_str(&normalized).expect("normalized arguments should be JSON");
 
         assert_eq!(value["prompt"], "A legacy enhanced prompt");
         assert_eq!(value["prompt_extend"], true);

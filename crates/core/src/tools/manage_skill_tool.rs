@@ -64,10 +64,40 @@ struct ManageSkillArgs {
     accept_blocked_warnings: bool,
 }
 
+/// Some function-calling providers fill unrelated optional fields with their
+/// defaults. Preserve every meaningful install argument for the intent check.
+pub(super) fn omit_inactive_install_defaults(value: &mut serde_json::Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let Some(action) = object.get("action").and_then(serde_json::Value::as_str) else {
+        return;
+    };
+    if action == "install_sources" {
+        return;
+    }
+    let inspect = action == "inspect_install_sources";
+    object.retain(|key, value| {
+        let inactive_default = match key.as_str() {
+            "selection" => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
+            "sources" if !inspect => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
+            "github_ref" if !inspect => value.is_null() || value.as_str() == Some(""),
+            "replace_existing" | "accept_blocked_warnings" => {
+                value.is_null() || value.as_bool() == Some(false)
+            }
+            _ => false,
+        };
+        !inactive_default
+    });
+}
+
 /// Reject malformed install intent before approval, scheduling, or any I/O.
-pub(crate) fn validate_arguments(arguments: &str) -> Result<(), CoreError> {
-    let value: serde_json::Value = serde_json::from_str(arguments)?;
-    let args: ManageSkillArgs = serde_json::from_value(value.clone())?;
+pub(super) fn validate_arguments(value: &serde_json::Value) -> Result<(), CoreError> {
+    validated_args(value).map(|_| ())
+}
+
+fn validated_args(value: &serde_json::Value) -> Result<ManageSkillArgs, CoreError> {
+    let args = ManageSkillArgs::deserialize(value)?;
     let install_fields = [
         "sources",
         "selection",
@@ -79,13 +109,13 @@ pub(crate) fn validate_arguments(arguments: &str) -> Result<(), CoreError> {
         args.action.as_str(),
         "inspect_install_sources" | "install_sources"
     ) {
-        if install_fields
+        if let Some(field) = install_fields
             .iter()
-            .any(|field| value.get(field).is_some())
+            .find(|field| value.get(**field).is_some())
         {
-            return Err(CoreError::InvalidInput("Skill source fields are only valid for inspect_install_sources or install_sources.".into()));
+            return Err(CoreError::InvalidInput(format!("Remove '{field}' and all install fields from the '{}' call. To import skills, call inspect_install_sources with sources, then install_sources with the inspected selection.", args.action)));
         }
-        return Ok(());
+        return Ok(args);
     }
     let permitted = if args.action == "install_sources" {
         install_fields.as_slice()
@@ -149,7 +179,7 @@ pub(crate) fn validate_arguments(arguments: &str) -> Result<(), CoreError> {
             "Duplicate skill install selection".into(),
         ));
     }
-    Ok(())
+    Ok(args)
 }
 
 async fn execute_install_sources(
@@ -382,9 +412,7 @@ impl Tool for ManageSkillTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
-        validate_arguments(context.arguments)?;
-        let args: ManageSkillArgs = serde_json::from_str(context.arguments)
-            .map_err(|e| CoreError::InvalidInput(format!("Invalid manage_skill arguments: {e}")))?;
+        let args = validated_args(&serde_json::from_str(context.arguments)?)?;
         if matches!(
             args.action.as_str(),
             "inspect_install_sources" | "install_sources"
@@ -775,10 +803,20 @@ mod tests {
     fn invalid_install_intents_fail_before_approval_and_scheduling() {
         let mut registry = super::super::ToolRegistry::new();
         registry.register(Box::new(ManageSkillTool));
+        let (view, error) = registry.prepare_invocation_for_scheduling(
+            "manage_skill", "view",
+            r#"{"action":"view_skill","skill_id":"test","sources":[],"selection":null,"githubRef":"","replace_existing":false,"accept_blocked_warnings":false}"#,
+        );
+        assert!(error.is_none());
+        assert_eq!(
+            view.arguments,
+            serde_json::json!({"action":"view_skill","skill_id":"test"})
+        );
         for args in [
             serde_json::json!({"action":"install_sources","sources":["/skills"]}),
             serde_json::json!({"action":"inspect_install_sources","sources":["/skills"],"replace_existing":true}),
             serde_json::json!({"action":"view_skill","skill_id":"test","sources":["/skills"]}),
+            serde_json::json!({"action":"list_skills","accept_blocked_warnings":true}),
             serde_json::json!({"action":"inspect_install_sources","sources":["file:///private/skills"]}),
             serde_json::json!({"action":"inspect_install_sources","sources":["https://example.com/skills.zip"],"github_ref":"main"}),
         ] {
