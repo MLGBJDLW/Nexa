@@ -31,4 +31,10 @@ Useful semantic color slots include `surface0`, `surface1`, `textPrimary`, `text
 
 For example, `"typography": {"fontFamily": "Inter, sans-serif", "baseSize": 16}` changes interface text. Numbers outside the ranges are clamped. Both `draft` and `apply` validate the declaration; resolve validation errors before retrying. Unknown object fields are not customization slots.
 
-Backgrounds can use a color or gradient `value`; image backgrounds require an existing managed `assetId`. For a new local image, use Settings → Themes → Import background, then read the installed theme to reuse its managed id. Do not fabricate image ids or put file paths or remote URLs into theme data. Theme resources cannot execute scripts or arbitrary CSS selectors. Use the appearance tool for live changes; edit portable declaration files when the user requests file-level work. The registry database and application code are not theme-authoring surfaces.
+Use a color or gradient `value` for a procedural background. The `image` and `video` kinds reference a managed `assetId`. To create a theme from a local file, pass the source path to the tool:
+
+```json
+{"action":"apply","backgroundPath":"art/rain.mp4","plugin":{"name":"Rain","theme":{"background":{"dim":0.35,"fit":"cover"}}}}
+```
+
+For an existing theme, pass its definition from `list` and change only the requested properties. The host resolves the file under the conversation's file permissions. Paths and URLs stay out of the saved declaration. Settings → Themes → Import background uses the same store. PNG, JPEG, WebP, GIF, MP4 and WebM files up to 24 MiB can be imported. Paired clients receive files up to 8 MiB. Video uses the device's supported codecs, plays muted and loops inline. GIF and video fall back to the theme palette with reduced motion.

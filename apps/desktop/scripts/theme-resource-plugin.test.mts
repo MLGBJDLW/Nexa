@@ -179,17 +179,17 @@ test('theme-resource plugins reject executable or remote background content', ()
   assert.throws(() => normalizeThemeResourcePlugin(unsafe), /Invalid background gradient|not allowed/);
 });
 
-test('image theme resources only accept managed sha256 asset ids', () => {
+test('image and video backgrounds round-trip managed assets and reject paths', () => {
   const plugin = themeToResourcePlugin(profile);
-  const unmanaged = {
-    ...plugin,
-    theme: {
-      ...plugin.theme,
-      background: { kind: 'image', assetId: 'C:/wallpaper.png' },
-    },
-  };
-
-  assert.throws(() => normalizeThemeResourcePlugin(unmanaged), /managed local asset id/);
+  for (const kind of ['image', 'video']) {
+    const withAsset = (assetId: string, fit = 'cover') => ({
+      ...plugin, theme: { ...plugin.theme, background: { kind, assetId, fit } },
+    });
+    const id = 'a'.repeat(64);
+    assert.equal(normalizeThemeResourcePlugin(withAsset(id)).theme.background.assetId, id);
+    assert.throws(() => normalizeThemeResourcePlugin(withAsset('C:/wallpaper.mp4')), /managed local asset id/);
+    if (kind === 'video') assert.throws(() => normalizeThemeResourcePlugin(withAsset(id, 'tile')), /background fit/);
+  }
 });
 
 test('friendly Unicode names derive stable cross-runtime IDs without manifest boilerplate', () => {

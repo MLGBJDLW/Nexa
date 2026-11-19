@@ -518,7 +518,11 @@ impl RemoteHost for DesktopHost {
                     commands::resolve_theme_background_cmd(asset_app, asset_id)
                 }).await.map_err(|error| error.to_string())??;
                 if asset.bytes > 8 * 1024 * 1024 { return Err("Theme background is too large for remote delivery".into()); }
-                let bytes = tokio::fs::read(asset.path).await.map_err(|e| e.to_string())?;
+                let file = tokio::fs::File::open(asset.path).await.map_err(|e| e.to_string())?;
+                let mut bytes = Vec::with_capacity(asset.bytes as usize);
+                use tokio::io::AsyncReadExt;
+                file.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes).await.map_err(|e| e.to_string())?;
+                if bytes.len() > 8 * 1024 * 1024 { return Err("Theme background is too large for remote delivery".into()); }
                 value(format!("data:{};base64,{}", asset.media_type, B64.encode(bytes)))
             }
             Connections => state.db_executor.read(|db| {

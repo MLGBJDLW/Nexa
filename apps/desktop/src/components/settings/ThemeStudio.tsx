@@ -1,13 +1,13 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { ThemeBackdrop } from '../ThemeBackdrop';
 import { NexaSelect } from '../ui/overlay';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Download, Image, LoaderCircle, Plus, RotateCcw, Save, Trash2, Upload, WandSparkles } from 'lucide-react';
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 
 import * as api from '../../lib/api';
 import { useTranslation } from '../../i18n';
-import { useTheme } from '../../lib/ThemeProvider';
+import { resolveDesktopThemeMedia, useTheme } from '../../lib/ThemeProvider';
 import {
   contrastRatio,
   customThemeToCssVariables,
@@ -68,12 +68,12 @@ export function ThemeStudio() {
   const [draft, setDraft] = useState<CustomThemeDefinition>(() => newTheme(t));
   const [themeDescription, setThemeDescription] = useState('');
   const [importValue, setImportValue] = useState('');
-  const [backgroundPreviewUrl, setBackgroundPreviewUrl] = useState<string | null>(null);
+  const reportUnavailable = useCallback(() => toast.error(t('themeStudio.backgroundUnavailable')), [t]);
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
   const [isGeneratingBackground, setIsGeneratingBackground] = useState(false);
   const variables = useMemo(
-    () => customThemeToCssVariables(draft, backgroundPreviewUrl ?? undefined),
-    [backgroundPreviewUrl, draft],
+    () => customThemeToCssVariables(draft),
+    [draft],
   );
   const contrast = contrastRatio(draft.colors.textPrimary ?? '#ffffff', draft.colors.surface0 ?? '#000000');
 
@@ -81,14 +81,13 @@ export function ThemeStudio() {
     setDraft((current) => ({ ...current, colors: { ...current.colors, [key]: value } }));
   };
   const importBackground = async () => {
-    const selected = await open({ multiple: false, filters: [{ name: t('themeStudio.images'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }] });
+    const selected = await open({ multiple: false, filters: [{ name: t('themeStudio.images'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm'] }] });
     if (!selected) return;
     try {
       const asset = await api.importThemeBackground(selected);
-      setBackgroundPreviewUrl(convertFileSrc(asset.path));
       setDraft((current) => ({
         ...current,
-        background: { ...current.background, kind: 'image', assetId: asset.assetId, value: undefined, fit: 'cover' },
+        background: { ...current.background, kind: asset.mediaType.startsWith('video/') ? 'video' : 'image', assetId: asset.assetId, value: undefined, fit: 'cover' },
       }));
     } catch (error) {
       console.error('[theme-studio] background import failed', error);
@@ -100,7 +99,6 @@ export function ThemeStudio() {
       void importBackground();
       return;
     }
-    setBackgroundPreviewUrl(null);
     setDraft((current) => ({
       ...current,
       background: {
@@ -113,20 +111,10 @@ export function ThemeStudio() {
       },
     }));
   };
-  const selectProfile = async (profile: CustomThemeDefinition) => {
+  const selectProfile = (profile: CustomThemeDefinition) => {
     setTheme(profile.id);
     setDraft(profile);
     setThemeDescription(themePlugins.find((plugin) => plugin.id === profile.id)?.description ?? '');
-    setBackgroundPreviewUrl(null);
-    if (profile.background.kind === 'image' && profile.background.assetId) {
-      try {
-        const asset = await api.resolveThemeBackground(profile.background.assetId);
-        setBackgroundPreviewUrl(convertFileSrc(asset.path));
-      } catch (error) {
-        console.error('[theme-studio] managed background unavailable', error);
-        toast.error(t('themeStudio.backgroundUnavailable'));
-      }
-    }
   };
   const save = () => {
     try {
@@ -146,7 +134,6 @@ export function ThemeStudio() {
       const profile = themeResourcePluginToCustomTheme(plugin);
       setDraft(profile);
       setThemeDescription(plugin.description ?? '');
-      setBackgroundPreviewUrl(null);
       installThemePlugin(plugin);
       setImportValue('');
       toast.success(t('themeStudio.imported'));
@@ -162,7 +149,6 @@ export function ThemeStudio() {
       const plugin = normalizeThemeResourcePlugin(await api.generateThemeResourcePlugin(themeDescription));
       setDraft(themeResourcePluginToCustomTheme(plugin));
       setThemeDescription(plugin.description ?? '');
-      setBackgroundPreviewUrl(null);
       toast.success(t('themeStudio.draftGenerated'));
     } catch (error) {
       console.error('[theme-studio] theme generation failed', error);
@@ -179,7 +165,6 @@ export function ThemeStudio() {
         .filter(Boolean)
         .join(', ');
       const asset = await api.generateThemeBackground(`${direction}. Palette: ${palette}.`);
-      setBackgroundPreviewUrl(convertFileSrc(asset.path));
       setDraft((current) => ({
         ...current,
         background: {
@@ -217,7 +202,7 @@ export function ThemeStudio() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={rollbackTheme} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-2"><RotateCcw size={13} /> {t('themeStudio.rollback')}</button>
-          <button type="button" onClick={() => { setDraft(newTheme(t)); setThemeDescription(''); setBackgroundPreviewUrl(null); }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-2"><Plus size={13} /> {t('themeStudio.new')}</button>
+          <button type="button" onClick={() => { setDraft(newTheme(t)); setThemeDescription(''); }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-2"><Plus size={13} /> {t('themeStudio.new')}</button>
         </div>
       </div>
 
@@ -240,7 +225,7 @@ export function ThemeStudio() {
         <div className="flex flex-wrap gap-2">
           {customThemes.map((profile) => (
             <div key={profile.id} className={`flex items-center gap-1 rounded-md border px-2 py-1 ${activeThemeId === profile.id ? 'border-accent bg-accent/10' : 'border-border'}`}>
-              <button type="button" onClick={() => void selectProfile(profile)} className="text-xs text-text-primary">{profile.name}</button>
+              <button type="button" onClick={() => selectProfile(profile)} className="text-xs text-text-primary">{profile.name}</button>
               <button type="button" onClick={() => uninstallThemePlugin(profile.id, draft.background.assetId ? [draft.background.assetId] : [])} aria-label={t('themeStudio.deleteTheme', { name: profile.name })} className="text-text-tertiary hover:text-danger"><Trash2 size={12} /></button>
             </div>
           ))}
@@ -322,8 +307,8 @@ export function ThemeStudio() {
                 <Range label={t('themeStudio.backgroundBlur')} value={draft.background.blur ?? 0} min={0} max={32} onChange={(value) => setDraft({ ...draft, background: { ...draft.background, blur: value } })} />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs text-text-secondary">{t('themeStudio.backgroundKind')}<NexaSelect value={draft.background.kind} onChange={(event) => updateBackgroundKind(event.target.value as CustomThemeDefinition['background']['kind'])} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary"><option value="none">{t('themeStudio.none')}</option><option value="color">{t('themeStudio.colorKind')}</option><option value="gradient">{t('themeStudio.gradient')}</option><option value="image">{t('themeStudio.imageChoose')}</option></NexaSelect></label>
-                <label className="text-xs text-text-secondary">{t('themeStudio.fit')}<NexaSelect value={draft.background.fit ?? 'cover'} onChange={(event) => setDraft({ ...draft, background: { ...draft.background, fit: event.target.value as 'cover' | 'contain' | 'tile' } })} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary"><option value="cover">{t('themeStudio.cover')}</option><option value="contain">{t('themeStudio.contain')}</option><option value="tile">{t('themeStudio.tile')}</option></NexaSelect></label>
+                <label className="text-xs text-text-secondary">{t('themeStudio.backgroundKind')}<NexaSelect value={draft.background.kind === 'video' ? 'image' : draft.background.kind} onChange={(event) => updateBackgroundKind(event.target.value as CustomThemeDefinition['background']['kind'])} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary"><option value="none">{t('themeStudio.none')}</option><option value="color">{t('themeStudio.colorKind')}</option><option value="gradient">{t('themeStudio.gradient')}</option><option value="image">{t('themeStudio.imageChoose')}</option></NexaSelect></label>
+                <label className="text-xs text-text-secondary">{t('themeStudio.fit')}<NexaSelect value={draft.background.fit ?? 'cover'} onChange={(event) => setDraft({ ...draft, background: { ...draft.background, fit: event.target.value as 'cover' | 'contain' | 'tile' } })} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary"><option value="cover">{t('themeStudio.cover')}</option><option value="contain">{t('themeStudio.contain')}</option>{draft.background.kind !== 'video' && <option value="tile">{t('themeStudio.tile')}</option>}</NexaSelect></label>
                 {(draft.background.kind === 'color' || draft.background.kind === 'gradient') && <label className="text-xs text-text-secondary sm:col-span-2">{t('themeStudio.backgroundValue')}<input value={draft.background.value ?? ''} onChange={(event) => setDraft({ ...draft, background: { ...draft.background, value: event.target.value } })} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary" /></label>}
                 <label className="text-xs text-text-secondary">{t('themeStudio.position')}<input value={draft.background.position ?? 'center'} onChange={(event) => setDraft({ ...draft, background: { ...draft.background, position: event.target.value } })} className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary" /></label>
                 <label className="text-xs text-text-secondary">{t('themeStudio.overlayColor')}<input type="color" value={draft.background.overlayColor ?? '#000000'} onChange={(event) => setDraft({ ...draft, background: { ...draft.background, overlayColor: event.target.value } })} className="mt-1 block h-8 w-full cursor-pointer rounded-md border border-border bg-surface-0" /></label>
@@ -332,7 +317,7 @@ export function ThemeStudio() {
             </div>
           </CollapsiblePanel>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => { const replacement = newTheme(t); setDraft({ ...replacement, id: draft.id, name: draft.name, baseTheme: draft.baseTheme, mode: draft.mode }); setBackgroundPreviewUrl(null); }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-2"><RotateCcw size={13} /> {t('themeStudio.resetDraft')}</button>
+            <button type="button" onClick={() => { const replacement = newTheme(t); setDraft({ ...replacement, id: draft.id, name: draft.name, baseTheme: draft.baseTheme, mode: draft.mode }); }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-2"><RotateCcw size={13} /> {t('themeStudio.resetDraft')}</button>
             <button type="button" onClick={save} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-text-inverse"><Save size={13} /> {t('themeStudio.saveApply')}</button>
           </div>
         </div>
@@ -343,18 +328,7 @@ export function ThemeStudio() {
             data-testid="theme-live-preview"
             style={variables as CSSProperties}
           >
-            <div
-              className="absolute inset-0 scale-[1.03]"
-              style={{
-                backgroundColor: 'var(--theme-background-color, var(--color-surface-0))',
-                backgroundImage: 'linear-gradient(color-mix(in srgb, var(--theme-background-overlay, #000) calc(var(--theme-background-dim, 0) * 100%), transparent), color-mix(in srgb, var(--theme-background-overlay, #000) calc(var(--theme-background-dim, 0) * 100%), transparent)), var(--theme-background-image, none)',
-                backgroundPosition: 'var(--theme-background-position, center)',
-                backgroundSize: 'var(--theme-background-fit, cover)',
-                backgroundRepeat: 'var(--theme-background-repeat, no-repeat)',
-                opacity: Number(variables['--theme-background-opacity'] ?? 1),
-                filter: `blur(${variables['--theme-background-blur'] ?? '0px'})`,
-              }}
-            />
+            <ThemeBackdrop theme={draft} resolve={resolveDesktopThemeMedia} preview onError={reportUnavailable} />
             <div
               className="relative rounded-lg border p-4 shadow-lg"
               style={{

@@ -5,7 +5,10 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.clear();
     localStorage.setItem('nexa-theme', 'dark');
-    let registry = { version: 2, initialized: true, revision: 1, activeThemeId: 'dark', plugins: [] };
+    let registry = { version: 2, initialized: true, revision: 1, activeThemeId: 'dark', plugins: [
+      { id: 'clip', name: 'Clip', theme: { background: { kind: 'video', assetId: 'a'.repeat(64) } } },
+      { id: 'gif', name: 'GIF', theme: { background: { kind: 'image', assetId: 'b'.repeat(64) } } },
+    ] };
     const metrics = { reads: 0, active: 0, peak: 0, bytes: 0, delay: 0, hydrate: 0, failures: 0, hang: false };
     const blockedReads: Array<() => void> = [];
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -30,9 +33,14 @@ test.beforeEach(async ({ page }) => {
       __appearanceListenerCount: () => listeners.size,
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => listeners.delete(id) },
       __TAURI_INTERNALS__: {
+        convertFileSrc(path: string) { return path; },
         transformCallback(callback: (event: unknown) => void) { const id = next++; callbacks.set(id, callback); return id; },
         unregisterCallback(id: number) { callbacks.delete(id); },
         async invoke(cmd: string, args: Record<string, unknown> = {}) {
+          if (cmd === 'resolve_theme_background_cmd') {
+            const video = args.assetId === 'a'.repeat(64);
+            return { assetId: args.assetId, mediaType: video ? 'video/webm' : 'image/gif', path: '/e2e/fixtures/theme-loop.' + (video ? 'webm' : 'gif') };
+          }
           if (cmd === 'plugin:event|listen') { const id = next++; listeners.set(id, { event: String(args.event), handler: Number(args.handler) }); return id; }
           if (cmd === 'plugin:event|unlisten') { listeners.delete(Number(args.eventId)); return; }
           if (cmd === 'hydrate_appearance_registry_cmd') { metrics.hydrate++; return registry; }
@@ -56,6 +64,27 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/e2e/fixtures/app-resource-lifecycle.html');
   await expect(page.getByTestId('active-appearance')).toHaveText('dark');
   await expect.poll(() => page.evaluate(() => (window as any).__appearanceMetrics.hydrate)).toBe(1);
+});
+
+test('animated backgrounds follow theme changes, visibility, and reduced motion', async ({ page }) => {
+  await page.evaluate(() => (window as any).__changeAppearance('clip'));
+  const video = page.locator('.app-theme-backdrop video');
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) =>
+    element.videoWidth === 16 && !element.paused && element.muted && element.loop && element.playsInline
+  )).toBe(true);
+  await page.evaluate(() => (window as any).__setHidden(true));
+  await expect(video).toHaveCount(0);
+  await page.evaluate(() => (window as any).__setHidden(false));
+  await expect(video).toHaveCount(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(video).toHaveCount(0);
+  await page.evaluate(() => (window as any).__changeAppearance('gif'));
+  const image = () => page.locator('.app-theme-backdrop').evaluate(element => (element as HTMLElement).style.getPropertyValue('--theme-background-image'));
+  await expect.poll(image).toBe('none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect.poll(image).toContain('theme-loop.gif');
+  await page.evaluate(() => (window as any).__changeAppearance('dark'));
+  await expect.poll(image).toBe('');
 });
 
 test('appearance idle and hidden work is bounded and native changes apply immediately', async ({ page }) => {

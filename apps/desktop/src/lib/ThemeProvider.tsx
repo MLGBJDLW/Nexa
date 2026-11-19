@@ -24,6 +24,7 @@ interface ThemeContextValue {
   customThemes: CustomThemeDefinition[];
   themePlugins: ThemeResourcePlugin[];
   content: ThemeContent;
+  activeCustomTheme?: CustomThemeDefinition;
   setTheme: (theme: string) => void;
   installThemePlugin: (plugin: ThemeResourcePlugin) => void;
   uninstallThemePlugin: (id: string, additionallyRetainedAssetIds?: string[]) => void;
@@ -31,6 +32,11 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export async function resolveDesktopThemeMedia(assetId: string) {
+  const asset = await api.resolveThemeBackground(assetId);
+  return { url: convertFileSrc(asset.path), mediaType: asset.mediaType };
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(connectNativeComputerUseAppearance, []);
@@ -53,29 +59,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const content = activeCustomTheme?.content ?? {};
 
   useEffect(() => {
-    let cancelled = false;
     applyTheme(theme);
     if (activeCustomTheme) {
       applyCustomTheme(activeCustomTheme);
-      const assetId = activeCustomTheme.background.kind === 'image'
-        ? activeCustomTheme.background.assetId
-        : undefined;
-      if (assetId) {
-        void api.resolveThemeBackground(assetId)
-          .then((asset) => {
-            if (!cancelled) applyCustomTheme(activeCustomTheme, convertFileSrc(asset.path));
-          })
-          .catch((error: unknown) => {
-            console.warn('Unable to resolve managed theme background', error);
-          });
-      }
     } else clearCustomThemeVariables();
     persistStartupAppearance(snapshotStartupAppearance(
       activeCustomTheme?.mode ?? (theme === 'light' || theme === 'bloom' ? 'light' : 'dark'),
       activeCustomTheme?.content,
     ));
     localStorage.setItem(ACTIVE_THEME_KEY, activeThemeId);
-    return () => { cancelled = true; };
   }, [activeCustomTheme, activeThemeId, theme]);
 
   const applyRegistry = useCallback((registry: api.AppearanceRegistry | null | undefined) => {
@@ -257,7 +249,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, activeThemeId, customThemes, themePlugins, content, setTheme, installThemePlugin, uninstallThemePlugin, rollbackTheme }}>
+    <ThemeContext.Provider value={{ theme, activeThemeId, activeCustomTheme, customThemes, themePlugins, content, setTheme, installThemePlugin, uninstallThemePlugin, rollbackTheme }}>
       {children}
     </ThemeContext.Provider>
   );

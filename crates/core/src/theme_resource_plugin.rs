@@ -452,7 +452,7 @@ fn normalize_components(
 fn normalize_background(background: &mut ThemeResourceBackground) -> Result<(), CoreError> {
     if !matches!(
         background.kind.as_str(),
-        "none" | "color" | "gradient" | "image"
+        "none" | "color" | "gradient" | "image" | "video"
     ) {
         return invalid("Invalid theme background kind");
     }
@@ -479,19 +479,20 @@ fn normalize_background(background: &mut ThemeResourceBackground) -> Result<(), 
         {
             return invalid("Invalid theme background gradient");
         }
-        "image"
+        "image" | "video"
             if background.asset_id.as_deref().is_none_or(|asset| {
                 asset.len() != 64 || !asset.chars().all(|c| c.is_ascii_hexdigit())
             }) =>
         {
-            return invalid("Theme images must reference a managed local asset id");
+            return invalid("Theme media must reference a managed local asset id");
         }
         _ => {}
     }
     if !matches!(
         background.fit.as_deref(),
         None | Some("cover" | "contain" | "tile")
-    ) {
+    ) || (background.kind == "video" && background.fit.as_deref() == Some("tile"))
+    {
         return invalid("Invalid theme background fit");
     }
     if let Some(position) = background.position.as_deref() {

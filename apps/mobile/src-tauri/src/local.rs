@@ -101,6 +101,9 @@ struct Delivery;
 impl AgentRunEventDelivery for Delivery {
     fn deliver_run_event(&self, conversation: &str, event: &AgentRunEvent) {
         let Some(app) = host::ui() else { return };
+        if let Some(revision) = nexa_core::appearance::changed_appearance_revision(event) {
+            let _ = app.emit("appearance://changed", revision);
+        }
         let _ = app.emit(
             "mobile:run",
             json!({"conversationId":conversation,"event":event}),
@@ -415,6 +418,7 @@ impl LocalRuntime {
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
+        tools.register(Box::new(nexa_core::tools::appearance_tool::AppearanceTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
         if let Some(app) = host.app() {

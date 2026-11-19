@@ -1,7 +1,7 @@
 import { type ThemeId, isThemeId } from './theme';
 
 export type ThemeMode = 'dark' | 'light';
-export type ThemeBackgroundKind = 'none' | 'color' | 'gradient' | 'image';
+export type ThemeBackgroundKind = 'none' | 'color' | 'gradient' | 'image' | 'video';
 export type ThemeCursorStyle = 'precise' | 'fluid' | 'minimal';
 export type ThemeLogoVariant = 'auto' | 'monochrome' | 'accent';
 export type ThemeComponentSlot = 'rail' | 'header' | 'card' | 'browser';
@@ -221,12 +221,14 @@ export function normalizeCustomTheme(value: unknown): CustomThemeDefinition {
   }
 
   const background = input.background ?? { kind: 'none' as const };
-  if (!['none', 'color', 'gradient', 'image'].includes(background.kind)) throw new Error('Invalid background kind');
+  if (!['none', 'color', 'gradient', 'image', 'video'].includes(background.kind)) throw new Error('Invalid background kind');
   const backgroundValue = background.value?.trim();
   if (background.kind === 'color' && (!backgroundValue || !SAFE_COLOR.test(backgroundValue))) throw new Error('Invalid background color');
   if (background.kind === 'gradient' && (!backgroundValue || !SAFE_GRADIENT.test(backgroundValue))) throw new Error('Invalid background gradient');
   const assetId = background.assetId?.trim();
-  if (background.kind === 'image' && (!assetId || !/^[0-9a-f]{64}$/i.test(assetId))) throw new Error('Theme images must reference a managed local asset id');
+  const usesAsset = background.kind === 'image' || background.kind === 'video';
+  if (usesAsset && (!assetId || !/^[0-9a-f]{64}$/i.test(assetId))) throw new Error('Theme media must reference a managed local asset id');
+  if (background.fit && (!['cover', 'contain', 'tile'].includes(background.fit) || (background.kind === 'video' && background.fit === 'tile'))) throw new Error('Invalid theme background fit');
   if (backgroundValue && /url\s*\(|@import|[;{}]/i.test(backgroundValue)) throw new Error('External URLs and CSS rules are not allowed');
 
   return {
@@ -244,8 +246,8 @@ export function normalizeCustomTheme(value: unknown): CustomThemeDefinition {
     components,
     background: {
       kind: background.kind,
-      ...(background.kind !== 'image' && backgroundValue ? { value: backgroundValue } : {}),
-      ...(background.kind === 'image' && assetId ? { assetId } : {}),
+      ...(!usesAsset && backgroundValue ? { value: backgroundValue } : {}),
+      ...(usesAsset && assetId ? { assetId } : {}),
       fit: background.fit ?? 'cover',
       position: safePosition(background.position),
       opacity: clampOptional(background.opacity, 0, 1),
@@ -502,7 +504,7 @@ function safePosition(value: string | undefined): string {
   return value;
 }
 
-function escapeCssUrl(value: string): string { return value.replace(/["\\\n\r]/g, (char) => `\\${char}`); }
+export function escapeCssUrl(value: string): string { return value.replace(/["\\\n\r]/g, (char) => `\\${char}`); }
 
 function hexRgb(value: string): [number, number, number] | null {
   const match = /^#([0-9a-f]{6})$/i.exec(value.trim());

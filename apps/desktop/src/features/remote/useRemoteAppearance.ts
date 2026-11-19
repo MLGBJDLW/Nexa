@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../i18n';
 import type { AppearanceRegistry } from '../../lib/api';
 import { applyTheme, getInitialTheme, isThemeId } from '../../lib/theme';
 import { applyCustomTheme, clearCustomThemeVariables, normalizeThemeResourcePlugin, themeResourcePluginToCustomTheme } from '../../lib/themeProfile';
-import type { RemoteClient } from './remoteClient';
+import type { RemoteChatClient } from './remoteClient';
 
 interface RemotePreferences { locale: string; appearance: AppearanceRegistry }
-export function useRemoteAppearance(client: RemoteClient | null) {
+export function useRemoteAppearance(client: RemoteChatClient | null, followLanguage = true, localAppearance?: AppearanceRegistry) {
   const { setLocale, availableLocales } = useTranslation();
-  const [preferences, setPreferences] = useState<RemotePreferences | null>(null);
+  const [preferences, setPreferences] = useState<(RemotePreferences & { serverId: string }) | null>(null);
   const serverId = client?.paired.manifest.serverId ?? 'unpaired';
+  const currentPreferences = preferences?.serverId === serverId ? preferences : null;
   const key = `nexa.remote.preferences.${serverId}`;
   const [choice, setChoice] = useState<{ theme: string; language: string }>({ theme:'desktop', language:'desktop' });
   const [error, setError] = useState(false);
@@ -29,7 +30,7 @@ export function useRemoteAppearance(client: RemoteClient | null) {
       try {
         const next = await client.rpc<RemotePreferences>('connection.preferences');
         if (!disposed && next?.appearance && Array.isArray(next.appearance.plugins)) {
-          setPreferences(current => current?.locale === next.locale && JSON.stringify(current.appearance) === JSON.stringify(next.appearance) ? current : next);
+          setPreferences(current => current?.serverId === serverId && current.locale === next.locale && JSON.stringify(current.appearance) === JSON.stringify(next.appearance) ? current : { ...next, serverId });
         }
       } catch { /* Preserve the active skin across temporary route failures. */ }
       finally { pending = false; }
@@ -37,36 +38,44 @@ export function useRemoteAppearance(client: RemoteClient | null) {
     const off = client.subscribeConnection(() => void refresh());
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 30_000);
     return () => { disposed = true; off(); clearInterval(timer); };
-  }, [client]);
-  const language = choice.language === 'desktop' ? preferences?.locale : choice.language;
+  }, [client, serverId]);
+  const language = choice.language === 'desktop' ? currentPreferences?.locale : choice.language;
   useEffect(() => {
     const supported = availableLocales.find(locale => locale.code === language);
-    if (supported) setLocale(supported.code);
-  }, [language, setLocale]);
-  useEffect(() => {
-    let disposed = false;
-    setError(false);
-    const id = choice.theme === 'desktop' ? preferences?.appearance.activeThemeId : choice.theme;
-    const plugin = preferences?.appearance.plugins.find(plugin => plugin.id === id);
+    if (followLanguage && supported) setLocale(supported.code);
+  }, [availableLocales, followLanguage, language, setLocale]);
+  const registry = client ? currentPreferences?.appearance : localAppearance;
+  const id = !client || choice.theme === 'desktop' ? registry?.activeThemeId : choice.theme;
+  const plugin = registry?.plugins.find(plugin => plugin.id === id);
+  const activeTheme = useMemo(() => {
     if (plugin) {
-      try {
-        const theme = themeResourcePluginToCustomTheme(normalizeThemeResourcePlugin(plugin));
-        applyTheme(theme.baseTheme);
-        applyCustomTheme(theme);
-        document.documentElement.style.colorScheme = theme.mode;
-        if (theme.background.kind === 'image' && theme.background.assetId && client) {
-          void client.rpc<string>('appearance.background', { assetId:theme.background.assetId }).then(url => {
-            if (!disposed && /^data:image\/(png|jpeg|webp|gif);base64,/.test(url)) applyCustomTheme(theme, url);
-          }).catch(() => { if (!disposed) setError(true); });
-        }
-      } catch { clearCustomThemeVariables(); applyTheme(getInitialTheme()); setError(true); }
-    } else { clearCustomThemeVariables(); applyTheme(id && isThemeId(id) ? id : getInitialTheme()); }
-    return () => { disposed = true; };
-  }, [client, choice.theme, preferences?.appearance]);
+      try { return themeResourcePluginToCustomTheme(normalizeThemeResourcePlugin(plugin)); }
+      catch { return undefined; }
+    }
+  }, [plugin]);
+  useEffect(() => {
+    setError(Boolean(plugin && !activeTheme));
+    if (activeTheme) {
+      applyTheme(activeTheme.baseTheme);
+      applyCustomTheme(activeTheme);
+      document.documentElement.style.colorScheme = activeTheme.mode;
+    } else {
+      clearCustomThemeVariables();
+      applyTheme(id && isThemeId(id) ? id : getInitialTheme());
+    }
+  }, [id, activeTheme, plugin]);
+  const resolveMedia = useCallback(async (assetId: string) => {
+    if (!client) throw new Error('Theme host is unavailable');
+    const url = await client.rpc<string>('appearance.background', { assetId });
+    const match = /^data:(image\/(?:png|jpeg|webp|gif)|video\/(?:mp4|webm));base64,/.exec(url);
+    if (!match) throw new Error('Unsupported managed background media');
+    return { mediaType: match[1], url };
+  }, [client]);
+  const reportUnavailable = useCallback(() => setError(true), []);
   const update = (patch: Partial<typeof choice>) => {
     const next = { ...choices.current, ...patch };
     choices.current = next; setChoice(next);
     localStorage.setItem(key, JSON.stringify(next));
   };
-  return { ...choice, customThemes:preferences?.appearance.plugins ?? [], error, update };
+  return { ...choice, customThemes:currentPreferences?.appearance.plugins ?? [], themed: Boolean(registry?.revision), activeTheme, resolveMedia, reportUnavailable, error, update };
 }

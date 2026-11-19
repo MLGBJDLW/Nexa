@@ -1,6 +1,7 @@
 //! Tauri delivery adapter for committed Run Events and task projections.
 
-use nexa_core::agent_run::{AgentRunEvent, AgentRunEventKind};
+use nexa_core::agent_run::AgentRunEvent;
+use nexa_core::appearance::changed_appearance_revision;
 use nexa_core::conversation::AgentTaskRun;
 use nexa_core::run_event_outbox::AgentRunEventDelivery;
 use tauri::{AppHandle, Emitter};
@@ -41,30 +42,11 @@ impl AgentRunEventDelivery for DesktopAgentRunEventDelivery {
     }
 }
 
-fn changed_appearance_revision(event: &AgentRunEvent) -> Option<u64> {
-    if event.kind != AgentRunEventKind::ToolCompleted {
-        return None;
-    }
-    let run = event.payload.get("run")?;
-    if run.get("toolName")?.as_str()? != "appearance" || run.get("status")?.as_str()? != "completed"
-    {
-        return None;
-    }
-    let artifacts = run.get("artifacts")?;
-    if artifacts.get("kind")?.as_str()? != "appearanceRegistry" {
-        return None;
-    }
-    artifacts
-        .get("payload")?
-        .get("registry")?
-        .get("revision")?
-        .as_u64()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nexa_core::agent::AgentEvent;
+    use nexa_core::agent_run::AgentRunEventKind;
     use nexa_core::db::Database;
     use nexa_core::tools::{appearance_tool::AppearanceTool, Tool, ToolExecutionContext};
 

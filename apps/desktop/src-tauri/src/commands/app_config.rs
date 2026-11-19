@@ -532,7 +532,7 @@ fn parse_model_json_object(content: &str) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub fn import_theme_background_cmd(
+pub async fn import_theme_background_cmd(
     app_handle: AppHandle,
     source_path: String,
 ) -> Result<ThemeBackgroundAsset, String> {
@@ -545,9 +545,12 @@ pub fn import_theme_background_cmd(
         .app_data_dir()
         .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
     let store = nexa_core::managed_assets::ManagedLocalAssetStore::new(cache_root, data_root);
-    let asset = store
-        .import_theme_background(Path::new(source_path.trim()))
-        .map_err(|error| error.to_string())?;
+    let asset = tokio::task::spawn_blocking(move || {
+        store.import_theme_background(Path::new(source_path.trim()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
     Ok(ThemeBackgroundAsset {
         asset_id: asset.asset_id,
         path: asset.path.to_string_lossy().into_owned(),
