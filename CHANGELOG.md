@@ -2,30 +2,17 @@
 
 ## [0.19.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18) (2026-11-19)
 
-
 ### Features
 
-* **agent:** add animated skins and preserve chat and browser continuity ([3c69b3c](https://github.com/MLGBJDLW/Nexa/commit/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6))
-* **agent:** add animated skins and preserve chat and browser continuity ([#582](https://github.com/MLGBJDLW/Nexa/issues/582)) ([3c69b3c](https://github.com/MLGBJDLW/Nexa/commit/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6))
-* **appearance:** apply managed animated backgrounds across desktop and phone ([a02fc93](https://github.com/MLGBJDLW/Nexa/commit/a02fc935691d18c0177664710e55eed098a5db55))
-* **browser:** target the active webview with a tab-local cursor ([3d99090](https://github.com/MLGBJDLW/Nexa/commit/3d9909020be84485eb46a0c093e098074bd2bb71))
-
+- Ask the built-in themes skill to apply a GIF, MP4 or WebM as a background, or import the file through Appearance. Existing theme plugins keep their v2 interface. Video pauses when the app is hidden, and reduced motion keeps the background still. [Animated themes](https://github.com/MLGBJDLW/Nexa/commit/a02fc935691d18c0177664710e55eed098a5db55)
+- Follow the agent's cursor inside the active Browser Workspace tab. Tab-directed actions leave the system pointer free. [Browser cursor](https://github.com/MLGBJDLW/Nexa/commit/3d9909020be84485eb46a0c093e098074bd2bb71)
 
 ### Bug Fixes
 
-* **agent:** continue browser waits while the observed page makes progress ([bc0043b](https://github.com/MLGBJDLW/Nexa/commit/bc0043be3c0d4def2b492d82b5d54e8b816065c8))
-* **agent:** require progress from every call before repeating a batch ([ef6f722](https://github.com/MLGBJDLW/Nexa/commit/ef6f722e57b0c3cf9da899241880d57f4a19ff4d))
-* **appearance:** freeze animated images and reject blocking media inputs ([1691cf3](https://github.com/MLGBJDLW/Nexa/commit/1691cf354f6a15cd89cf9405823eca52da4b4fdc))
-* **browser:** pause foreground retries until the user returns ([c2b8779](https://github.com/MLGBJDLW/Nexa/commit/c2b87796cf75f648bbf33ff4d3f3ca27587ead60))
-* **browser:** wait for the host window before resuming observations ([a3e6a92](https://github.com/MLGBJDLW/Nexa/commit/a3e6a926b31755378a3c8a07fe41153631dc40a9))
-* **catalog:** honor published model aliases, retirements and voice compatibility ([3fd1c88](https://github.com/MLGBJDLW/Nexa/commit/3fd1c88c1a8bcdd64055c346180473585c581565))
-* **chat:** commit the conversation model with the accepted turn ([946ca75](https://github.com/MLGBJDLW/Nexa/commit/946ca7597254a1f3059fb8cf8ccaeafd7c2d5977))
-* **chat:** restore the selected model before history and capacity reads settle ([5ee2a2a](https://github.com/MLGBJDLW/Nexa/commit/5ee2a2a9be6098e1ae595dca9ea27c0db45b669b))
-* **mobile:** lock media range support and preserve the initial device theme ([b96dbfa](https://github.com/MLGBJDLW/Nexa/commit/b96dbfa11f977fc7d2648e0adbe4d56d45c58e96))
-* **mobile:** restore each chat model and account across navigation ([48baab8](https://github.com/MLGBJDLW/Nexa/commit/48baab8856174e75bed37ee5977daee308257ebc))
-* **mobile:** verify the provider when resuming a pinned task ([53fb4b9](https://github.com/MLGBJDLW/Nexa/commit/53fb4b93d00d6746b31721c5ea468a3a9bfad385))
-* **tools:** keep scheduler hints and inactive skill fields out of dispatch ([0096140](https://github.com/MLGBJDLW/Nexa/commit/0096140e535cb10225a7dce7d1111ad31953d889))
-* **tools:** simplify partial change tracking after schema validation ([ff7b9a0](https://github.com/MLGBJDLW/Nexa/commit/ff7b9a0875635262dc7d2cb41f8d9f16820847a6))
+- Return to a chat with its selected model, connection and reasoning setting. Native OpenAI keeps GPT-6.2 Astra selected when account defaults or conversation history finish loading. [Chat model selection](https://github.com/MLGBJDLW/Nexa/pull/582)
+- Workspace rules and skills accept tool calls that include scheduler hints or unused empty installation fields. This avoids repeated validation errors while preserving checks for conflicting arguments. [Tool argument handling](https://github.com/MLGBJDLW/Nexa/commit/0096140e535cb10225a7dce7d1111ad31953d889)
+- In the Windows browser, moving the physical mouse no longer rejects tab-directed actions. The agent pauses if the host window is hidden or the user takes over. Browser waits can continue while the page makes observable progress. [Browser continuity](https://github.com/MLGBJDLW/Nexa/pull/582)
+- Refresh provider model aliases, retirements and supported voices, including Mistral, OpenAI and regional BigModel endpoints. Update verified external agent distributions for Gemini CLI, Cursor and Junie. [Model catalog evidence](https://github.com/MLGBJDLW/Nexa/blob/3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6/docs/development/MODEL_CATALOG_EVIDENCE_2026_11_19.md)
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 3c69b3c3704bab99ccae54f4b9fa3887ee36cdb6 -->
