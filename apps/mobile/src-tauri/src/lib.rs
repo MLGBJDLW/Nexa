@@ -300,7 +300,7 @@ async fn mobile_local(
                     .apply_to_shared(&mut saved)
                     .map_err(|e| e.to_string())?;
             }
-            state.create(&connections::settings(&saved))
+            state.create(&saved)
         }
         "start" => {
             state

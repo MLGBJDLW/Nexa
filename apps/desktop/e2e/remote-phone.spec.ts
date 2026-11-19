@@ -53,7 +53,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
   let approvalItems: any[] = [];
   let interactionItems: any[] = [];
   const conversations = [
-    { id: "chat-1", title: "Product review", model: "Qwen" },
+    { id: "chat-1", title: "Product review", model: "qwen-vl" },
   ];
   const manifest = {
     serverId: "desktop-1",
@@ -420,7 +420,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
     emit,
     history: () => {
       historyEnabled = true;
-      conversations.push({ id: "chat-2", title: "Second chat", model: "Qwen" });
+      conversations.push({ id: "chat-2", title: "Second chat", model: "qwen-vl" });
     },
     pendingPages: () => ({
       history: historyReplies.length,
@@ -861,9 +861,17 @@ test('phone follows desktop theme and language with persistent independent overr
 test("remote Chat and Live choose provider models independently of saved desktop defaults", async ({ page, context }) => {
   await context.grantPermissions(["microphone"]);
   const app = await fixture(page);
+  app.history();
   await page.goto('/phone.html#pair=123456&server=desktop-1');
+  const chats = page.getByLabel('Conversation', { exact:true });
+  await selectControl(chats, 'chat-1');
   await selectControl(page.getByLabel('Model connection', { exact:true }), 'qwen-plus');
   await selectControl(page.getByLabel('Model connection · Reasoning Effort', { exact:true }), 'high');
+  await selectControl(chats, 'chat-2');
+  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen VL');
+  await selectControl(chats, 'chat-1');
+  await page.reload();
+  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen Plus');
   await page.getByLabel('Message', { exact:true }).fill('Use the newly selected model');
   await page.getByRole('button', { name:'Send', exact:true }).click();
   await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'qwen-plus', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null });

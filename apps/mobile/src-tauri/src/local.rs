@@ -8,7 +8,7 @@ use nexa_core::{
     approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
     conversation::{
         conversation_message_is_model_history, conversation_message_to_llm, AgentTaskRun,
-        ConversationMessage, CreateConversationInput, ImageAttachment, TurnModelSelection,
+        ConversationMessage, ImageAttachment, TurnModelSelection,
     },
     db::Database,
     db_executor::DatabaseExecutor,
@@ -266,8 +266,43 @@ impl LocalRuntime {
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let mut saved = host.connection(options.connection_id.as_deref()).await?;
-        if let Some(selection) = &options.model_selection {
+        let conversation = self
+            .db
+            .remote_conversation_model(
+                conversation_id
+                    .as_deref()
+                    .ok_or("Create a conversation before sending.")?,
+            )
+            .map_err(err)?;
+        if conversation.archived_at.is_some() {
+            return Err("Restore this archived conversation before sending a message.".into());
+        }
+        let connection_id = options
+            .connection_id
+            .as_deref()
+            .or(conversation.agent_config_id.as_deref());
+        let mut saved = host.connection(connection_id).await?;
+        if options.connection_id.is_none() && saved.provider != conversation.provider {
+            return Err("Select a model connection for this conversation.".into());
+        }
+        let saved_selection = if options.connection_id.is_none() {
+            Some(
+                conversation
+                    .model_selection
+                    .clone()
+                    .unwrap_or_else(|| TurnModelSelection {
+                        model: conversation.model.clone(),
+                        ..TurnModelSelection::from(&saved)
+                    }),
+            )
+        } else {
+            None
+        };
+        if let Some(selection) = options
+            .model_selection
+            .as_ref()
+            .or(saved_selection.as_ref())
+        {
             selection.apply_to_shared(&mut saved).map_err(err)?;
         }
         if nexa_core::provider_catalog::retired_model_for_endpoint(
@@ -284,16 +319,6 @@ impl LocalRuntime {
             nexa_core::provider_registry::provider_type_from_key(&settings.provider_type)
                 .ok_or("Unsupported provider type.")?;
         let provider = create_provider(connections::provider_config(&saved)?).map_err(err)?;
-        let conversation = if let Some(id) = conversation_id {
-            self.db.get_conversation(&id).map_err(err)?
-        } else {
-            // The UI creates and retains a conversation before sending so a
-            // transport retry always addresses the same idempotency scope.
-            return Err("Create a conversation before sending.".into());
-        };
-        if conversation.archived_at.is_some() {
-            return Err("Restore this archived conversation before sending a message.".into());
-        }
         let previous = self
             .db
             .find_agent_turn_by_idempotency_key(&conversation.id, &request_id)
@@ -361,6 +386,17 @@ impl LocalRuntime {
             .map_err(err)?;
         let token = host.cancel_token();
         let channel = host.begin(self, &token).await?;
+        if workflow_run.is_none() && checkpoint_id.is_none() {
+            if let Err(error) = self.db.persist_conversation_selection(
+                &conversation.id,
+                &saved.provider,
+                &saved.id,
+                &TurnModelSelection::from(&saved),
+            ) {
+                host.end(channel).await;
+                return Err(err(error));
+            }
+        }
         let persisted = if let Some(checkpoint) = &checkpoint_id {
             self.db.resume_agent_turn_from_checkpoint(
                 &message,
@@ -808,17 +844,17 @@ impl LocalRuntime {
         }
     }
 
-    pub fn create(&self, settings: &LocalSettings) -> Result<Value, String> {
+    pub fn create(
+        &self,
+        connection: &nexa_core::connection_sync::SharedModelConnection,
+    ) -> Result<Value, String> {
         serde_json::to_value(
             self.db
-                .create_conversation(&CreateConversationInput {
-                    provider: settings.provider_type.clone(),
-                    model: settings.model.clone(),
-                    system_prompt: None,
-                    collection_context: None,
-                    project_id: None,
-                    persona_id: None,
-                })
+                .create_routed_conversation(
+                    &connection.provider,
+                    &connection.id,
+                    &TurnModelSelection::from(connection),
+                )
                 .map_err(err)?,
         )
         .map_err(err)

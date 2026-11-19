@@ -31,7 +31,38 @@ impl From<&AgentConfig> for TurnModelSelection {
     }
 }
 
+impl From<&crate::connection_sync::SharedModelConnection> for TurnModelSelection {
+    fn from(connection: &crate::connection_sync::SharedModelConnection) -> Self {
+        Self {
+            model: connection.model.clone(),
+            reasoning_enabled: connection.reasoning_enabled,
+            reasoning_effort: connection.reasoning_effort.clone(),
+            thinking_budget: connection.thinking_budget,
+        }
+    }
+}
+
 impl crate::db::Database {
+    pub fn create_routed_conversation(
+        &self,
+        provider: &str,
+        connection_id: &str,
+        selection: &TurnModelSelection,
+    ) -> Result<super::Conversation, CoreError> {
+        self.create_conversation_with_selection(
+            &super::CreateConversationInput {
+                provider: provider.into(),
+                model: selection.model.clone(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            },
+            Some(connection_id),
+            Some(selection),
+        )
+    }
+
     pub fn select_conversation_model(
         &self,
         id: &str,
@@ -50,10 +81,25 @@ impl crate::db::Database {
         id: &str,
         config: &AgentConfig,
     ) -> Result<(), CoreError> {
-        let json = serde_json::to_string(&TurnModelSelection::from(config))?;
+        self.persist_conversation_selection(
+            id,
+            &config.provider,
+            &config.id,
+            &TurnModelSelection::from(config),
+        )
+    }
+
+    pub fn persist_conversation_selection(
+        &self,
+        id: &str,
+        provider: &str,
+        connection_id: &str,
+        selection: &TurnModelSelection,
+    ) -> Result<(), CoreError> {
+        let json = serde_json::to_string(selection)?;
         let affected = self.conn().execute(
             "UPDATE conversations SET provider=?2, model=?3, agent_config_id=?4, model_selection_json=?5, updated_at=datetime('now') WHERE id=?1",
-            rusqlite::params![id, config.provider, config.model, config.id, json])?;
+            rusqlite::params![id, provider, selection.model, connection_id, json])?;
         if affected == 0 {
             return Err(CoreError::NotFound(format!("Conversation {id}")));
         }

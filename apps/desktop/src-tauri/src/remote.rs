@@ -587,11 +587,8 @@ impl RemoteHost for DesktopHost {
                     Some(input) => serde_json::from_value::<nexa_core::conversation::TurnModelSelection>(input)?.apply(&saved)?,
                     None => saved,
                 };
-                let conversation = db.create_conversation(&nexa_core::conversation::CreateConversationInput {
-                    provider: config.provider, model: config.model, system_prompt: None,
-                    collection_context: None, project_id: None, persona_id: None,
-                })?;
-                Ok(json!({"id":conversation.id,"title":conversation.title,"model":conversation.model}))
+                let conversation = db.create_routed_conversation(&config.provider, &config.id, &(&config).into())?;
+                Ok(json!({"id":conversation.id,"title":conversation.title,"model":conversation.model,"provider":conversation.provider,"agentConfigId":conversation.agent_config_id,"modelSelection":conversation.model_selection}))
             }).await.map(|result| result.value).map_err(|e| e.to_string()),
             StartTurn { conversation_id, connection_id, message, idempotency_key, model_selection, attachments, execution_mode, power_mode, collaboration_mode, vision_turn_override } => {
                 let request = serde_json::from_value(json!({
