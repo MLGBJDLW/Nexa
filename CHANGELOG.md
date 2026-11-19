@@ -5,7 +5,7 @@
 
 ### Features
 
-* **models:** update Gemini, MiniMax, OpenAI and external agent catalogs ([43c1eb3](https://github.com/MLGBJDLW/Nexa/commit/43c1eb38bd93dc75300bbbe7cfe75bc78e30a642))
+- Choose Gemini 4 Neon through the paid Google Gemini API, an eligible Vertex AI project, or OpenRouter. All three routes support low, medium, high and xhigh thinking. [Gemini and provider catalog changes](https://github.com/MLGBJDLW/Nexa/commit/43c1eb38bd93dc75300bbbe7cfe75bc78e30a642)
 
 
 ### Bug Fixes
@@ -18,8 +18,6 @@
 * **openai:** scope empty replay placeholders to the native provider ([76feec8](https://github.com/MLGBJDLW/Nexa/commit/76feec8d5bfc3420d8d61b10a156452fe334dee9))
 * **remote:** release the picker action when the device panel closes ([63cc170](https://github.com/MLGBJDLW/Nexa/commit/63cc1705b662c37dfac7154e952764eaf4fcddb3))
 * **remote:** share a paired desktop display without choosing an application ([784a0c2](https://github.com/MLGBJDLW/Nexa/commit/784a0c2acacd4527aba0ce0b7aa1f6038fc50d95))
-* **workspace:** share paired desktop displays and restore native OpenAI tool turns ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
-* **workspace:** share paired displays and restore native OpenAI tool turns ([#579](https://github.com/MLGBJDLW/Nexa/issues/579)) ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 64d1e0d13f1e8cf07c29eaf031cf56fb063a2917 -->
