@@ -343,6 +343,23 @@ mod tests {
         assert!(new.stopped.is_cancelled());
         assert!(screens.share("phone").is_err());
     }
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires an interactive Windows display"]
+    async fn paired_monitor_supplies_a_view_only_frame() {
+        let monitors =
+            serde_json::to_value(computer_use_tool::monitors::monitors().unwrap()).unwrap();
+        let id = monitors[0]["id"].as_str().expect("a connected display");
+        let mut share = pending();
+        Arc::get_mut(&mut share).unwrap().source = format!("monitor:{id}");
+        let frame = share.capture().await.unwrap();
+        assert_eq!(frame["controlAvailable"], false);
+        assert!(frame.get("observationId").is_none());
+        let image = &frame["image"];
+        assert_eq!(image["mimeType"], "image/jpeg");
+        assert!(image["base64"].as_str().unwrap().starts_with("/9j/"));
+        assert!(image["width"].as_u64().unwrap() > 0 && image["height"].as_u64().unwrap() > 0);
+    }
     #[tokio::test]
     async fn paired_inputs_pass_the_real_computer_control_argument_contract() {
         let directory = tempfile::tempdir().unwrap();
