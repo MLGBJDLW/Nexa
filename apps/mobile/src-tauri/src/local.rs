@@ -205,7 +205,7 @@ impl LocalRuntime {
             .as_ref()
             .map(|schedule| schedule.allowed_tools.clone());
         let mut workflow_run = scheduled.as_ref().map(|schedule| schedule.run_id.clone());
-        if let Some(id) = &checkpoint_id {
+        let resume_provider = if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
             let run = self
                 .db
@@ -246,7 +246,10 @@ impl LocalRuntime {
                 workflow_run = Some(job.id);
             }
             text = checkpoint.resume_prompt;
-        }
+            run.provider
+        } else {
+            None
+        };
         let execution_tools = if let Some(allowed) = &options.allowed_tools {
             Some(match &scheduled_tools {
                 Some(granted) => granted
@@ -282,6 +285,12 @@ impl LocalRuntime {
             .as_deref()
             .or(conversation.agent_config_id.as_deref());
         let mut saved = host.connection(connection_id).await?;
+        if resume_provider
+            .as_ref()
+            .is_some_and(|provider| *provider != saved.provider)
+        {
+            return Err("The original connection now uses a different provider. Restore its provider or start a new turn.".into());
+        }
         if options.connection_id.is_none() && saved.provider != conversation.provider {
             return Err("Select a model connection for this conversation.".into());
         }

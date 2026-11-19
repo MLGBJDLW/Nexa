@@ -554,7 +554,8 @@ mod tests {
             content: "test".into(),
             tool_call_id: None,
             tool_calls: vec![],
-            artifacts: None,
+            artifacts: Some(json!({"phoneTurnOptions":{"connectionId":"legacy-account",
+                "modelSelection":{"model":"pinned","reasoningEffort":"high"}}})),
             token_count: 1,
             created_at: String::new(),
             sort_order: 0,
@@ -564,8 +565,23 @@ mod tests {
         .unwrap();
         let turn = db.create_conversation_turn(&chat.id, "user", None).unwrap();
         let run = db
-            .create_agent_task_run(&chat.id, &turn.id, "user", "test", None, None)
+            .create_agent_task_run(
+                &chat.id,
+                &turn.id,
+                "user",
+                "test",
+                Some("openai"),
+                Some("pinned"),
+            )
             .unwrap();
+        let legacy = db.remote_conversation_model(&chat.id).unwrap();
+        assert_eq!(legacy.agent_config_id.as_deref(), Some("legacy-account"));
+        assert_eq!(legacy.provider, "openai");
+        assert_eq!(legacy.model, "pinned");
+        assert_eq!(
+            legacy.model_selection.unwrap().reasoning_effort.as_deref(),
+            Some("high")
+        );
         let events = (0..130)
             .map(|index| {
                 AgentRunEvent::output_delta(
