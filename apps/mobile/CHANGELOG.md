@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.14...nexa-mobile-v0.3.15) (2026-11-19)
+
+
+### Bug Fixes
+
+* **remote:** share a paired desktop display without choosing an application ([784a0c2](https://github.com/MLGBJDLW/Nexa/commit/784a0c2acacd4527aba0ce0b7aa1f6038fc50d95))
+* **workspace:** share paired desktop displays and restore native OpenAI tool turns ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
+* **workspace:** share paired displays and restore native OpenAI tool turns ([#579](https://github.com/MLGBJDLW/Nexa/issues/579)) ([64d1e0d](https://github.com/MLGBJDLW/Nexa/commit/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917))
+
 ## [0.3.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.13...nexa-mobile-v0.3.14) (2026-11-18)
 
 
