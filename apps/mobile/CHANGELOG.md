@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.14...nexa-mobile-v0.3.15) (2026-11-19)
+
+### Features
+
+- Choose Gemini 4 Neon in chat through the paid Google Gemini API, an eligible Vertex AI project, or OpenRouter. All three routes support low, medium, high and xhigh thinking. [Model catalog](https://github.com/MLGBJDLW/Nexa/blob/64d1e0d13f1e8cf07c29eaf031cf56fb063a2917/docs/development/MODEL_CATALOG_EVIDENCE_2026_11_19.md)
+
+### Bug Fixes
+
+- View an entire display from a paired desktop and follow it across application switches. On Windows, the desktop preselects the primary monitor and also offers other monitors and application windows. [Paired display sharing](https://github.com/MLGBJDLW/Nexa/pull/579)
+- Continue native OpenAI Responses tool turns when the service returns function calls alone or streams encrypted reasoning separately. [OpenAI replay fix](https://github.com/MLGBJDLW/Nexa/commit/c3d8be8e86b88cd3716c3a8fea935865a4a316c9)
+
 ## [0.3.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.13...nexa-mobile-v0.3.14) (2026-11-18)
 
 
