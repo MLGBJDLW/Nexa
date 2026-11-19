@@ -1,10 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ThemeProvider, useTheme } from '../../src/lib/ThemeProvider';
+import { ThemeProvider, resolveDesktopThemeMedia, useTheme } from '../../src/lib/ThemeProvider';
+import { ThemeBackdrop } from '../../src/components/ThemeBackdrop';
 
 function Appearance() {
-  const { activeThemeId } = useTheme();
-  return <output data-testid="active-appearance">{activeThemeId}</output>;
+  const { activeThemeId, activeCustomTheme } = useTheme();
+  return <>
+    <ThemeBackdrop theme={activeCustomTheme} resolve={resolveDesktopThemeMedia} />
+    <output data-testid="active-appearance">{activeThemeId}</output>
+  </>;
 }
 
 const root = createRoot(document.getElementById('root')!);

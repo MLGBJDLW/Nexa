@@ -8,6 +8,7 @@ import { remoteLiveTransport } from './remoteLiveTransport';
 import { RemoteChat } from './RemoteChat';
 import { RemoteScreen } from './RemoteScreen';
 import { remoteButton, remoteField } from './remoteUi';
+import { ThemeBackdrop } from '../../components/ThemeBackdrop';
 import { THEMES } from '../../lib/theme';
 import { useRemoteAppearance } from './useRemoteAppearance';
 
@@ -113,7 +114,7 @@ export function MobileApp() {
       className="relative isolate flex min-h-dvh flex-col bg-surface-0 text-text-primary"
       data-testid="remote-app"
     >
-      <div className="app-theme-backdrop" aria-hidden="true" />
+      <ThemeBackdrop theme={appearance.activeTheme} resolve={appearance.resolveMedia} onError={appearance.reportUnavailable} />
       <header className="sticky top-0 z-20 border-b border-border bg-surface-0/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">

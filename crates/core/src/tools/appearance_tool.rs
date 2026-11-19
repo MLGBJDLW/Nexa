@@ -18,6 +18,8 @@ struct AppearanceArgs {
     action: String,
     #[serde(default)]
     plugin: Option<serde_json::Value>,
+    #[serde(default)]
+    background_path: Option<String>,
     #[serde(default, alias = "name")]
     theme_id: Option<String>,
 }
@@ -39,6 +41,7 @@ impl Tool for AppearanceTool {
                 "action": { "type": "string", "enum": ["list", "draft", "apply", "activate", "rollback", "remove"] },
                 "name": { "type": "string", "description": "Plain theme name for activate/remove. Ambiguous names require an explicit themeId." },
                 "themeId": { "type": "string", "description": "Built-in id, installed theme id, or unique custom theme name for activate/remove. Exact ids take precedence; ambiguous names are rejected. Use list to inspect names and ids." },
+                "backgroundPath": { "type": "string", "description": "For apply only. Import this local image, animated GIF, MP4, or WebM using the conversation's file access, and bind it to plugin.theme.background. Omit kind and assetId when supplying a path. The installed declaration contains only its managed asset id." },
                 "plugin": {
                     "type": "object",
                     "description": "Theme resource for draft/apply. Only name and theme are required; format metadata and id are supplied automatically. Existing explicit ids are preserved.",
@@ -99,6 +102,10 @@ impl Tool for AppearanceTool {
             .or_else(|| args.get("plugin")?.get("name")?.as_str())
             .unwrap_or("the selected appearance");
         match action {
+            "apply" if args.get("backgroundPath").and_then(|path| path.as_str()).is_some() => Some(format!(
+                "Use {} as the background of {theme} on Nexa and its paired clients.",
+                args["backgroundPath"].as_str()?
+            )),
             "apply" | "activate" => Some(format!(
                 "Apply {theme} to the Nexa interface. This is a local, reversible appearance change."
             )),
@@ -124,6 +131,11 @@ impl Tool for AppearanceTool {
             CoreError::InvalidInput(format!("Invalid appearance arguments: {error}"))
         })?;
         let action = args.action.trim();
+        if action != "apply" && args.background_path.is_some() {
+            return Err(CoreError::InvalidInput(
+                "backgroundPath is only available with appearance apply".into(),
+            ));
+        }
         let (registry, changed) = match action {
             "list" => (context.db.load_appearance_registry()?, false),
             "draft" => {
@@ -140,7 +152,7 @@ impl Tool for AppearanceTool {
                 ));
             }
             "apply" => {
-                let plugin = normalize_plugin(args.plugin, action, context.db)?;
+                let plugin = plugin_to_apply(args.plugin, args.background_path, &context).await?;
                 let written = crate::user_extensions::write_theme_plugin_to_configured_directory(
                     plugin.clone(),
                 )?;
@@ -200,6 +212,61 @@ impl Tool for AppearanceTool {
             serde_json::json!({ "registry": registry }),
         ))
     }
+}
+
+async fn plugin_to_apply(
+    declaration: Option<serde_json::Value>,
+    background_path: Option<String>,
+    context: &ToolExecutionContext<'_>,
+) -> Result<ThemeResourcePlugin, CoreError> {
+    let Some(path) = background_path else {
+        return normalize_plugin(declaration, "apply", context.db);
+    };
+    let source = super::resolve_agent_file_path(context, std::path::Path::new(&path))?;
+    let data_root = context
+        .db
+        .db_path()
+        .and_then(std::path::Path::parent)
+        .ok_or_else(|| {
+            CoreError::InvalidInput(
+                "Background import needs a file-backed appearance registry".into(),
+            )
+        })?
+        .to_path_buf();
+    let mut declaration = declaration.ok_or_else(|| {
+        CoreError::InvalidInput("Supply a theme plugin with backgroundPath".into())
+    })?;
+    let theme = declaration
+        .get_mut("theme")
+        .and_then(|theme| theme.as_object_mut())
+        .ok_or_else(|| {
+            CoreError::InvalidInput("Supply a theme object with backgroundPath".into())
+        })?;
+    let background = theme
+        .entry("background")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| CoreError::InvalidInput("Theme background must be an object".into()))?;
+    // Normalize the whole declaration before writing a managed asset.
+    background.remove("value");
+    background.insert("kind".into(), "none".into());
+    background.remove("assetId");
+    let mut plugin = normalize_plugin(Some(declaration), "apply", context.db)?;
+    let asset = tokio::task::spawn_blocking(move || {
+        crate::managed_assets::ManagedLocalAssetStore::new(&data_root, &data_root)
+            .import_theme_background(&source)
+    })
+    .await
+    .map_err(|error| CoreError::Internal(error.to_string()))??;
+    plugin.theme.background.kind = "image".into();
+    if asset.media_type.starts_with("video/") {
+        plugin.theme.background.kind = "video".into();
+        if plugin.theme.background.fit.as_deref() == Some("tile") {
+            plugin.theme.background.fit = Some("cover".into());
+        }
+    }
+    plugin.theme.background.asset_id = Some(asset.asset_id);
+    Ok(plugin)
 }
 
 fn normalize_plugin(
@@ -367,6 +434,7 @@ mod tests {
         let mut args = AppearanceArgs {
             action: "activate".into(),
             plugin: None,
+            background_path: None,
             theme_id: Some("Agent Autumn".into()),
         };
         assert!(resolve_theme_id(&registry, &args, "activate")
@@ -380,6 +448,36 @@ mod tests {
         );
         args.theme_id = Some("missing".into());
         assert!(resolve_theme_id(&registry, &args, "activate").is_err());
+    }
+
+    #[tokio::test]
+    async fn applies_a_workspace_video_as_a_portable_managed_background() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace_path = root.path().join("project");
+        std::fs::create_dir(&workspace_path).unwrap();
+        let clip = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom";
+        std::fs::write(workspace_path.join("loop.mp4"), clip).unwrap();
+        let db = Database::new(root.path().join("nexa.db")).unwrap();
+        let workspace =
+            crate::workspace::Workspace::validate(&[workspace_path.to_string_lossy().into_owned()])
+                .unwrap();
+        let mut context = ToolExecutionContext::new("apply", "", &db, &[]);
+        context.workspace = Some(&workspace);
+        let plugin = plugin_to_apply(
+            Some(serde_json::json!({"name":"Rain","theme":{"background":{"dim":0.35}}})),
+            Some("loop.mp4".into()),
+            &context,
+        )
+        .await
+        .unwrap();
+        assert_eq!(plugin.theme.background.kind, "video");
+        assert_eq!(plugin.theme.background.dim, Some(0.35));
+        let asset = crate::managed_assets::ManagedLocalAssetStore::new(root.path(), root.path())
+            .resolve_theme_background(plugin.theme.background.asset_id.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(asset.media_type, "video/mp4");
+        assert_eq!(std::fs::read(asset.path).unwrap(), clip);
+        assert!(!serde_json::to_string(&plugin).unwrap().contains("loop.mp4"));
     }
 
     #[tokio::test]

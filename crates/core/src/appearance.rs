@@ -260,6 +260,27 @@ impl AppearanceRegistry {
     }
 }
 
+/// Revision advertised by a committed appearance mutation on any host.
+pub fn changed_appearance_revision(event: &crate::agent_run::AgentRunEvent) -> Option<u64> {
+    if event.kind != crate::agent_run::AgentRunEventKind::ToolCompleted {
+        return None;
+    }
+    let run = event.payload.get("run")?;
+    if run.get("toolName")?.as_str()? != "appearance" || run.get("status")?.as_str()? != "completed"
+    {
+        return None;
+    }
+    let artifacts = run.get("artifacts")?;
+    if artifacts.get("kind")?.as_str()? != "appearanceRegistry" {
+        return None;
+    }
+    artifacts
+        .get("payload")?
+        .get("registry")?
+        .get("revision")?
+        .as_u64()
+}
+
 impl Database {
     pub fn load_appearance_registry(&self) -> Result<AppearanceRegistry, CoreError> {
         load_registry(&self.conn())

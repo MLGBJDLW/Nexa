@@ -219,6 +219,7 @@ fn build_session_update(
                 "target_streaming_delay_ms": 480
             });
             if let Some(language) = language
+                .filter(|_| model != "voxtral-mini-transcribe-realtime-2602")
                 .and_then(|value| value.split(['-', '_']).next())
                 .filter(|value| {
                     value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
@@ -1113,6 +1114,13 @@ mod tests {
     fn mistral_realtime_transcription_uses_pcm_deltas_and_authoritative_terminal_text() {
         let dialect = RealtimeDialect::Mistral;
         assert_eq!(dialect.sample_rate(), 16000);
+        let previous = build_session_update(
+            dialect,
+            "voxtral-mini-transcribe-realtime-2602",
+            Some("en-US"),
+            "test",
+        );
+        assert!(previous["session"].get("language").is_none());
         let setup = build_session_update(
             dialect,
             "voxtral-mini-transcribe-realtime-3-0",

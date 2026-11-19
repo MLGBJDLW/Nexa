@@ -66,7 +66,7 @@ async fn request(app: &AppHandle, input: Value) -> Result<(), String> {
         return Ok(());
     }
     let saved = connections::get(app, None).await?;
-    let created = runtime.create(&connections::settings(&saved))?;
+    let created = runtime.create(&saved)?;
     let conversation = created["id"]
         .as_str()
         .ok_or("Unable to create a screen conversation")?

@@ -14,6 +14,7 @@ import type { RemoteChatClient } from "./remoteClient";
 import { remoteButton, remoteField } from "./remoteUi";
 import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
+import { readChatModelDraft, resolveChatModel, type ChatConnection as Connection, type ChatConversation as Conversation, type ChatModelRoute } from './remoteChatModel';
 import { RemoteVoiceInput } from './RemoteVoiceInput';
 import { useHoldToDictate, type DictationControls } from '../voice/useHoldToDictate';
 import { NativeDictationInput } from './NativeDictationInput';
@@ -40,18 +41,8 @@ function replayTail(text: string): string {
   return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
 }
 
-interface Connection {
-  id: string;
-  name: string;
-  model: string;
-  isDefault: boolean;
-}
-interface Conversation {
-  id: string;
-  title: string;
-  model: string;
-}
 interface MessagePage {
+  conversation?: Conversation;
   messages: ChatMessage[];
   beforeOrder: number | null;
 }
@@ -88,19 +79,19 @@ interface Interaction {
   questions: Question[];
 }
 
-export function RemoteChat({
-  client,
-  initialDraft,
-  onDraftConsumed,
-  emptyState,
-  mobile,
-}: {
+interface RemoteChatProps {
   client: RemoteChatClient;
   initialDraft: string;
   onDraftConsumed: () => void;
   emptyState?: ReactNode;
   mobile?: MobileChatPresentation;
-}) {
+}
+
+export function RemoteChat(props: RemoteChatProps) {
+  return <RemoteChatSession key={props.client.paired.manifest.serverId} {...props} />;
+}
+
+function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, mobile }: RemoteChatProps) {
   const { t, locale } = useTranslation();
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const speechGeneration = useRef(0);
@@ -112,8 +103,6 @@ export function RemoteChat({
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const followOutput = useRef(true);
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectionId, setConnectionId] = useState("");
-  const [modelSelection, setModelSelection] = useState<TurnModelSelection | null>(null);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const listGeneration = useRef(0);
@@ -128,6 +117,42 @@ export function RemoteChat({
       ) || "",
   );
   const selectedConversation = useRef(conversationId);
+  const serverId = client.paired.manifest.serverId;
+  const [openedChat, setOpenedChat] = useState<{ id: string; chat?: Conversation } | null>(null);
+  const opened = openedChat?.id === conversationId ? openedChat : null;
+  const chat = opened?.chat ?? conversations.find(item => item.id === conversationId);
+  const modelDraftKey = (id: string) => `nexa.remote.model.${JSON.stringify([serverId, id])}`;
+  const routeKey = modelDraftKey(conversationId);
+  const [modelRevision, setModelRevision] = useState(0);
+  const modelDraft = useMemo(() => readChatModelDraft(routeKey), [routeKey, modelRevision]);
+  const { connectionId, modelSelection } = resolveChatModel(connections, conversationId, opened || chat?.agentConfigId ? chat : undefined, modelDraft);
+  useEffect(() => {
+    if (!modelDraft || !chat?.modelSelection || chat.agentConfigId !== modelDraft.connectionId || !connectionId) return;
+    const choice = modelDraft.modelSelection;
+    const confirmed = choice ? choice.model === chat.modelSelection.model &&
+      choice.reasoningEffort === chat.modelSelection.reasoningEffort &&
+      choice.thinkingBudget === chat.modelSelection.thinkingBudget &&
+      (choice.reasoningEnabled == null || choice.reasoningEnabled === chat.modelSelection.reasoningEnabled)
+      : modelDraft.submitted && chat.model === connections.find(item => item.id === connectionId)?.model;
+    if (confirmed && JSON.stringify(readChatModelDraft(routeKey)) === JSON.stringify(modelDraft)) {
+      localStorage.removeItem(routeKey);
+      setModelRevision(current => current + 1);
+    }
+  }, [chat, connectionId, connections, modelDraft, routeKey]);
+  function storeRoute(id: string, route: ChatModelRoute | null) {
+    if (route) localStorage.setItem(modelDraftKey(id), JSON.stringify(route));
+    else localStorage.removeItem(modelDraftKey(id));
+    setModelRevision(current => current + 1);
+  }
+  function chooseRoute(id: string, selection: TurnModelSelection | null) {
+    storeRoute(conversationId, { connectionId: id, provider: connections.find(item => item.id === id)?.provider, modelSelection: selection });
+  }
+  function rememberCreated(item: Conversation) {
+    // Hosts predating conversation model metadata need the phone's route after reload.
+    if (!item.agentConfigId) storeRoute(item.id, { connectionId, provider: connections.find(entry => entry.id === connectionId)?.provider, modelSelection });
+    storeRoute('', null);
+    setConversations(current => [item, ...current.filter(chat => chat.id !== item.id)]);
+  }
   const loadAttachment = useCallback((messageId: string, index: number) => client.rpc<ImageAttachment>('chat.attachment', {
     conversationId, messageId, index,
   }), [client, conversationId]);
@@ -317,13 +342,6 @@ export function RemoteChat({
       .then(([items]) => {
         if (active) {
           setConnections(items);
-          setConnectionId(
-            (current) =>
-              (items.some(item => item.id === current) ? current : '') ||
-              items.find((item) => item.isDefault)?.id ||
-              items[0]?.id ||
-              "",
-          );
         }
       })
       .catch(errorText)
@@ -412,6 +430,7 @@ export function RemoteChat({
       const result = await client.rpc<MessagePage>('chat.read', { conversationId });
       if (!valid() || runId !== expectedRun) return;
       const firstLoad = !historyLoaded;
+      setOpenedChat({ id: conversationId, chat: result.conversation?.id === conversationId ? result.conversation : undefined });
       historyLoaded = true;
       setMessages(current => mergeRemoteHistory(current, result.messages));
       if (firstLoad) setBeforeOrder(result.beforeOrder);
@@ -726,10 +745,7 @@ export function RemoteChat({
           selectedConversation.current === conversationId
         )
           selectConversation(id);
-        setConversations((current) => [
-          conversation,
-          ...current.filter((item) => item.id !== conversation.id),
-        ]);
+        rememberCreated(conversation);
       }
       // The chat now has a durable ID. On a failed move, a second send
       // retries the same association rather than creating a second chat.
@@ -768,6 +784,9 @@ export function RemoteChat({
         attachments: request.attachments,
         ...request.settings,
       });
+      if (modelDraft && id === conversationId && !modelDraft.modelSelection && readChatModelDraft(routeKey)?.connectionId === connectionId) {
+        storeRoute(id, { ...modelDraft, submitted: true });
+      }
       if (pendingSend.current === request) pendingSend.current = null;
       if (selectedConversation.current === id) {
         setDraft((current) => (current === request.message ? "" : current));
@@ -866,12 +885,14 @@ export function RemoteChat({
   const ghostPrompt = followups?.items[0]?.prompt;
   const draftProject = !conversationId && projectView?.projects.find(project => project.id === projectView.selectedId);
   const providerControls = <>
-      {connections.length > 0 && (mobile ? <NexaCombobox ariaLabel={t('remote.providerConnection')} className={remoteField} value={connectionId} onValueChange={id=>{setConnectionId(id);setModelSelection(null);}} options={connections.map(item=>({value:item.id,label:item.name,description:item.model}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}/> : <select
+      {connections.length > 0 && (mobile ? <NexaCombobox ariaLabel={t('remote.providerConnection')} className={remoteField} value={connectionId} disabled={sending} onValueChange={id=>chooseRoute(id,null)} options={connections.map(item=>({value:item.id,label:item.name,description:item.model}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}/> : <select
         aria-label={t("remote.providerConnection")}
         className={remoteField}
         value={connectionId}
-        onChange={(event) => { setConnectionId(event.target.value); setModelSelection(null); }}
+        disabled={sending}
+        onChange={(event) => chooseRoute(event.target.value, null)}
       >
+          {!connectionId && <option value="">{t('remote.providerConnection')}</option>}
         {connections.map((item) => (
           <option key={item.id} value={item.id}>
             {item.name} 路 {item.model}
@@ -879,7 +900,7 @@ export function RemoteChat({
         ))}
       </select>)}
       {client.modelPickerAvailable !== false && <ConnectionModelPicker key={catalogRevision} connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
-        value={modelSelection} onChange={setModelSelection} load={client.models} label={t('remote.model')} disabled={sending} />}
+        value={modelSelection} onChange={selection => chooseRoute(connectionId, selection)} load={client.models} label={t('remote.model')} disabled={sending || !connectionId} />}
     </>;
   const conversationControls = <>
       <div className="flex gap-2">
@@ -903,7 +924,7 @@ export function RemoteChat({
           className={remoteButton}
           aria-label={t("remote.newChat")}
           onClick={() => void create()}
-          disabled={sending || !connectionId}
+          disabled={sending || !connections.length}
         >
           <Plus size={18} />
         </button>
@@ -922,8 +943,8 @@ export function RemoteChat({
       className={mobile ? "native-chat" : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"}
       data-testid="remote-chat"
     >
-      {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connectionId}/>
-        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
+      {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connections.length}/>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connections.length} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
           archiveId={manageTarget?.action === 'archive' ? manageTarget.item.id : undefined}
           onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
           onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
@@ -955,7 +976,7 @@ export function RemoteChat({
         <div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
         {schedulesOpen && <MobileSchedules client={client} conversationId={conversationId} onClose={()=>setSchedulesOpen(false)} ensureChat={async () => {
           const item = await client.rpc<Conversation>('chat.create', {connectionId,modelSelection});
-          selectConversation(item.id); setConversations(current => [item,...current.filter(chat=>chat.id!==item.id)]);
+          rememberCreated(item); selectConversation(item.id);
           if (projectView?.selectedId) await projectView.move(item.id, projectView.selectedId);
           return item.id;
         }}/>}

@@ -478,22 +478,26 @@ pub struct BrowserTrustedInputGuard {
     webview: Webview,
     token: Arc<str>,
     #[cfg(windows)]
-    pointer_focus: Option<super::system_pointer::ObservedPointerFocus>,
+    pointer_focus: Option<(
+        super::system_pointer::ObservedPointerFocus,
+        super::state::BrowserInputDelivery,
+    )>,
 }
 
 impl BrowserTrustedInputGuard {
     #[cfg(windows)]
     pub(super) fn with_pointer_focus(
         mut self,
-        focus: Option<super::system_pointer::ObservedPointerFocus>,
+        focus: super::system_pointer::ObservedPointerFocus,
+        delivery: super::state::BrowserInputDelivery,
     ) -> Self {
-        self.pointer_focus = focus;
+        self.pointer_focus = Some((focus, delivery));
         self
     }
     fn user_input_epoch(&self) -> Result<Option<u32>, String> {
         #[cfg(windows)]
-        if let Some(focus) = self.pointer_focus {
-            if focus.check()?.is_some() {
+        if let Some((focus, delivery)) = self.pointer_focus {
+            if focus.check_delivery(delivery)?.is_some() {
                 return Ok(None);
             }
         }

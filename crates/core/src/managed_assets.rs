@@ -1,15 +1,15 @@
 //! Strictly scoped storage for local media exposed to the desktop WebView.
 
 use crate::error::CoreError;
-use image::GenericImageView;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
+use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 const MAX_AUDIO_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_THEME_IMAGE_BYTES: u64 = 24 * 1024 * 1024;
+const MAX_THEME_BACKGROUND_BYTES: u64 = 24 * 1024 * 1024;
 const MAX_THEME_IMAGE_PIXELS: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,26 +99,39 @@ impl ManagedLocalAssetStore {
     }
 
     pub fn import_theme_background(&self, source: &Path) -> Result<ManagedAsset, CoreError> {
-        let metadata = fs::metadata(source)?;
-        if metadata.len() == 0 || metadata.len() > MAX_THEME_IMAGE_BYTES {
+        let (file, metadata) = open_theme_file(source)?;
+        if metadata.len() == 0 || metadata.len() > MAX_THEME_BACKGROUND_BYTES {
             return Err(CoreError::InvalidInput(format!(
-                "Theme image must be between 1 byte and {MAX_THEME_IMAGE_BYTES} bytes."
+                "Theme background must be a regular file between 1 byte and {MAX_THEME_BACKGROUND_BYTES} bytes."
             )));
         }
-        let bytes = fs::read(source)?;
-        let media_type = detect_image_media_type(&bytes).ok_or_else(|| {
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.take(MAX_THEME_BACKGROUND_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_THEME_BACKGROUND_BYTES {
+            return Err(CoreError::InvalidInput(
+                "Theme background grew during import".into(),
+            ));
+        }
+        let media_type = detect_theme_media_type(&bytes).ok_or_else(|| {
             CoreError::InvalidInput(
-                "Theme background is not a supported PNG, JPEG, WebP, or GIF image.".into(),
+                "Choose a PNG, JPEG, WebP, GIF, MP4, or WebM background.".into(),
             )
         })?;
-        let decoded = image::load_from_memory(&bytes).map_err(|error| {
-            CoreError::InvalidInput(format!("Theme background could not be decoded: {error}"))
-        })?;
-        let (width, height) = decoded.dimensions();
-        if u64::from(width).saturating_mul(u64::from(height)) > MAX_THEME_IMAGE_PIXELS {
-            return Err(CoreError::InvalidInput(
-                "Theme background exceeds the 64-megapixel safety limit.".into(),
-            ));
+        if media_type.starts_with("image/") {
+            let decode_error = |error| {
+                CoreError::InvalidInput(format!("Theme background could not be decoded: {error}"))
+            };
+            let (width, height) = image::ImageReader::new(Cursor::new(&bytes))
+                .with_guessed_format()?
+                .into_dimensions()
+                .map_err(decode_error)?;
+            if u64::from(width) * u64::from(height) > MAX_THEME_IMAGE_PIXELS {
+                return Err(CoreError::InvalidInput(
+                    "Theme background exceeds the 64-megapixel safety limit.".into(),
+                ));
+            }
+            image::load_from_memory(&bytes).map_err(decode_error)?;
         }
         fs::create_dir_all(&self.theme_dir)?;
         let asset_id = sha256_hex(&bytes);
@@ -195,22 +208,27 @@ impl ManagedLocalAssetStore {
                 "Invalid managed theme asset id.".into(),
             ));
         }
-        for extension in ["png", "jpg", "webp", "gif"] {
+        for extension in ["png", "jpg", "webp", "gif", "mp4", "webm"] {
             let path = self.theme_dir.join(format!("{asset_id}.{extension}"));
             if !path.is_file() {
                 continue;
             }
-            let bytes = fs::read(&path)?;
-            let media_type = detect_image_media_type(&bytes).ok_or_else(|| {
-                CoreError::InvalidInput(
-                    "Managed theme asset has an invalid image signature.".into(),
-                )
-            })?;
+            let (file, metadata) = open_theme_file(&path)?;
+            let bytes = metadata.len();
+            let mut header = Vec::new();
+            file.take(512).read_to_end(&mut header)?;
+            let media_type = detect_theme_media_type(&header)
+                .filter(|mime| extension_for_media_type(mime) == extension)
+                .ok_or_else(|| {
+                    CoreError::InvalidInput(
+                        "Managed theme asset has an invalid media signature.".into(),
+                    )
+                })?;
             return Ok(ManagedAsset {
                 asset_id: asset_id.to_string(),
                 path,
                 media_type: media_type.into(),
-                bytes: bytes.len() as u64,
+                bytes,
             });
         }
         Err(CoreError::NotFound(format!(
@@ -251,6 +269,25 @@ impl ManagedLocalAssetStore {
         }
         Ok((removed_files, removed_bytes))
     }
+}
+
+fn open_theme_file(path: &Path) -> Result<(fs::File, fs::Metadata), CoreError> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Opening a FIFO can block indefinitely before handle metadata is available.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(CoreError::InvalidInput(
+            "Choose a regular file for the theme background.".into(),
+        ));
+    }
+    Ok((file, metadata))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -297,6 +334,39 @@ pub fn detect_image_media_type(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+fn detect_theme_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if let Some(image) = detect_image_media_type(bytes) {
+        return Some(image);
+    }
+    // Check the container brand/document type as well as its binary signature.
+    // HEIF, QuickTime and Matroska share signatures with MP4 and WebM.
+    let header = &bytes[..bytes.len().min(512)];
+    if header.get(4..8) == Some(b"ftyp")
+        && matches!(
+            header.get(8..12),
+            Some(
+                b"isom"
+                    | b"iso2"
+                    | b"iso5"
+                    | b"iso6"
+                    | b"mp41"
+                    | b"mp42"
+                    | b"avc1"
+                    | b"dash"
+                    | b"M4V "
+            )
+        )
+    {
+        Some("video/mp4")
+    } else if header.starts_with(&[0x1a, 0x45, 0xdf, 0xa3])
+        && header.windows(7).any(|id| id == b"\x42\x82\x84webm")
+    {
+        Some("video/webm")
+    } else {
+        None
+    }
+}
+
 fn media_types_compatible(declared: &str, detected: &str) -> bool {
     let declared = declared
         .split(';')
@@ -324,6 +394,8 @@ fn extension_for_media_type(media_type: &str) -> &'static str {
         "image/jpeg" => "jpg",
         "image/webp" => "webp",
         "image/gif" => "gif",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
         _ => "bin",
     }
 }
@@ -332,23 +404,13 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     if path.exists() {
         return Ok(());
     }
-    let temp = path.with_extension(format!(
-        "{}.tmp",
-        path.extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("asset")
-    ));
-    fs::write(&temp, bytes)?;
-    match fs::rename(&temp, path) {
-        Ok(()) => Ok(()),
-        Err(_error) if path.exists() => {
-            let _ = fs::remove_file(temp);
-            Ok(())
-        }
-        Err(error) => {
-            let _ = fs::remove_file(temp);
-            Err(error.into())
-        }
+    let mut temp =
+        tempfile::NamedTempFile::new_in(path.parent().expect("managed asset directory"))?;
+    temp.write_all(bytes)?;
+    match temp.persist_noclobber(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error.error.into()),
     }
 }
 
@@ -390,6 +452,26 @@ mod tests {
             Some("image/png")
         );
         assert_eq!(detect_image_media_type(b"wallpaper.png"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn theme_import_rejects_a_fifo_without_waiting_for_a_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("background.gif");
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is a valid NUL-terminated path in a private temporary directory.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let store = ManagedLocalAssetStore::new(root.path(), root.path());
+        let (complete, result) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = complete.send(store.import_theme_background(&path));
+        });
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(3)),
+            Ok(Err(CoreError::InvalidInput(_)))
+        ));
     }
 
     #[test]

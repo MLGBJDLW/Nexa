@@ -31,7 +31,82 @@ impl From<&AgentConfig> for TurnModelSelection {
     }
 }
 
+impl From<&crate::connection_sync::SharedModelConnection> for TurnModelSelection {
+    fn from(connection: &crate::connection_sync::SharedModelConnection) -> Self {
+        Self {
+            model: connection.model.clone(),
+            reasoning_enabled: connection.reasoning_enabled,
+            reasoning_effort: connection.reasoning_effort.clone(),
+            thinking_budget: connection.thinking_budget,
+        }
+    }
+}
+
+/// A launch can use a model for this run or also save it for the next turn.
+#[derive(Clone, Copy)]
+pub enum TurnModelRoute<'a> {
+    RunOnly {
+        provider: Option<&'a str>,
+        model: Option<&'a str>,
+    },
+    Conversation {
+        provider: &'a str,
+        connection_id: &'a str,
+        selection: &'a TurnModelSelection,
+    },
+}
+
+impl TurnModelRoute<'_> {
+    pub(super) fn provider_model(&self) -> (Option<&str>, Option<&str>) {
+        match self {
+            Self::RunOnly { provider, model } => (*provider, *model),
+            Self::Conversation {
+                provider,
+                selection,
+                ..
+            } => (Some(provider), Some(&selection.model)),
+        }
+    }
+
+    pub(super) fn update_conversation(
+        &self,
+        conn: &rusqlite::Connection,
+        id: &str,
+    ) -> Result<(), CoreError> {
+        let affected = match self {
+            Self::RunOnly { .. } => conn.execute("UPDATE conversations SET updated_at=datetime('now') WHERE id=?1", [id])?,
+            Self::Conversation { provider, connection_id, selection } => conn.execute(
+                "UPDATE conversations SET provider=?2, model=?3, agent_config_id=?4, model_selection_json=?5, updated_at=datetime('now') WHERE id=?1",
+                rusqlite::params![id, provider, selection.model, connection_id, serde_json::to_string(selection)?])?,
+        };
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!("Conversation {id}")));
+        }
+        Ok(())
+    }
+}
+
 impl crate::db::Database {
+    pub fn create_routed_conversation(
+        &self,
+        provider: &str,
+        connection_id: &str,
+        selection: &TurnModelSelection,
+    ) -> Result<super::Conversation, CoreError> {
+        self.create_conversation_with_selection(
+            &super::CreateConversationInput {
+                provider: provider.into(),
+                model: selection.model.clone(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            },
+            Some(connection_id),
+            Some(selection),
+        )
+    }
+
     pub fn select_conversation_model(
         &self,
         id: &str,
@@ -50,14 +125,12 @@ impl crate::db::Database {
         id: &str,
         config: &AgentConfig,
     ) -> Result<(), CoreError> {
-        let json = serde_json::to_string(&TurnModelSelection::from(config))?;
-        let affected = self.conn().execute(
-            "UPDATE conversations SET provider=?2, model=?3, agent_config_id=?4, model_selection_json=?5, updated_at=datetime('now') WHERE id=?1",
-            rusqlite::params![id, config.provider, config.model, config.id, json])?;
-        if affected == 0 {
-            return Err(CoreError::NotFound(format!("Conversation {id}")));
+        TurnModelRoute::Conversation {
+            provider: &config.provider,
+            connection_id: &config.id,
+            selection: &TurnModelSelection::from(config),
         }
-        Ok(())
+        .update_conversation(&self.conn(), id)
     }
 
     pub fn resolve_conversation_agent_config(

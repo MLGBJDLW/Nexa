@@ -103,15 +103,15 @@ test('Preview introduces no second pointer and ignores stale cancellation', asyn
   expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('second').status)).toBe('cancelled');
 });
 
-test('Preview and nested capture scopes leave the page free of pointer decoration', async ({ page }, testInfo) => {
+test('Tab cursor yields to nested capture scopes and is removed on cancellation', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setContent('<body style="margin:0;background:white"><button style="margin:100px">Target</button></body>');
   await page.addScriptTag({ content: runtimeSource });
   const baseline = await page.screenshot();
   const observation = await observe(page);
-  const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'capture' };
+  const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'capture', showCursor: true };
   await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), input);
-  expect((await page.screenshot()).equals(baseline)).toBe(true);
+  await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
   await page.evaluate(() => {
     const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
     bridge.beginCapture('outer'); bridge.beginCapture('inner');
@@ -122,6 +122,8 @@ test('Preview and nested capture scopes leave the page free of pointer decoratio
   await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('inner'));
   await expect(page.locator('[data-nexa-agent-cursor]')).toBeHidden();
   await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('outer'));
+  await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.cancelPresentation('capture'));
   await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCount(0);
   expect((await page.screenshot()).equals(baseline)).toBe(true);
 });

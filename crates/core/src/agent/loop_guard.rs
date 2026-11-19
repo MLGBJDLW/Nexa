@@ -39,7 +39,7 @@ pub(crate) struct AgentLoopGuard {
     last_tool_signature: Option<String>,
     repeated_tool_signature_count: u32,
     repeated_tool_intervention_used: bool,
-    pending_live_wait_signatures: Vec<String>,
+    pending_read_progress: Vec<String>,
     observation_fingerprints: HashMap<String, blake3::Hash>,
     discovery_fingerprints: std::collections::HashSet<(String, blake3::Hash)>,
     repeated_discovery_results: u32,
@@ -73,7 +73,7 @@ impl AgentLoopGuard {
         tool_calls: &[ToolCallRequest],
     ) -> Option<LoopGuardIntervention> {
         self.record_protocol_progress();
-        self.pending_live_wait_signatures = tool_calls
+        self.pending_read_progress = tool_calls
             .iter()
             .map(|call| tool_call_batch_signature(std::slice::from_ref(call)))
             .collect();
@@ -227,6 +227,22 @@ impl AgentLoopGuard {
         })
     }
 
+    // Every member of a repeated batch must supply read-only progress before
+    // it can run again. A changing page cannot exempt an accompanying write.
+    fn record_read_progress(&mut self, signature: &str) {
+        if let Some(index) = self
+            .pending_read_progress
+            .iter()
+            .position(|pending| pending == signature)
+        {
+            self.pending_read_progress.remove(index);
+            if self.pending_read_progress.is_empty() {
+                self.repeated_tool_signature_count = 0;
+                self.repeated_tool_intervention_used = false;
+            }
+        }
+    }
+
     pub(crate) fn observe_tool_result(
         &mut self,
         call: &ToolCallRequest,
@@ -240,17 +256,7 @@ impl AgentLoopGuard {
         // and mixed action batches retain the normal guard.
         if !is_error && is_live_wait_receipt(call, artifacts) {
             let signature = tool_call_batch_signature(std::slice::from_ref(call));
-            if let Some(index) = self
-                .pending_live_wait_signatures
-                .iter()
-                .position(|pending| pending == &signature)
-            {
-                self.pending_live_wait_signatures.remove(index);
-                if self.pending_live_wait_signatures.is_empty() {
-                    self.repeated_tool_signature_count = 0;
-                    self.repeated_tool_intervention_used = false;
-                }
-            }
+            self.record_read_progress(&signature);
         }
         if !is_error && tool_call_is_discovery(&call.name) {
             // Compare actual results across alternating discovery tools and
@@ -284,12 +290,13 @@ impl AgentLoopGuard {
         let interaction = crate::tools::unified_control::effective_request(call);
         if !is_error && interaction.name == "browser_session" {
             let action = serde_json::from_str::<Value>(&interaction.arguments).ok();
-            if action
-                .as_ref()
-                .and_then(|args| args.get("action"))
-                .and_then(Value::as_str)
-                == Some("observe")
-            {
+            if matches!(
+                action
+                    .as_ref()
+                    .and_then(|args| args.get("action"))
+                    .and_then(Value::as_str),
+                Some("observe" | "wait_for")
+            ) {
                 if let Some(data) = artifacts.and_then(|value| value.get("data")) {
                     if let Some(content_hash) = data
                         .get("contentHash")
@@ -304,11 +311,10 @@ impl AgentLoopGuard {
                         let invocation = tool_call_batch_signature(std::slice::from_ref(call));
                         if self
                             .observation_fingerprints
-                            .insert(invocation, fingerprint)
+                            .insert(invocation.clone(), fingerprint)
                             .is_some_and(|previous| previous != fingerprint)
                         {
-                            self.repeated_tool_signature_count = 0;
-                            self.repeated_tool_intervention_used = false;
+                            self.record_read_progress(&invocation);
                         }
                     }
                 }
@@ -910,9 +916,13 @@ mod tests {
 
     #[test]
     fn changed_browser_observations_are_progress_but_random_ids_are_not() {
-        for screenshot_field in ["screenshotHash", "screenshot"] {
+        for (action, screenshot_field) in [
+            ("observe", "screenshotHash"),
+            ("observe", "screenshot"),
+            ("wait_for", "screenshot"),
+        ] {
             let mut guard = AgentLoopGuard::new();
-            let mut observe = call(r#"{"action":"observe","tabId":"tab"}"#);
+            let mut observe = call(&serde_json::json!({"action":action,"tabId":"tab"}).to_string());
             observe.name = "browser_session".into();
             for index in 0..8 {
                 assert!(guard
@@ -971,6 +981,24 @@ mod tests {
                 LoopGuardAction::BlockToolCalls
             );
         }
+    }
+
+    #[test]
+    fn changing_browser_wait_does_not_exempt_an_accompanying_write() {
+        let mut guard = AgentLoopGuard::new();
+        let mut wait = call(r#"{"action":"wait_for","tabId":"tab"}"#);
+        wait.name = "browser_session".into();
+        let batch = [wait, call(r#"{"path":"report"}"#)];
+        for index in 0..2 {
+            assert!(guard.observe_model_step("", &batch).is_none());
+            let receipt = serde_json::json!({"data":{"contentHash":index.to_string()}});
+            guard.observe_tool_result(&batch[0], false, "", Some(&receipt));
+            guard.observe_tool_result(&batch[1], false, "", None);
+        }
+        assert_eq!(
+            guard.observe_model_step("", &batch).unwrap().action,
+            LoopGuardAction::BlockToolCalls
+        );
     }
 
     #[test]

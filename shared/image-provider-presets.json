@@ -45,7 +45,9 @@
     "description": "Grok Imagine through the xAI Image API.",
     "models": [
       { "id": "grok-imagine-image-2.0", "name": "Grok Imagine Image 2.0", "source": "official", "productReadiness": "product_ready", "recommended": true, "lastVerifiedAt": "2026-09-09", "qualityOptions": ["auto", "low", "medium"] },
-      { "id": "grok-imagine-image", "name": "Grok Imagine Image 1.0", "qualityOptions": [] }
+      { "id": "grok-imagine-image", "name": "Grok Imagine Image 1.0", "qualityOptions": [] },
+      { "id": "grok-imagine-image-quality", "name": "Grok Imagine Image Quality (legacy)", "status": "legacy", "source": "official", "recommended": false, "productReadiness": "known", "qualityOptions": [], "lastVerifiedAt": "2026-11-19", "documentationRef": "https://docs.x.ai/developers/release-notes" },
+      { "id": "grok-imagine-image-pro", "name": "Grok Imagine Image Pro (legacy)", "status": "legacy", "source": "official", "recommended": false, "productReadiness": "known", "qualityOptions": [], "lastVerifiedAt": "2026-11-19", "documentationRef": "https://docs.x.ai/developers/release-notes" }
     ],
     "sizeOptions": [
       { "value": "auto|1k", "label": "Auto 1K" },

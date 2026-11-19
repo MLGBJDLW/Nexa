@@ -8,7 +8,7 @@ use nexa_core::{
     approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
     conversation::{
         conversation_message_is_model_history, conversation_message_to_llm, AgentTaskRun,
-        ConversationMessage, CreateConversationInput, ImageAttachment, TurnModelSelection,
+        ConversationMessage, ImageAttachment, TurnModelRoute, TurnModelSelection,
     },
     db::Database,
     db_executor::DatabaseExecutor,
@@ -101,6 +101,9 @@ struct Delivery;
 impl AgentRunEventDelivery for Delivery {
     fn deliver_run_event(&self, conversation: &str, event: &AgentRunEvent) {
         let Some(app) = host::ui() else { return };
+        if let Some(revision) = nexa_core::appearance::changed_appearance_revision(event) {
+            let _ = app.emit("appearance://changed", revision);
+        }
         let _ = app.emit(
             "mobile:run",
             json!({"conversationId":conversation,"event":event}),
@@ -202,7 +205,7 @@ impl LocalRuntime {
             .as_ref()
             .map(|schedule| schedule.allowed_tools.clone());
         let mut workflow_run = scheduled.as_ref().map(|schedule| schedule.run_id.clone());
-        if let Some(id) = &checkpoint_id {
+        let resume_provider = if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
             let run = self
                 .db
@@ -243,7 +246,10 @@ impl LocalRuntime {
                 workflow_run = Some(job.id);
             }
             text = checkpoint.resume_prompt;
-        }
+            run.provider
+        } else {
+            None
+        };
         let execution_tools = if let Some(allowed) = &options.allowed_tools {
             Some(match &scheduled_tools {
                 Some(granted) => granted
@@ -263,8 +269,49 @@ impl LocalRuntime {
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let mut saved = host.connection(options.connection_id.as_deref()).await?;
-        if let Some(selection) = &options.model_selection {
+        let conversation = self
+            .db
+            .remote_conversation_model(
+                conversation_id
+                    .as_deref()
+                    .ok_or("Create a conversation before sending.")?,
+            )
+            .map_err(err)?;
+        if conversation.archived_at.is_some() {
+            return Err("Restore this archived conversation before sending a message.".into());
+        }
+        let connection_id = options
+            .connection_id
+            .as_deref()
+            .or(conversation.agent_config_id.as_deref());
+        let mut saved = host.connection(connection_id).await?;
+        if resume_provider
+            .as_ref()
+            .is_some_and(|provider| *provider != saved.provider)
+        {
+            return Err("The original connection now uses a different provider. Restore its provider or start a new turn.".into());
+        }
+        if options.connection_id.is_none() && saved.provider != conversation.provider {
+            return Err("Select a model connection for this conversation.".into());
+        }
+        let saved_selection = if options.connection_id.is_none() {
+            Some(
+                conversation
+                    .model_selection
+                    .clone()
+                    .unwrap_or_else(|| TurnModelSelection {
+                        model: conversation.model.clone(),
+                        ..TurnModelSelection::from(&saved)
+                    }),
+            )
+        } else {
+            None
+        };
+        if let Some(selection) = options
+            .model_selection
+            .as_ref()
+            .or(saved_selection.as_ref())
+        {
             selection.apply_to_shared(&mut saved).map_err(err)?;
         }
         if nexa_core::provider_catalog::retired_model_for_endpoint(
@@ -281,16 +328,6 @@ impl LocalRuntime {
             nexa_core::provider_registry::provider_type_from_key(&settings.provider_type)
                 .ok_or("Unsupported provider type.")?;
         let provider = create_provider(connections::provider_config(&saved)?).map_err(err)?;
-        let conversation = if let Some(id) = conversation_id {
-            self.db.get_conversation(&id).map_err(err)?
-        } else {
-            // The UI creates and retains a conversation before sending so a
-            // transport retry always addresses the same idempotency scope.
-            return Err("Create a conversation before sending.".into());
-        };
-        if conversation.archived_at.is_some() {
-            return Err("Restore this archived conversation before sending a message.".into());
-        }
         let previous = self
             .db
             .find_agent_turn_by_idempotency_key(&conversation.id, &request_id)
@@ -367,13 +404,21 @@ impl LocalRuntime {
                 checkpoint,
             )
         } else {
-            self.db.create_agent_turn_and_run(
-                &message,
-                &text,
-                Some(&settings.provider_type),
-                Some(&settings.model),
-                &request_id,
-            )
+            let selection = TurnModelSelection::from(&saved);
+            let route = if workflow_run.is_some() {
+                TurnModelRoute::RunOnly {
+                    provider: Some(&saved.provider),
+                    model: Some(&saved.model),
+                }
+            } else {
+                TurnModelRoute::Conversation {
+                    provider: &saved.provider,
+                    connection_id: &saved.id,
+                    selection: &selection,
+                }
+            };
+            self.db
+                .create_agent_turn_with_route(&message, &text, route, &request_id, None)
         };
         let persisted = persisted.and_then(|launch| {
             if let Some(id) = &workflow_run {
@@ -415,6 +460,7 @@ impl LocalRuntime {
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
+        tools.register(Box::new(nexa_core::tools::appearance_tool::AppearanceTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
         if let Some(app) = host.app() {
@@ -804,17 +850,17 @@ impl LocalRuntime {
         }
     }
 
-    pub fn create(&self, settings: &LocalSettings) -> Result<Value, String> {
+    pub fn create(
+        &self,
+        connection: &nexa_core::connection_sync::SharedModelConnection,
+    ) -> Result<Value, String> {
         serde_json::to_value(
             self.db
-                .create_conversation(&CreateConversationInput {
-                    provider: settings.provider_type.clone(),
-                    model: settings.model.clone(),
-                    system_prompt: None,
-                    collection_context: None,
-                    project_id: None,
-                    persona_id: None,
-                })
+                .create_routed_conversation(
+                    &connection.provider,
+                    &connection.id,
+                    &TurnModelSelection::from(connection),
+                )
                 .map_err(err)?,
         )
         .map_err(err)

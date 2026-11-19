@@ -3237,6 +3237,18 @@ impl OpenAiProvider {
                 self.config.base_url.as_deref(),
             )
         {
+            // Responses otherwise promotes optional properties to required when it
+            // can normalize the schema. Our action tools rely on field omission.
+            for tool in body
+                .get_mut("tools")
+                .and_then(serde_json::Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                if tool["type"] == "function" {
+                    tool["strict"] = serde_json::Value::Bool(false);
+                }
+            }
             // The SDK omits this output-only provenance from later input;
             // keep the original provider item intact in the durable envelope.
             for item in body["input"].as_array_mut().into_iter().flatten() {
@@ -4942,14 +4954,18 @@ mod tests {
                 provider.route_snapshot(&request).api_style,
                 ReasoningApiStyle::OpenAiResponses
             );
-            let body = build_generic_responses_request(
-                &request,
-                super::super::native_search::NativeSearchDialect::OpenAiResponses,
-            )
-            .unwrap();
+            let body = provider
+                .responses_body(
+                    &request,
+                    super::super::native_search::NativeSearchDialect::OpenAiResponses,
+                    None,
+                )
+                .unwrap();
             assert_eq!(body["reasoning"]["effort"], "medium");
             assert_eq!(body["include"][0], "reasoning.encrypted_content");
             assert_eq!(body["tools"][0]["type"], "function");
+            assert_eq!(body["tools"][0]["strict"], false);
+            assert_eq!(body["model"], model);
             assert!(body.get("temperature").is_none());
             request.reasoning_enabled = Some(false);
             let body = build_generic_responses_request(
@@ -9777,9 +9793,15 @@ data: [DONE]
             plan.marker().expect("trusted marker"),
         ]);
         let (dialect, mode, capability) = hosted_search_context(&request).expect("context");
-        let body = build_responses_request(&request, dialect, mode, capability).unwrap();
+        let provider =
+            OpenAiProvider::new(endpoint_config(ProviderType::OpenAi, DEFAULT_BASE_URL)).unwrap();
+        let body = provider
+            .responses_body(&request, dialect, Some((mode, capability)))
+            .unwrap();
         assert_eq!(body["tools"][0]["type"], "web_search");
+        assert!(body["tools"][0].get("strict").is_none());
         assert_eq!(body["tools"][1]["name"], "read_file");
+        assert_eq!(body["tools"][1]["strict"], false);
         assert_eq!(body["tools"].as_array().unwrap().len(), 2);
         assert_eq!(body["include"][0], "reasoning.encrypted_content");
     }

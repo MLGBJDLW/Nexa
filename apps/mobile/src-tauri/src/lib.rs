@@ -43,8 +43,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
     overlay::bind(&app).await?;
-    runtime.get(&app).await?.arm_schedule(&app).await;
+    let phone = runtime.get(&app).await?;
+    phone.arm_schedule(&app).await;
     let mut state = connections::public_state(&app).await?;
+    state["appearance"] = json!(phone
+        .db
+        .load_appearance_registry()
+        .map_err(|err| err.to_string())?);
     state["version"] = json!(env!("CARGO_PKG_VERSION"));
     state["hosts"] = json!(remote::hosts(&app).await?);
     state["capabilities"] = platform::call(&app, "capabilities", json!({})).await?;
@@ -94,6 +99,20 @@ async fn mobile_local(
             .ok_or_else(|| format!("Missing {key}."))
     };
     match action.as_str() {
+        "appearanceBackground" => {
+            let id = string("assetId")?;
+            let directory = app.path().app_data_dir().map_err(|err| err.to_string())?;
+            tokio::task::spawn_blocking(move || {
+                let store =
+                    nexa_core::managed_assets::ManagedLocalAssetStore::new(&directory, &directory);
+                let asset = store
+                    .resolve_theme_background(&id)
+                    .map_err(|err| err.to_string())?;
+                Ok(json!({"path": asset.path, "mediaType": asset.media_type}))
+            })
+            .await
+            .map_err(|err| err.to_string())?
+        }
         "replyRead" => {
             platform::call(
                 &app,
@@ -281,7 +300,7 @@ async fn mobile_local(
                     .apply_to_shared(&mut saved)
                     .map_err(|e| e.to_string())?;
             }
-            state.create(&connections::settings(&saved))
+            state.create(&saved)
         }
         "start" => {
             state

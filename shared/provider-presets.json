@@ -903,9 +903,15 @@
         "name": "GPT-4.1 Nano",
         "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-10-28",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
-        "recommended": false
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "replacementModelId": "gpt-5.6-luna",
+        "aliases": [
+          "gpt-4.1-nano-2025-04-14"
+        ]
       },
       {
         "id": "gpt-4o",
@@ -982,9 +988,15 @@
         },
         "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-10-28",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
-        "recommended": false
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "replacementModelId": "gpt-5.6-terra",
+        "aliases": [
+          "o4-mini-2025-04-16"
+        ]
       },
       {
         "id": "o3",
@@ -1028,9 +1040,15 @@
         },
         "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-10-28",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
-        "recommended": false
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "replacementModelId": "gpt-5.6-sol",
+        "aliases": [
+          "o3-mini-2025-01-31"
+        ]
       },
       {
         "id": "gpt-5-codex",
@@ -1209,6 +1227,109 @@
         "capabilities": {
           "vision": true
         }
+      },
+      {
+        "id": "gpt-3.5-turbo",
+        "name": "GPT-3.5 Turbo",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-terra",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "aliases": [
+          "gpt-3.5-turbo-0125",
+          "gpt-3.5-turbo-completions"
+        ]
+      },
+      {
+        "id": "gpt-4",
+        "name": "GPT-4",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "aliases": [
+          "gpt-4-0613",
+          "gpt-4-0613-completions",
+          "gpt-4-completions"
+        ]
+      },
+      {
+        "id": "gpt-4-1106-preview",
+        "name": "GPT-4 Turbo Preview (1106)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+      },
+      {
+        "id": "gpt-4-turbo",
+        "name": "GPT-4 Turbo",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "aliases": [
+          "gpt-4-turbo-2024-04-09",
+          "gpt-4-turbo-completions"
+        ]
+      },
+      {
+        "id": "gpt-4o-2024-05-13",
+        "name": "GPT-4o (2024-05-13)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+      },
+      {
+        "id": "o1",
+        "name": "o1",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "aliases": [
+          "o1-2024-12-17"
+        ]
+      },
+      {
+        "id": "o1-pro",
+        "name": "o1-pro",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-23",
+        "replacementModelId": "gpt-5.6-sol",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "aliases": [
+          "o1-pro-2025-03-19"
+        ]
       }
     ]
   },
@@ -27100,18 +27221,17 @@
       {
         "id": "deepseek-v4-flash",
         "name": "DeepSeek V4 Flash",
-        "version": "DeepSeek-V4-Flash-0731",
+        "version": "DeepSeek-V4.1-Flash-1017",
         "tagKey": "providers.tagFast",
         "source": "official",
-        "status": "removed",
+        "status": "legacy",
         "access": "public",
-        "productReadiness": "product_ready",
-        "availableToCredential": false,
+        "productReadiness": "known",
         "recommended": false,
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-19",
         "releaseDate": "2026-07-31",
         "inputModalities": [
           "text",
@@ -27142,23 +27262,24 @@
         },
         "replacementModelId": "deepseek-flash",
         "deprecationDate": "2026-09-10",
-        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/"
+        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "maxImages": 600,
+        "maxInputBytes": 50331648
       },
       {
         "id": "deepseek-v4-flash-vision-exp",
         "name": "DeepSeek V4 Flash Vision Experimental",
-        "version": "DeepSeek-V4-Flash-Vision-Exp",
+        "version": "DeepSeek-V4.1-Flash-1017",
         "tagKey": "providers.tagVision",
         "source": "official",
-        "status": "removed",
+        "status": "legacy",
         "access": "public",
-        "productReadiness": "product_ready",
-        "availableToCredential": false,
+        "productReadiness": "known",
         "recommended": false,
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-19",
         "releaseDate": "2026-08-21",
         "inputModalities": [
           "text",
@@ -27598,6 +27719,30 @@
             }
           }
         }
+      },
+      {
+        "id": "mimo-v2.5",
+        "name": "MiMo-V2.5",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-21",
+        "replacementModelId": "mimo-v2.6-flash",
+        "documentationRef": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro"
+      },
+      {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo-V2.5-PRO",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "removed",
+        "deprecationDate": "2026-10-21",
+        "replacementModelId": "mimo-v2.6-pro",
+        "documentationRef": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro"
       }
     ]
   },
@@ -28210,7 +28355,7 @@
         "source": "official",
         "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "lastVerifiedAt": "2026-11-19",
         "inputModalities": [
           "text",
           "image"
@@ -28241,7 +28386,8 @@
           }
         },
         "aliases": [
-          "mistral-large-4-0"
+          "mistral-large-4-0",
+          "mistral-large-latest"
         ]
       },
       {
@@ -28251,7 +28397,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-04",
+        "lastVerifiedAt": "2026-11-19",
         "inputModalities": [
           "text"
         ],
@@ -28277,7 +28423,11 @@
         },
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
-        "access": "public"
+        "access": "public",
+        "aliases": [
+          "zai-glm-5",
+          "zai-glm-latest"
+        ]
       },
       {
         "id": "zai-glm-5-3-flash",
@@ -28391,10 +28541,10 @@
         },
         "status": "deprecated",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://docs.mistral.ai/models/mistral-medium-3-5-26-04",
         "replacementModelId": "mistral-large-4",
-        "deprecationDate": "2026-10-31",
+        "deprecationDate": "2027-04-30",
         "aliases": [
           "mistral-medium-3",
           "mistral-medium-latest"
@@ -28436,10 +28586,10 @@
           "vision": true
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-19",
         "documentationRef": "https://docs.mistral.ai/models/mistral-large-3-25-12",
         "replacementModelId": "mistral-large-4",
-        "deprecationDate": "2026-10-31"
+        "deprecationDate": "2027-04-30"
       },
       {
         "id": "mistral-medium-2508",
@@ -28448,52 +28598,110 @@
         "capabilities": {
           "vision": true
         },
-        "status": "deprecated",
-        "deprecationDate": "2026-05-22",
-        "lastVerifiedAt": "2026-09-12",
+        "status": "removed",
+        "deprecationDate": "2026-08-31",
+        "lastVerifiedAt": "2026-11-19",
         "replacementModelId": "mistral-medium-3-5",
-        "documentationRef": "https://docs.mistral.ai/inference/model-lifecycle"
+        "documentationRef": "https://docs.mistral.ai/models/mistral-medium-3-1-25-08",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false
       },
       {
         "id": "ministral-14b-2512",
         "name": "Ministral 3 14B",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "aliases": [
+          "ministral-14b-latest"
+        ],
+        "lastVerifiedAt": "2026-11-19"
       },
       {
         "id": "ministral-8b-2512",
         "name": "Ministral 3 8B",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "aliases": [
+          "ministral-8b-latest"
+        ],
+        "lastVerifiedAt": "2026-11-19"
       },
       {
         "id": "ministral-3b-2512",
         "name": "Ministral 3 3B",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "aliases": [
+          "ministral-3b-latest"
+        ],
+        "lastVerifiedAt": "2026-11-19"
       },
       {
         "id": "devstral-2512",
         "name": "Devstral 2",
         "tagKey": "providers.tagCode",
-        "status": "deprecated",
-        "deprecationDate": "2026-05-22",
-        "lastVerifiedAt": "2026-09-12",
+        "status": "removed",
+        "deprecationDate": "2026-07-31",
+        "lastVerifiedAt": "2026-11-19",
         "replacementModelId": "mistral-medium-3-5",
-        "documentationRef": "https://docs.mistral.ai/inference/model-lifecycle"
+        "documentationRef": "https://docs.mistral.ai/models/devstral-2-25-12",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "aliases": [
+          "devstral-latest",
+          "devstral-medium-latest"
+        ]
       },
       {
         "id": "codestral-2508",
         "name": "Codestral 25.08",
-        "tagKey": "providers.tagCoding"
+        "tagKey": "providers.tagCoding",
+        "aliases": [
+          "codestral-latest"
+        ],
+        "lastVerifiedAt": "2026-11-19"
       },
       {
         "id": "magistral-medium-2509",
         "name": "Magistral Medium",
         "tagKey": "providers.tagReasoning",
         "source": "official",
-        "status": "deprecated",
-        "deprecationDate": "2026-05-22",
+        "status": "removed",
+        "deprecationDate": "2026-07-31",
         "replacementModelId": "mistral-medium-3-5",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://docs.mistral.ai/inference/model-lifecycle"
+        "lastVerifiedAt": "2026-11-19",
+        "documentationRef": "https://docs.mistral.ai/models/magistral-medium-1-2-25-09",
+        "productReadiness": "known",
+        "recommended": false,
+        "aliases": [
+          "magistral-medium-latest"
+        ]
+      },
+      {
+        "id": "voxtral-small-2507",
+        "name": "Voxtral Small",
+        "aliases": [
+          "voxtral-small-latest"
+        ],
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "contextTokens": 32000,
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        },
+        "documentationRef": "https://docs.mistral.ai/models/voxtral-small-25-07"
       }
     ]
   },
@@ -28999,7 +29207,10 @@
               "enabled": false
             }
           }
-        }
+        },
+        "aliases": [
+          "glm-4.5-flash"
+        ]
       },
       {
         "id": "glm-4.6v-flash",
@@ -29031,6 +29242,178 @@
             }
           }
         }
+      },
+      {
+        "id": "glm-4.5-air",
+        "name": "GLM-4.5-Air",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5",
+        "contextTokens": 128000,
+        "maxOutputTokens": 98304,
+        "supportsTools": true,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "glm-4.5-airx",
+        "name": "GLM-4.5-AirX",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5",
+        "contextTokens": 128000,
+        "maxOutputTokens": 98304,
+        "supportsTools": true,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "glm-4-flash-250414",
+        "name": "GLM-4-Flash-250414",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4",
+        "contextTokens": 128000,
+        "maxOutputTokens": 16384,
+        "supportsTools": true,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "glm-4-flashx-250414",
+        "name": "GLM-4-FlashX-250414",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4",
+        "contextTokens": 128000,
+        "maxOutputTokens": 16384,
+        "supportsTools": true,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "glm-4.6v-flashx",
+        "name": "GLM-4.6V-FlashX",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-4.6v",
+        "contextTokens": 128000,
+        "supportsTools": true
+      },
+      {
+        "id": "glm-4.1v-thinking-flash",
+        "name": "GLM-4.1V-Thinking-Flash",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/free/glm-4.1v-thinking-flash",
+        "contextTokens": 64000,
+        "maxOutputTokens": 16384
+      },
+      {
+        "id": "glm-4v-flash",
+        "name": "GLM-4V-Flash",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-19",
+        "status": "active",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://docs.bigmodel.cn/cn/guide/models/free/glm-4v-flash"
       }
     ]
   },

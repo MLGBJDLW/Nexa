@@ -63,6 +63,8 @@ test('explicit speech presets select documented usable models without claiming c
 });
 
 test('TTS model changes replace incompatible system voices and preserve private voices', () => {
+  const mistral = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'mistral');
+  assert.equal(tts.ttsVoiceForModel(mistral, 'voxtral-mini-tts-2603', 'voice_478'), 'gb_jane_neutral');
   const qwen = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'dashscope-cosyvoice');
   assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.0-tts-flash'), 'longanhuan_v3.6');
   assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.0-tts-plus', 'longanhuan_v3.6'), 'longanlingxin');

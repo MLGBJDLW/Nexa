@@ -20,7 +20,8 @@ fn database(root: &std::path::Path) -> Database {
 async fn execute(tool: &dyn Tool, db: &Database, args: serde_json::Value) {
     let arguments =
         super::normalize_tool_arguments(tool.name(), &args.to_string(), &tool.parameters_schema())
-            .unwrap();
+            .unwrap()
+            .to_string();
     let result = tool
         .execute(ToolExecutionContext::new(
             "byte-contract",

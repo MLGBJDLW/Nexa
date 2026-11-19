@@ -1623,6 +1623,16 @@ mod tests {
                 "gpt-5.1-codex",
             ),
             (ProviderType::OpenAi, "https://api.openai.com/v1", "o4-mini"),
+            (
+                ProviderType::OpenAi,
+                "https://api.openai.com/v1",
+                "gpt-4.1-nano-2025-04-14",
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://api.mistral.ai/v1",
+                "devstral-2512",
+            ),
             (ProviderType::OpenAi, "https://api.x.ai/v1", "grok-3"),
             (
                 ProviderType::SiliconFlow,
@@ -1702,9 +1712,14 @@ mod tests {
                 "MiniMax-M2.5",
             ),
             (
-                ProviderType::OpenAi,
-                "https://api.mistral.ai/v1",
-                "devstral-2512",
+                ProviderType::DeepSeek,
+                "https://api.deepseek.com/v1",
+                "deepseek-v4-flash",
+            ),
+            (
+                ProviderType::DeepSeek,
+                "https://api.deepseek.com/v1",
+                "deepseek-v4-flash-vision-exp",
             ),
         ] {
             let provider =

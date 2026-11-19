@@ -103,7 +103,7 @@ impl InputEpoch {
     }
 }
 
-pub(super) fn window_epoch(window: u64) -> InputEpoch {
+pub(crate) fn window_epoch(window: u64) -> InputEpoch {
     let mut epoch = monitor_epoch();
     epoch.revision = windows()
         .lock()

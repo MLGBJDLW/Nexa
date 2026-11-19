@@ -258,6 +258,7 @@ fn browser_observation_failure(
     error: &str,
 ) -> ToolResult {
     let user_owned = error.contains("control belongs to the user");
+    let needs_foreground = error == super::state::FOREGROUND_REQUIRED;
     nexa_core::tools::structured_tool_error_result_with_side_effect(
         call_id,
         if user_owned {
@@ -269,9 +270,10 @@ fn browser_observation_failure(
         serde_json::json!({
             "action":"observe", "sessionId":session_id, "tabId":tab_id,
             "recovery":if user_owned { "Wait for the user to release control; do not take it back." }
+                else if needs_foreground { super::state::FOREGROUND_REQUIRED }
                 else { "Inspect the current tab and visibility, then observe it again. Do not repeat the action that opened or changed this page." },
         }),
-        !user_owned,
+        !user_owned && !needs_foreground,
         nexa_core::tools::ToolSideEffect::NotStarted,
         None,
     )
@@ -482,7 +484,7 @@ impl Tool for NativeBrowserSessionTool {
                 "files": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1 }, "description": "Local file paths for upload_files, resolved through the current file-access policy. At most 20 files and 100 MiB total. Empty clears a file input. The result confirms file selection; observe the page separately to confirm server upload completion." },
                 "key": { "type": "string", "description": "Non-text key such as Enter, Tab, Escape, ArrowLeft, Backspace, or Delete. On Windows, combine letters A-Z with modifiers for shortcuts, for example key=A, modifiers=[Control] to select all. Use type to enter text." },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
-                "delivery": { "type": "string", "enum": ["foreground", "background"], "description": "Input defaults to foreground. Pause if the user switches windows. Select background only when the user explicitly requests operation in the background, never as a retry. Windows background input targets the selected visible tab without moving the system cursor." },
+                "delivery": { "type": "string", "enum": ["webview", "foreground", "background"], "description": "Default webview input targets the visible foreground tab with an in-page cursor. Explicit foreground uses the Windows system pointer. Both pause on focus loss. Select background only when the user explicitly requests background operation, never as a retry." },
                 "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] }, "uniqueItems": true },
                 "scrollX": { "type": "integer", "default": 0 },
                 "scrollY": { "type": "integer", "default": 0, "description": "Requested CSS pixel delta. The system wheel follows Windows scroll settings. Control + vertical wheel zooms. On Windows the wheel targets point or targetRef, including nested scroll areas; without either it targets the viewport center." },
@@ -1430,7 +1432,12 @@ impl Tool for NativeBrowserSessionTool {
                     Ok(outcome) => outcome,
                     Err(error) => {
                         progress.update(BrowserOperationPhase::Failed, serde_json::json!({}));
-                        return Err(Self::invalid(error));
+                        return Ok(browser_observation_failure(
+                            context.call_id,
+                            session_id,
+                            tab_id,
+                            &error,
+                        ));
                     }
                 };
                 let mut result = match observation_result(context.call_id, outcome.observation) {
@@ -1546,23 +1553,24 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     } else {
         "Browser action was rejected before any page or native input side effect was dispatched."
     };
+    let needs_foreground = failure.message == super::state::FOREGROUND_REQUIRED;
+    let retryable = !effect_may_have_occurred && !needs_foreground;
+    let recovery = if needs_foreground {
+        "Wait for the user to return to Nexa, then observe the exact tab before continuing."
+    } else if effect_may_have_occurred {
+        "Observe the exact tab to reconcile the previous input before deciding how to continue."
+    } else {
+        "Repair the reported precondition and observe the exact tab before retrying."
+    };
     let expected_format = serde_json::json!({
-        "tool": "browser_session",
-        "cause": failure.message,
-        "recovery": if failure.observation_consumed {
-            "observe the tab again because the prior observation token was consumed"
-        } else if effect_may_have_occurred {
-            "observe the exact tab again and do not blindly retry the action"
-        } else {
-            "repair the visibility, lease, or stale-observation precondition, then observe again before retrying"
-        }
+        "tool": "browser_session", "cause": failure.message, "recovery": recovery
     });
     let error = ToolContractError {
         kind: "toolContractError".to_string(),
         code: code.to_string(),
         message: format!("{message} Cause: {}", failure.message),
         expected_format,
-        retryable: !effect_may_have_occurred,
+        retryable,
         trust_boundary: TrustBoundary::tool_error(),
         side_effect: Some(if effect_may_have_occurred {
             ToolSideEffect::MayHaveOccurred
@@ -1574,8 +1582,8 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     ToolResult {
         call_id: call_id.to_string(),
         content: format!(
-            "Error: {message}\nCause: {}\n\nCode: {code}\nRetryable: {}\nObserve the exact Browser Workspace tab before any retry.",
-            failure.message, !effect_may_have_occurred
+            "Error: {message}\nCause: {}\n\nCode: {code}\nRetryable: {retryable}\n{recovery}",
+            failure.message
         ),
         is_error: true,
         artifacts: serde_json::to_value(error).ok(),
@@ -1894,6 +1902,13 @@ mod tests {
             "Browser control belongs to the user; wait until they hand it back",
         );
         assert_eq!(user.artifacts.as_ref().unwrap()["retryable"], false);
+        let hidden = super::browser_observation_failure(
+            "call",
+            "session",
+            "tab",
+            super::super::state::FOREGROUND_REQUIRED,
+        );
+        assert_eq!(hidden.artifacts.as_ref().unwrap()["retryable"], false);
     }
     async fn unexpected_visual_capture() -> Result<serde_json::Value, String> {
         panic!("cancelled or failed wait must not capture final evidence")

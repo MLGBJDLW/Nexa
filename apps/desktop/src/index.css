@@ -771,6 +771,8 @@ html[data-companion-window="true"] #root {
     linear-gradient(145deg, #180d27 0%, #251038 47%, #12172d 100%);
 }
 
+.theme-preview-backdrop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.theme-preview-backdrop,
 [data-theme-backdrop='true'] .app-theme-backdrop {
   opacity: var(--theme-background-opacity, 1);
   background-color: var(--theme-background-color, var(--color-surface-0));
@@ -782,6 +784,20 @@ html[data-companion-window="true"] #root {
   background-repeat: var(--theme-background-repeat, no-repeat);
   filter: blur(var(--theme-background-blur, 0px));
   transform: scale(1.03);
+}
+
+:is(.app-theme-backdrop, .theme-preview-backdrop) > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: var(--theme-background-fit, cover);
+  object-position: var(--theme-background-position, center);
+}
+.theme-video-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--theme-background-overlay, #000);
+  opacity: var(--theme-background-dim, 0);
 }
 
 .theme-dream .app-theme-backdrop::before,

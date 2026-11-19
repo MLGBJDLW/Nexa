@@ -139,22 +139,42 @@ pub fn absolute_pointer_input(
 /// A foreground gesture must yield if real input arrives or monitoring restarts.
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug)]
-pub struct ForegroundInputWatch(crate::tools::computer_input::InputEpoch);
+pub struct ForegroundInputWatch {
+    epoch: crate::tools::computer_input::InputEpoch,
+    window: Option<u64>,
+}
 
 #[cfg(windows)]
 impl ForegroundInputWatch {
     pub fn start() -> Result<Self, CoreError> {
-        let epoch = crate::tools::computer_input::physical_epoch();
+        Self::start_for(None)
+    }
+
+    /// Tab-directed input does not share the physical pointer, but must yield
+    /// to clicks, wheel and keyboard activity in its foreground host window.
+    pub fn for_window(window: u64) -> Result<Self, CoreError> {
+        Self::start_for(Some(window))
+    }
+
+    fn start_for(window: Option<u64>) -> Result<Self, CoreError> {
+        let epoch = Self::epoch(window);
         if !epoch.is_monitored() {
             return Err(CoreError::InvalidInput(
                 "Physical input monitoring is unavailable for the foreground browser gesture."
                     .into(),
             ));
         }
-        Ok(Self(epoch))
+        Ok(Self { epoch, window })
     }
 
     pub fn changed(self) -> bool {
-        self.0 != crate::tools::computer_input::physical_epoch()
+        self.epoch != Self::epoch(self.window)
+    }
+
+    fn epoch(window: Option<u64>) -> crate::tools::computer_input::InputEpoch {
+        window.map_or_else(
+            crate::tools::computer_input::physical_epoch,
+            crate::tools::computer_input::window_epoch,
+        )
     }
 }

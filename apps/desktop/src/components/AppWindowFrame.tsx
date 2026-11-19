@@ -3,6 +3,8 @@ import { Copy, Minus, PanelRightOpen, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTranslation } from '../i18n';
 import { Logo } from './Logo';
+import { ThemeBackdrop } from './ThemeBackdrop';
+import { resolveDesktopThemeMedia, useTheme } from '../lib/ThemeProvider';
 import { useFilePreview } from '../features/preview/filePreviewContext';
 
 function hasNativeWindowRuntime(): boolean {
@@ -20,6 +22,7 @@ interface AppWindowFrameProps {
 
 export function AppWindowFrame({ children, area }: AppWindowFrameProps) {
   const { t } = useTranslation();
+  const { activeCustomTheme } = useTheme();
   const { togglePreviewPanel, previewPanelOpen } = useFilePreview();
   const hasWindowRuntime = hasNativeWindowRuntime();
   const appWindow = useMemo(
@@ -89,7 +92,7 @@ export function AppWindowFrame({ children, area }: AppWindowFrameProps) {
       className="app-window-frame relative isolate flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-text-primary"
       data-app-area={area}
     >
-      <div className="app-theme-backdrop" aria-hidden="true" />
+      <ThemeBackdrop theme={activeCustomTheme} resolve={resolveDesktopThemeMedia} />
       <header
         className="app-titlebar relative z-[100] flex h-9 shrink-0 select-none items-stretch border-b border-border bg-surface-1/95"
         data-testid="app-titlebar"

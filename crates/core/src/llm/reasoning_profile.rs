@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider_catalog::{find_provider_preset, model_capabilities_from_catalog};
+use crate::provider_catalog::{
+    find_endpoint_model_preset, find_provider_preset, model_capabilities_from_catalog,
+};
 
 use super::provider_boundary::{
     endpoint_id, is_alibaba_chat_endpoint, is_alibaba_coding_chat_endpoint,
@@ -892,8 +894,10 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_mistral_public_endpoint(provider, base_url) {
-        let mut value = match model.as_str() {
-            "mistral-large-4" | "mistral-large-4-0" => profile(
+        let canonical = find_endpoint_model_preset("open_ai", base_url, &model)
+            .map_or(model.as_str(), |preset| preset.id.as_str());
+        let mut value = match canonical {
+            "mistral-large-4" => profile(
                 key,
                 "mistral-large4-reasoning-v1",
                 ThinkingModeControl::AlwaysOn,
@@ -934,11 +938,7 @@ pub fn resolve_reasoning_profile(
                 (&[], None),
                 ReasoningBudgetField::None,
             ),
-            "mistral-medium-3-5"
-            | "mistral-medium-3"
-            | "mistral-medium-latest"
-            | "mistral-small-2603"
-            | "mistral-small-latest" => profile(
+            "mistral-medium-3-5" | "mistral-small-2603" => profile(
                 key,
                 "mistral-adjustable-reasoning-v1",
                 ThinkingModeControl::ProviderDefault,
@@ -1214,6 +1214,22 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_zhipu_model_api_endpoint(provider, base_url) {
+        if find_endpoint_model_preset("zhipu", base_url, &model).is_some_and(|preset| {
+            matches!(
+                preset.id.as_str(),
+                "glm-4.5-air" | "glm-4.5-airx" | "glm-4.7-flash"
+            )
+        }) {
+            return profile(
+                key,
+                "zhipu-optional-thinking-v1",
+                ThinkingModeControl::ThinkingType,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+        }
         if !matches!(
             model.as_str(),
             "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx" | "glm-5.3-flashx-legal"
@@ -2124,7 +2140,7 @@ mod tests {
             ReasoningApiStyle::OpenAiChatCompletions,
             "muse-spark-1.3",
         );
-        for model in ["zai-glm-5-3", "zai-glm-5-3-flash"] {
+        for model in ["zai-glm-5-3", "zai-glm-latest", "zai-glm-5-3-flash"] {
             let hosted_glm = resolve_reasoning_profile(
                 ProviderType::OpenAi,
                 Some("https://api.mistral.ai/v1"),
@@ -2256,6 +2272,26 @@ mod tests {
             "glm-5.3",
         );
         assert_ne!(china.key.endpoint_id, international.key.endpoint_id);
+
+        for (endpoint, expected) in [
+            (
+                "https://open.bigmodel.cn/api/paas/v4",
+                ThinkingModeControl::ThinkingType,
+            ),
+            (
+                "https://api.z.ai/api/paas/v4",
+                ThinkingModeControl::Unsupported,
+            ),
+        ] {
+            let flash = resolve_reasoning_profile(
+                ProviderType::Zhipu,
+                Some(endpoint),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                "glm-4.5-flash",
+            );
+            assert_eq!(flash.mode_control, expected);
+            assert_eq!(flash.effort_field, ReasoningEffortField::None);
+        }
 
         for endpoint in [
             "https://open.bigmodel.cn/api/coding/paas/v4",

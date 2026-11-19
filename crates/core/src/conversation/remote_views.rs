@@ -31,8 +31,8 @@ impl Database {
 
     pub fn remote_conversations(&self, before: Option<&str>) -> Result<Value, CoreError> {
         let conn = self.conn();
-        let mut query=conn.prepare("SELECT id,title,model,updated_at FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL AND (?1 IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM conversations WHERE id=?1 AND parent_conversation_id IS NULL)) ORDER BY updated_at DESC,id DESC LIMIT 51")?;
-        let mut rows=query.query_map([before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"title":row.get::<_,String>(1)?,"model":row.get::<_,String>(2)?,"updatedAt":row.get::<_,String>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
+        let mut query=conn.prepare("SELECT id,title,model,updated_at,provider,agent_config_id,model_selection_json FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL AND (?1 IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM conversations WHERE id=?1 AND parent_conversation_id IS NULL)) ORDER BY updated_at DESC,id DESC LIMIT 51")?;
+        let mut rows=query.query_map([before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"title":row.get::<_,String>(1)?,"model":row.get::<_,String>(2)?,"updatedAt":row.get::<_,String>(3)?,"provider":row.get::<_,String>(4)?,"agentConfigId":row.get::<_,Option<String>>(5)?,"modelSelection":super::model_selection::read_selection(row,6)?})))?.collect::<Result<Vec<_>,_>>()?;
         let more = rows.len() > 50;
         rows.truncate(50);
         let cursor = more.then(|| rows.last().unwrap()["id"].clone());
@@ -45,13 +45,42 @@ impl Database {
             json!({"items":page.entries,"nextCursor":page.next.map(|cursor| serde_json::to_string(&cursor)).transpose()?}),
         )
     }
+    /// Older phone builds recorded the exact account and model in the user
+    /// message of each accepted turn, before recording them on the chat.
+    pub fn remote_conversation_model(&self, id: &str) -> Result<super::Conversation, CoreError> {
+        self.require_remote_conversation(id)?;
+        let mut chat = self.get_conversation(id)?;
+        if chat.agent_config_id.is_none() {
+            let legacy = self.conn().query_row(
+                "SELECT r.provider,r.model,
+                        CASE WHEN json_valid(m.artifacts_json) THEN CAST(json_extract(m.artifacts_json,'$.phoneTurnOptions.connectionId') AS TEXT) END,
+                        CASE WHEN json_valid(m.artifacts_json) THEN CAST(json_extract(m.artifacts_json,'$.phoneTurnOptions.modelSelection') AS TEXT) END
+                 FROM agent_task_runs r JOIN messages m ON m.id=r.user_message_id
+                 WHERE r.conversation_id=?1 ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1",
+                [id], |row| Ok((row.get::<_,Option<String>>(0)?,row.get::<_,Option<String>>(1)?,
+                    row.get::<_,Option<String>>(2)?,row.get::<_,Option<String>>(3)?)),
+            ).optional()?;
+            if let Some((Some(provider), Some(model), Some(connection_id), Some(raw))) = legacy {
+                if let Some(selection) = serde_json::from_str::<super::TurnModelSelection>(&raw)
+                    .ok()
+                    .filter(|selection| selection.model == model && !connection_id.is_empty())
+                {
+                    chat.provider = provider;
+                    chat.model = model;
+                    chat.agent_config_id = Some(connection_id);
+                    chat.model_selection = Some(selection);
+                }
+            }
+        }
+        Ok(chat)
+    }
+
     pub fn remote_messages(
         &self,
         conversation_id: &str,
         before: Option<i64>,
     ) -> Result<Value, CoreError> {
-        self.require_remote_conversation(conversation_id)?;
-        let conversation = self.get_conversation(conversation_id)?;
+        let conversation = self.remote_conversation_model(conversation_id)?;
         let conn = self.conn();
         // Only project call IDs and names. Raw arguments, results, and private
         // provider envelopes should never enter the historical phone page.
@@ -127,7 +156,7 @@ impl Database {
             }
         }
         Ok(
-            json!({"conversation":{"id":conversation.id,"title":conversation.title,"model":conversation.model},"messages":rows,"beforeOrder":cursor}),
+            json!({"conversation":{"id":conversation.id,"title":conversation.title,"model":conversation.model,"provider":conversation.provider,"agentConfigId":conversation.agent_config_id,"modelSelection":conversation.model_selection},"messages":rows,"beforeOrder":cursor}),
         )
     }
     pub fn remote_message_text(
@@ -258,16 +287,18 @@ mod tests {
     #[test]
     fn remote_pages_preserve_unicode_and_skip_large_runtime_payloads() {
         let db = Database::open_memory().unwrap();
+        let selection = super::super::TurnModelSelection {
+            model: "fixture".into(),
+            reasoning_enabled: Some(true),
+            reasoning_effort: Some("high".into()),
+            thinking_budget: None,
+        };
         let chat = db
-            .create_conversation(&CreateConversationInput {
-                provider: "custom".into(),
-                model: "fixture".into(),
-                system_prompt: None,
-                collection_context: None,
-                project_id: None,
-                persona_id: None,
-            })
+            .create_routed_conversation("custom", "account-b", &selection)
             .unwrap();
+        let list = db.remote_conversations(None).unwrap();
+        assert_eq!(list["items"][0]["agentConfigId"], "account-b");
+        assert_eq!(list["items"][0]["modelSelection"], json!(selection));
         for index in 0..35 {
             let mut artifacts = json!({"providerTurnEnvelope":{"secret":"never return"}, "huge":"x".repeat(100_000)});
             let mut tool_calls = Vec::new();
@@ -339,6 +370,8 @@ mod tests {
             .remote_message_text(&chat.id, "resume-control", 0)
             .is_err());
         let page = db.remote_messages(&chat.id, None).unwrap();
+        assert_eq!(page["conversation"]["agentConfigId"], "account-b");
+        assert_eq!(page["conversation"]["modelSelection"], json!(selection));
         assert!(!page.to_string().contains("Private checkpoint"));
         assert!(!page.to_string().contains("cGl4ZWxz"));
         assert_eq!(
@@ -521,7 +554,8 @@ mod tests {
             content: "test".into(),
             tool_call_id: None,
             tool_calls: vec![],
-            artifacts: None,
+            artifacts: Some(json!({"phoneTurnOptions":{"connectionId":"legacy-account",
+                "modelSelection":{"model":"pinned","reasoningEffort":"high"}}})),
             token_count: 1,
             created_at: String::new(),
             sort_order: 0,
@@ -531,8 +565,23 @@ mod tests {
         .unwrap();
         let turn = db.create_conversation_turn(&chat.id, "user", None).unwrap();
         let run = db
-            .create_agent_task_run(&chat.id, &turn.id, "user", "test", None, None)
+            .create_agent_task_run(
+                &chat.id,
+                &turn.id,
+                "user",
+                "test",
+                Some("openai"),
+                Some("pinned"),
+            )
             .unwrap();
+        let legacy = db.remote_conversation_model(&chat.id).unwrap();
+        assert_eq!(legacy.agent_config_id.as_deref(), Some("legacy-account"));
+        assert_eq!(legacy.provider, "openai");
+        assert_eq!(legacy.model, "pinned");
+        assert_eq!(
+            legacy.model_selection.unwrap().reasoning_effort.as_deref(),
+            Some("high")
+        );
         let events = (0..130)
             .map(|index| {
                 AgentRunEvent::output_delta(

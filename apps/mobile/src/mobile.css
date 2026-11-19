@@ -2,7 +2,7 @@
 @import "../../desktop/src/features/remote/remote.css" layer(remote);
 @source "../../desktop/src";
 
-.mobile-app {
+.mobile-app:not([data-themed]) {
   --color-surface-0: #faf9f6;
   --color-surface-1: #f0efeb;
   --color-surface-2: #e9e7e2;
@@ -14,6 +14,8 @@
   --color-accent: #32685d;
   --theme-opaque-surface-0: #faf9f6;
   --theme-reading-surface-1: #faf9f6;
+}
+.mobile-app {
   --overlay-bg: var(--color-surface-0);
   --overlay-border: var(--color-border);
   --overlay-item-hover: var(--color-surface-2);
@@ -22,6 +24,8 @@
   height: var(--mobile-viewport-height, 100dvh); margin: auto; overflow: hidden; padding-top: env(safe-area-inset-top);
   background: var(--color-surface-0); color: var(--color-text-primary);
 }
+.mobile-app:has(> .app-theme-backdrop) { position: relative; isolation: isolate; }
+.mobile-app > .app-theme-backdrop { position: absolute; z-index: -1; }
 .mobile-app *, .mobile-app *::before, .mobile-app *::after { box-sizing: border-box; }
 .mobile-app .nexa-logo-mark { filter: none; --theme-logo-foreground: var(--color-text-primary); }
 .mobile-app button { cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease; }
@@ -225,7 +229,7 @@
 .mobile-forget { margin: 24px 0 0; color: #b0534a; font-size: 12px; min-height: 44px; }
 .mobile-error { display: flex; justify-content: space-between; gap: 10px; flex: none; padding: 10px 14px; margin: 8px 12px; border: 1px solid #b86e6450; border-radius: 10px; font-size: 12px; line-height: 1.5; color: #a14d44; overflow-wrap: anywhere; }
 @media (prefers-color-scheme: dark) {
-  .mobile-app { --color-surface-0:#20211f; --color-surface-1:#2c2e2a; --color-surface-2:#383a35; --color-surface-3:#42453e; --color-text-primary:#efeee8; --color-text-secondary:#b5b7ac; --color-text-tertiary:#85887d; --color-border:#3c3e37; --color-accent:#97c0b3; --theme-opaque-surface-0:#20211f; --theme-reading-surface-1:#20211f; }
+  .mobile-app:not([data-themed]) { --color-surface-0:#20211f; --color-surface-1:#2c2e2a; --color-surface-2:#383a35; --color-surface-3:#42453e; --color-text-primary:#efeee8; --color-text-secondary:#b5b7ac; --color-text-tertiary:#85887d; --color-border:#3c3e37; --color-accent:#97c0b3; --theme-opaque-surface-0:#20211f; --theme-reading-surface-1:#20211f; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mobile-app button, .mobile-dialog::backdrop { animation-duration: 0s !important; transition-duration: 0s !important; }

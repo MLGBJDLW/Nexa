@@ -1,8 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ArrowRight, Check, ChevronDown, FolderOpen, Loader2, Monitor, Plus, ScanLine, Settings, Smartphone } from 'lucide-react';
 import { Logo } from '../../desktop/src/components/Logo';
+import { ThemeBackdrop } from '../../desktop/src/components/ThemeBackdrop';
+import type { AppearanceRegistry } from '../../desktop/src/lib/api';
+import { useRemoteAppearance } from '../../desktop/src/features/remote/useRemoteAppearance';
 import { useTranslation } from '../../desktop/src/i18n';
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from '../../desktop/src/features/remote/MobileChatShell';
 import type { RemoteConnection } from '../../desktop/src/features/remote/remoteClient';
@@ -17,7 +20,12 @@ const PhoneSettingsSheet = lazy(() => import('./PhoneSettingsSheet'));
 export interface PhoneConnection { id: string; name: string; provider: string; model: string; baseUrl: string | null }
 export interface ConnectionSyncSummary { supported: boolean; checkedAt: string; connections: number; received: number; sent: number; conflicts: number; deviceOnly: number }
 export interface PhoneCapabilities { accessibility: boolean; accessibilityEnabled?: boolean; accessibilityStatus?: 'connected' | 'disconnected' | 'disabled'; notifications: boolean; restrictedSettingsMayApply?: boolean; batteryOptimized?: boolean; backgroundRestricted?: boolean; manufacturer?: string; androidVersion?: number; screenCapture?: boolean; assistantOverlay?: boolean; remoteControlHost?: string }
-export interface MobileState { version: string; settings: PhoneSettings | null; activeConnectionId?: string | null; connections?: PhoneConnection[]; connectionSync?: Record<string, ConnectionSyncSummary>; hosts: NativeHost[]; capabilities: PhoneCapabilities }
+export interface MobileState { appearance?: AppearanceRegistry; version: string; settings: PhoneSettings | null; activeConnectionId?: string | null; connections?: PhoneConnection[]; connectionSync?: Record<string, ConnectionSyncSummary>; hosts: NativeHost[]; capabilities: PhoneCapabilities }
+
+async function resolvePhoneThemeMedia(assetId: string) {
+  const asset = await invoke<{ path: string; mediaType: string }>('mobile_local', { action: 'appearanceBackground', input: { assetId } });
+  return { url: convertFileSrc(asset.path), mediaType: asset.mediaType };
+}
 
 export function MobileApp() {
   const { t } = useTranslation();
@@ -89,11 +97,17 @@ export function MobileApp() {
   const [syncResults, setSyncResults] = useState<Record<string, ConnectionSyncSummary>>({});
   const host = state?.hosts.find(item => item.id === target);
   const client = clients.current.get(target)?.client ?? null;
+  const appearance = useRemoteAppearance(client, false, target === 'phone' ? state?.appearance : undefined);
   const refresh = useCallback(async () => {
     const generation = ++reads.current;
     try { const next = await invoke<MobileState>('mobile_state'); if (generation === reads.current) setState(next); }
     catch (error) { if (generation === reads.current) setError(String(error)); }
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    const listener = listen('appearance://changed', () => { if (!disposed) void refresh(); });
+    return () => { disposed = true; void listener.then(off => off()); };
+  }, [refresh]);
   const syncConnections = useCallback((id: string, followup = false): Promise<ConnectionSyncSummary> => {
     const pending = syncRequests.current.get(id);
     if (pending) { pending.again ||= followup; return pending.promise; }
@@ -176,7 +190,8 @@ export function MobileApp() {
   });
   const loading = <div className="mobile-loading"><Loader2 size={22} className="animate-spin"/></div>;
 
-  return <main className="mobile-app" data-testid="native-mobile-app">
+  return <main className="mobile-app" data-testid="native-mobile-app" data-themed={appearance.themed || undefined}>
+    {appearance.themed && <ThemeBackdrop theme={appearance.activeTheme} resolve={client ? appearance.resolveMedia : resolvePhoneThemeMedia} />}
     {error && <div className="mobile-error" role="alert">{error}<button onClick={() => setError('')} aria-label={t('common.close')}>×</button></div>}
     {!activeChat && <MobileChatHeader center={heading} onMenu={() => setDrawerOpen(true)}/>}
     {!state ? loading : target === 'phone' ? state.settings || setupSkipped ? <Suspense fallback={loading}><LocalChat settings={state.settings} presentation={presentation} overlayDraft={overlayDraft} onOverlayDraftConsumed={consumeOverlayDraft}/></Suspense>

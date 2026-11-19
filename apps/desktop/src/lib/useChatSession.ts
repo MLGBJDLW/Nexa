@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
 import { connectEventSubscriptions } from './eventSubscriptions';
@@ -414,17 +414,12 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   /* ── State ──────────────────────────────────────────────────────── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [openedConversation, setOpenedConversation] = useState<Conversation | null>(null);
-  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [configs, setConfigs] = useState<AgentConfig[]>([]);
+  const [draftConfig, setDraftConfig] = useState<AgentConfig | null>(null);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string>(externalSystemPrompt ?? '');
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
-  const [defaultContextWindow, setDefaultContextWindow] = useState<number>(0);
-  const [defaultContextAuthority, setDefaultContextAuthority] =
-    useState<api.ContextWindowAuthority>('provider_managed');
-  const [contextWindow, setContextWindow] = useState<number>(0);
-  const [contextAuthority, setContextAuthority] =
-    useState<api.ContextWindowAuthority>('provider_managed');
   const [chatError, setChatError] = useState<string | null>(null);
   const [draftLaunchError, setDraftLaunchError] = useState<{ generation: number; message: string } | null>(null);
   const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
@@ -434,6 +429,21 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
   // The effective active conversation id
   const activeId = externalConversationId ?? internalConversationId;
+  const activeConversation = activeId
+    ? conversations.find((conversation) => conversation.id === activeId)
+      ?? (openedConversation?.id === activeId ? openedConversation : null)
+    : null;
+  const defaultConfig = configs.find(config => config.isDefault) ?? configs[0] ?? null;
+  const agentConfig = useMemo(() => {
+    if (activeId) return activeConversation ? findConfigForConversation(configs, activeConversation, defaultConfig) : null;
+    return draftConfig ? refreshSelectedConfig(configs, draftConfig) : defaultConfig;
+  }, [activeId, activeConversation, configs, defaultConfig, draftConfig]);
+
+  const contextKey = JSON.stringify([agentConfig?.id, agentConfig?.provider, agentConfig?.model,
+    agentConfig?.baseUrl, agentConfig?.contextWindow, agentConfig?.updatedAt]);
+  const [capacity, setCapacity] = useState<ResolvedContextWindowState & { key: string } | null>(null);
+  const contextWindow = capacity?.key === contextKey ? capacity.contextWindow : 0;
+  const contextAuthority = capacity?.key === contextKey ? capacity.authority : 'provider_managed';
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const navigationGenerationRef = useRef(0);
@@ -462,11 +472,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const suppressedLiveUsageRef = useRef<Map<string, UsageTotal | null>>(new Map());
   const autoTitleInFlightRef = useRef<Set<string>>(new Set());
   const systemPromptCacheRef = useRef<Record<string, string>>({});
-  const contextWindowCacheRef = useRef<Record<string, number>>({});
-  const contextAuthorityCacheRef = useRef<Record<string, api.ContextWindowAuthority>>({});
-  const agentConfigsRef = useRef<AgentConfig[]>([]);
   const activeAgentConfigRef = useRef<AgentConfig | null>(null);
-  const defaultAgentConfigRef = useRef<AgentConfig | null>(null);
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
   const openedConversationRef = useRef(openedConversation);
@@ -496,6 +502,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         conversationHydrationGenerationRef.current += 1;
         completionHydrationGenerationRef.current += 1;
         timeline.clearAll();
+      modelWrites.current.clear();
         const conversationId = activeIdRef.current;
         if (conversationId) void timeline.openTail(conversationId).catch(() => {});
       }),
@@ -543,10 +550,21 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     }
   }, [runningConversationIds]);
 
+  // History, list and completion reads may all precede a confirmed model write.
+  // Preserve only the route fields of that write when an older read arrives.
+  const modelWriteRevision = useRef(0);
+  type SavedRoute = Pick<Conversation, 'provider' | 'model' | 'agentConfigId' | 'modelSelection'>;
+  const modelWrites = useRef(new Map<string, { revision: number; route: SavedRoute }>());
+  const withLatestModel = useCallback((row: Conversation, readRevision: number): Conversation => {
+    const write = modelWrites.current.get(row.id);
+    return write && write.revision > readRevision ? { ...row, ...write.route } : row;
+  }, []);
+
   /* ── Load conversations ─────────────────────────────────────────── */
   const loadConversations = useCallback(async () => {
     try {
-      const list = await api.listConversations();
+      const revision = modelWriteRevision.current;
+      const list = (await api.listConversations()).map(row => withLatestModel(row, revision));
       list.sort((a, b) => appTimeMs(b.updatedAt) - appTimeMs(a.updatedAt));
       setConversations(list);
     } catch (e) {
@@ -554,112 +572,49 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     } finally {
       setLoadingConvos(false);
     }
-  }, [t]);
+  }, [t, withLatestModel]);
 
   /* ── Switch agent config (called from UI model selector) ─────── */
   const switchAgentConfig = useCallback(async (config: AgentConfig) => {
-    const selectedId = activeId;
-    let updatedSystemPrompt = customSystemPrompt;
-    if (activeId) {
-      const updatedConversation = await api.updateConversationModel(activeId, config.provider, config.model, config.id, modelSelectionForConfig(config));
-      updatedSystemPrompt = updatedConversation.systemPrompt ?? '';
-      if (activeIdRef.current === selectedId) setOpenedConversation(updatedConversation);
-      setConversations((prev) =>
-        prev.map((conversation) =>
-          conversation.id === activeId
-            ? { ...conversation, ...updatedConversation }
-            : conversation,
-        ),
-      );
+    if (!activeId) {
+      if (!activeIdRef.current) setDraftConfig(config);
+      return;
     }
-    if (activeIdRef.current !== selectedId) return;
-    activeAgentConfigRef.current = config;
-    setAgentConfig(config);
-    const resolution = await resolveContextWindowForConfig(config);
-    if (activeIdRef.current !== selectedId || activeAgentConfigRef.current !== config) return;
-    setContextWindow(resolution.contextWindow);
-    setContextAuthority(resolution.authority);
-    if (activeId) {
-      contextWindowCacheRef.current = {
-        ...contextWindowCacheRef.current,
-        [activeId]: resolution.contextWindow,
-      };
-      contextAuthorityCacheRef.current = {
-        ...contextAuthorityCacheRef.current,
-        [activeId]: resolution.authority,
-      };
-      systemPromptCacheRef.current = {
-        ...systemPromptCacheRef.current,
-        [activeId]: updatedSystemPrompt,
-      };
-    }
-  }, [activeId, customSystemPrompt]);
+    const updated = await api.updateConversationModel(activeId, config.provider, config.model, config.id, modelSelectionForConfig(config));
+    const { provider, model, agentConfigId, modelSelection } = updated;
+    modelWrites.current.set(activeId, { revision: ++modelWriteRevision.current, route: { provider, model, agentConfigId, modelSelection } });
+    if (activeIdRef.current === activeId) setOpenedConversation(updated);
+    setConversations(current => current.map(conversation => conversation.id === activeId ? { ...conversation, ...updated } : conversation));
+  }, [activeId]);
 
-  /* ── Load default agent config ──────────────────────────────────── */
-  const loadDefaultConfig = useCallback(async () => {
-    try {
-      const configs = await api.listAgentConfigs();
-      const def = configs.find((c) => c.isDefault) ?? configs[0] ?? null;
-      agentConfigsRef.current = configs;
-      defaultAgentConfigRef.current = def;
-      setAgentConfig(def);
-      if (def) {
-        const resolution = await resolveContextWindowForConfig(def);
-        setDefaultContextWindow(resolution.contextWindow);
-        setDefaultContextAuthority(resolution.authority);
-        setContextWindow(resolution.contextWindow);
-        setContextAuthority(resolution.authority);
-      } else {
-        setDefaultContextWindow(0);
-        setDefaultContextAuthority('provider_managed');
-        setContextWindow(0);
-        setContextAuthority('provider_managed');
-      }
-    } catch {
-      agentConfigsRef.current = [];
-      defaultAgentConfigRef.current = null;
-      setAgentConfig(null);
-      setDefaultContextWindow(0);
-      setDefaultContextAuthority('provider_managed');
-      setContextWindow(0);
-      setContextAuthority('provider_managed');
-    } finally {
-      setLoadingConfig(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadConversations();
-    loadDefaultConfig();
-  }, [loadConversations, loadDefaultConfig]);
+  useEffect(() => { void loadConversations(); }, [loadConversations]);
 
   useEffect(() => {
     let active = true;
     let generation = 0;
-    const stop = api.onAgentConfigsChanged(() => {
+    const refresh = async () => {
       const request = ++generation;
-      void (async () => {
-        const configs = await api.listAgentConfigs();
-        if (!active || request !== generation) return;
-        const fallback = configs.find(config => config.isDefault) ?? configs[0] ?? null;
-        const selected = refreshSelectedConfig(configs, activeAgentConfigRef.current);
-        agentConfigsRef.current = configs;
-        defaultAgentConfigRef.current = fallback;
-        activeAgentConfigRef.current = selected;
-        setAgentConfig(selected);
-        if (!selected) return;
-        const resolution = await resolveContextWindowForConfig(selected);
-        if (!active || request !== generation || activeAgentConfigRef.current?.id !== selected.id) return;
-        setContextWindow(resolution.contextWindow);
-        setContextAuthority(resolution.authority);
-        if (selected.id === fallback?.id) {
-          setDefaultContextWindow(resolution.contextWindow);
-          setDefaultContextAuthority(resolution.authority);
-        }
-      })().catch(() => { /* Keep the confirmed selection if a refresh is interrupted. */ });
-    });
+      try {
+        const next = await api.listAgentConfigs();
+        if (active && request === generation) setConfigs(next);
+      } catch { /* Keep confirmed credentials during a transient read failure. */ }
+      finally { if (active && request === generation) setLoadingConfig(false); }
+    };
+    void refresh();
+    const stop = api.onAgentConfigsChanged(() => void refresh());
     return () => { active = false; stop(); };
   }, []);
+
+  const capacityGeneration = useRef(0);
+  useEffect(() => {
+    const request = ++capacityGeneration.current;
+    void resolveContextWindowForConfig(activeAgentConfigRef.current).then(result => {
+      if (capacityGeneration.current === request) setCapacity({ ...result, key: contextKey });
+    });
+    return () => { ++capacityGeneration.current; };
+  }, [contextKey]);
+
+  useEffect(() => { setDraftConfig(null); }, [activeId, initialProjectId, draftRouteKey]);
 
   /* ── Load messages when conversation changes ────────────────────── */
   useEffect(() => {
@@ -668,9 +623,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       setOpenedConversation(null);
       setUsageSnapshot(null);
       setCustomSystemPrompt(externalSystemPrompt ?? '');
-      setAgentConfig(defaultAgentConfigRef.current);
-      setContextWindow(defaultContextWindow);
-      setContextAuthority(defaultContextAuthority);
       setLoadingMsgs(false);
       return;
     }
@@ -679,10 +631,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       conversationsRef.current.find((conversation) => conversation.id === activeId) ?? null,
     );
     setCustomSystemPrompt(systemPromptCacheRef.current[activeId] ?? '');
-    setContextWindow(contextWindowCacheRef.current[activeId] ?? defaultContextWindow);
-    setContextAuthority(
-      contextAuthorityCacheRef.current[activeId] ?? defaultContextAuthority,
-    );
     setUsageSnapshot(null);
 
     if (isStreaming && timeline.get(activeId).messages.length > 0 && !externalAnchorMessageId) {
@@ -693,12 +641,14 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setLoadingMsgs(true);
     void (async () => {
       try {
+        const revision = modelWriteRevision.current;
         const [page, durableUsage] = await Promise.all([
           timeline.openTail(activeId, externalAnchorMessageId),
           api.getConversationUsageSnapshot(activeId),
         ]);
         if (!page || cancelled || generation !== conversationHydrationGenerationRef.current) return;
-        const { conversation: conv, taskRuns: agentTaskRuns } = page;
+        const conv = withLatestModel(page.conversation, revision);
+        const agentTaskRuns = page.taskRuns;
         setOpenedConversation(conv);
         setUsageSnapshot(durableUsage);
         if (!streamHasVisiblePreview(activeId)) {
@@ -742,30 +692,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           [activeId]: conv.systemPrompt ?? '',
         };
         setCustomSystemPrompt(conv.systemPrompt ?? '');
-        const selectedConfig = findConfigForConversation(
-          agentConfigsRef.current,
-          conv,
-          defaultAgentConfigRef.current,
-        );
-        const resolution = await resolveContextWindowForConfig(selectedConfig);
-        if (!cancelled && generation === conversationHydrationGenerationRef.current) {
-          setAgentConfig(selectedConfig);
-          contextWindowCacheRef.current = {
-            ...contextWindowCacheRef.current,
-            [activeId]: resolution.contextWindow,
-          };
-          contextAuthorityCacheRef.current = {
-            ...contextAuthorityCacheRef.current,
-            [activeId]: resolution.authority,
-          };
-          setContextWindow(resolution.contextWindow);
-          setContextAuthority(resolution.authority);
-        }
       } catch {
-        if (!cancelled && generation === conversationHydrationGenerationRef.current) {
-          setContextWindow(defaultContextWindow);
-          setContextAuthority(defaultContextAuthority);
-        }
+        // A failed history read leaves the current conversation selection intact.
       } finally {
         if (!cancelled && generation === conversationHydrationGenerationRef.current) {
           setLoadingMsgs(false);
@@ -775,7 +703,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     return () => {
       cancelled = true;
     };
-  }, [activeId, defaultContextAuthority, defaultContextWindow, externalSystemPrompt, externalAnchorMessageId, timeline]);
+  }, [activeId, externalSystemPrompt, externalAnchorMessageId, timeline, withLatestModel]);
 
   /* ── Reload messages when streaming completes ───────────────────── */
   useEffect(() => {
@@ -789,12 +717,13 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     if (completedConversationId) {
       knownStreamConversationsRef.current.delete(completedConversationId);
       // Re-fetch messages after agent is done.
+      const revision = modelWriteRevision.current;
       const refreshConversationPromise = Promise.all([
         timeline.refreshTail(completedConversationId),
         api.getConversationUsageSnapshot(completedConversationId),
       ]).then(([page, durableUsage]) => {
         if (page && !cancelled && generation === completionHydrationGenerationRef.current) {
-          const conv = page.conversation;
+          const conv = withLatestModel(page.conversation, revision);
           if (activeId === completedConversationId) {
             setOpenedConversation(conv);
             setUsageSnapshot(durableUsage);
@@ -869,7 +798,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       }
     }
     return () => { cancelled = true; };
-  }, [activeId, isStreaming, loadConversations, timeline, t]);
+  }, [activeId, isStreaming, loadConversations, timeline, t, withLatestModel]);
 
   // Retire the live projection only after React has committed the durable
   // messages. Clearing it from the fetch callback can race the state commit
@@ -916,13 +845,11 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setInternalConversationId(null);
     setCustomSystemPrompt('');
     setUsageSnapshot(null);
-    setAgentConfig(defaultAgentConfigRef.current);
-    setContextWindow(defaultContextWindow);
-    setContextAuthority(defaultContextAuthority);
+    setDraftConfig(null);
     setChatError(null);
     setDraftLaunchError(null);
     lastUserMessageRef.current = null;
-  }, [defaultContextAuthority, defaultContextWindow]);
+  }, []);
 
   const deleteConversation = useCallback(
     async (id: string) => {
@@ -930,21 +857,18 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         await api.deleteConversation(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
         timeline.clear(id);
+        modelWrites.current.delete(id);
         delete systemPromptCacheRef.current[id];
-        delete contextWindowCacheRef.current[id];
-        delete contextAuthorityCacheRef.current[id];
         if (activeId === id) {
           setInternalConversationId(null);
           setUsageSnapshot(null);
-          setAgentConfig(defaultAgentConfigRef.current);
-          setContextWindow(defaultContextWindow);
-          setContextAuthority(defaultContextAuthority);
+          setDraftConfig(null);
         }
       } catch (e) {
         toast.error(formatUserError(t('chat.deleteError'), e));
       }
     },
-    [activeId, defaultContextAuthority, defaultContextWindow, timeline, t],
+    [activeId, timeline, t],
   );
 
   const deleteConversationsBatch = useCallback(
@@ -955,22 +879,19 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
         for (const id of ids) {
           timeline.clear(id);
+          modelWrites.current.delete(id);
           delete systemPromptCacheRef.current[id];
-          delete contextWindowCacheRef.current[id];
-          delete contextAuthorityCacheRef.current[id];
         }
         if (activeId && idSet.has(activeId)) {
           setInternalConversationId(null);
           setUsageSnapshot(null);
-          setAgentConfig(defaultAgentConfigRef.current);
-          setContextWindow(defaultContextWindow);
-          setContextAuthority(defaultContextAuthority);
+          setDraftConfig(null);
         }
       } catch (e) {
         toast.error(formatUserError(t('chat.deleteError'), e));
       }
     },
-    [activeId, defaultContextAuthority, defaultContextWindow, timeline, t],
+    [activeId, timeline, t],
   );
 
   const deleteAllConversations = useCallback(async () => {
@@ -980,16 +901,12 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       setInternalConversationId(null);
       timeline.clearAll();
       systemPromptCacheRef.current = {};
-      contextWindowCacheRef.current = {};
-      contextAuthorityCacheRef.current = {};
       setUsageSnapshot(null);
-      setAgentConfig(defaultAgentConfigRef.current);
-      setContextWindow(defaultContextWindow);
-      setContextAuthority(defaultContextAuthority);
+      setDraftConfig(null);
     } catch (e) {
       toast.error(formatUserError(t('chat.deleteError'), e));
     }
-  }, [defaultContextAuthority, defaultContextWindow, timeline, t]);
+  }, [timeline, t]);
 
   const renameConversation = useCallback(
     async (id: string, title: string) => {
@@ -1236,7 +1153,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           resumeCheckpointId: options?.resumeCheckpointId,
         }, { propagateErrors: true });
         if (createdConversationForSend) {
-          const committedConversation = createdConversationForSend as Conversation;
+          const committedConversation = { ...createdConversationForSend as Conversation, agentConfigId: configForSend.id,
+            modelSelection: modelSelectionForConfig(configForSend) };
           setConversations((prev) => [committedConversation, ...prev]);
           if (navigationGenerationRef.current === activationGeneration) {
             setInternalConversationId(convId);
@@ -1583,10 +1501,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     activeId != null && streamHasVisiblePreview(activeId);
   const shouldShowLivePreview =
     isViewingStreamingConversation && (isStreaming || !hasPersistedStreamResult);
-  const activeConversation = activeId
-    ? conversations.find((conversation) => conversation.id === activeId)
-      ?? (openedConversation?.id === activeId ? openedConversation : null)
-    : null;
   const activeTurns = turns;
   const activeIsStreaming = shouldShowLivePreview && isStreaming;
   const activeStreamText = shouldShowLivePreview ? streamText : '';
@@ -1806,17 +1720,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     reloadMessages,
     applyCompactionUsage,
     applyModelContextPolicy: (snapshot: api.ModelContextPolicySnapshot) => {
-      const capacity = snapshot.effectiveContextWindow ?? 0;
-      setContextWindow(capacity);
-      setContextAuthority(snapshot.contextAuthority);
-      if (activeId) {
-        contextWindowCacheRef.current[activeId] = capacity;
-        contextAuthorityCacheRef.current[activeId] = snapshot.contextAuthority;
-      }
-      if (defaultAgentConfigRef.current?.id === agentConfig?.id) {
-        setDefaultContextWindow(capacity);
-        setDefaultContextAuthority(snapshot.contextAuthority);
-      }
+      ++capacityGeneration.current;
+      setCapacity({ key: contextKey, contextWindow: snapshot.effectiveContextWindow ?? 0, authority: snapshot.contextAuthority });
     },
     deleteMessage,
     editAndResend,
