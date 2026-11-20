@@ -1705,12 +1705,13 @@ fn is_direct_deepseek_responses_request(
         && hosted_search_context(request).is_none()
 }
 
+#[cfg(test)]
 fn parse_responses_completion(
     value: serde_json::Value,
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
 ) -> Result<CompletionResponse, CoreError> {
-    parse_responses_output(value, dialect, capability, false, None)
+    parse_responses_output(value, dialect, capability, false, false, None)
 }
 
 fn parse_responses_output(
@@ -1718,6 +1719,7 @@ fn parse_responses_output(
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
     copilot: bool,
+    request_disabled_reasoning: bool,
     streamed_reasoning: Option<&HashMap<u64, ResponsesReasoningItem>>,
 ) -> Result<CompletionResponse, CoreError> {
     let response_status = value
@@ -1726,10 +1728,20 @@ fn parse_responses_output(
         .unwrap_or("missing")
         .to_string();
     let response_completed = response_status == "completed";
+    let deepseek = dialect == super::native_search::NativeSearchDialect::DeepSeekResponses;
     let output = value
         .get("output")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| CoreError::Llm("Responses payload did not contain output items".into()))?;
+    let deepseek_no_reasoning_state = deepseek
+        && !output.iter().any(|item| item["type"] == "reasoning")
+        && streamed_reasoning.is_none_or(HashMap::is_empty)
+        && match value.pointer("/usage/output_tokens_details/reasoning_tokens") {
+            Some(tokens) => tokens.as_u64() == Some(0),
+            None => value
+                .pointer("/reasoning/effort")
+                .map_or(request_disabled_reasoning, |effort| effort == "none"),
+        };
     let mut content = String::new();
     let mut thinking = Vec::new();
     let mut tool_calls = Vec::new();
@@ -1760,6 +1772,8 @@ fn parse_responses_output(
         let item = normalized_reasoning.as_ref().unwrap_or(item);
         let item_completed = if native_openai {
             ResponsesReplayPayload::completed_openai_item(item)
+        } else if deepseek {
+            ResponsesReplayPayload::completed_deepseek_item(item)
         } else {
             ResponsesReplayPayload::completed_item(item)
         };
@@ -1984,11 +1998,12 @@ fn parse_responses_output(
             .any(|item| item["type"] == "web_search_call");
     // An OpenAI response can call a function directly. Replay the full native
     // output and still require encrypted state for every reasoning item it did emit.
-    let native_tool_turn = native_openai && !tool_calls.is_empty();
+    let native_tool_turn = (native_openai || deepseek_no_reasoning_state) && !tool_calls.is_empty();
     let provider_replay = (replay_sequence_valid
         && (has_replay_reasoning || hosted_web_turn || native_tool_turn))
         .then(|| {
             let payload = super::provider_turn::ResponsesReplayPayload {
+                deepseek_no_reasoning_state,
                 response_status: response_status.clone(),
                 items: reasoning_replay,
             };
@@ -2011,6 +2026,7 @@ fn parse_responses_output(
                 return None;
             }
             let payload = super::provider_turn::ResponsesReplayPayload {
+                deepseek_no_reasoning_state: false,
                 response_status: response_status.clone(),
                 items: output.clone(),
             };
@@ -2026,6 +2042,7 @@ fn parse_responses_output(
     let provider_replay = if copilot {
         let payload = super::provider_turn::ProviderReplayPayload::CopilotResponseItems(
             super::provider_turn::ResponsesReplayPayload {
+                deepseek_no_reasoning_state: false,
                 response_status: response_status.clone(),
                 items: output.clone(),
             },
@@ -2115,6 +2132,7 @@ fn responses_usage_from_value(usage_value: serde_json::Value) -> Usage {
 #[derive(Default)]
 struct ResponsesAssembler {
     copilot: bool,
+    request_disabled_reasoning: bool,
     answer: String,
     reasoning_items: HashMap<u64, ResponsesReasoningItem>,
     // The added event may carry partial ciphertext. Only a done item can
@@ -2918,6 +2936,7 @@ fn project_responses_stream_event(
                 dialect,
                 capability,
                 projection.copilot,
+                projection.request_disabled_reasoning,
                 Some(&projection.reasoning_items),
             )?;
             if let Some(tool_calls) = completed.tool_calls.as_mut() {
@@ -3032,15 +3051,11 @@ async fn parse_responses_sse_stream(
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
     stream_idle_timeout: Duration,
-    copilot: bool,
+    mut projection: ResponsesAssembler,
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = Vec::new();
     let mut data_lines = Vec::new();
-    let mut projection = ResponsesAssembler {
-        copilot,
-        ..Default::default()
-    };
 
     while let Some(chunk_result) = next_stream_item_with_idle_timeout(
         &mut byte_stream,
@@ -3369,11 +3384,15 @@ impl OpenAiProvider {
                     CoreError::Llm(message)
                 }
             })?;
-        let parsed = if self.copilot_model.is_some() {
-            parse_responses_output(value, dialect, capability, true, None)?
-        } else {
-            parse_responses_completion(value, dialect, capability)?
-        };
+        let parsed = parse_responses_output(
+            value,
+            dialect,
+            capability,
+            self.copilot_model.is_some(),
+            body.pointer("/reasoning/effort")
+                .is_some_and(|effort| effort == "none"),
+            None,
+        )?;
         transport.record_transport_success();
         Ok(parsed)
     }
@@ -3436,13 +3455,19 @@ impl OpenAiProvider {
             .config
             .streaming
             .stream_idle_timeout_for_model(&request.model);
-        let copilot = self.copilot_model.is_some();
+        let projection = ResponsesAssembler {
+            copilot: self.copilot_model.is_some(),
+            request_disabled_reasoning: body
+                .pointer("/reasoning/effort")
+                .is_some_and(|effort| effort == "none"),
+            ..Default::default()
+        };
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_responses_sse_stream(response, parser_tx, dialect, capability, stream_idle_timeout, copilot) => result,
+                result = parse_responses_sse_stream(response, parser_tx, dialect, capability, stream_idle_timeout, projection) => result,
             };
             if let Err(error) = result {
                 transport.record_transport_failure(&error);
@@ -4171,7 +4196,7 @@ mod tests {
         let completion = parse_responses_output(serde_json::json!({"status":"completed","output":[
             {"type":"reasoning","id":"opaque-reasoning","encrypted_content":"native-state","summary":[{"type":"summary_text","text":"Visible summary"}]},
             {"type":"message","id":"opaque-answer","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Answer"}]}
-        ]}),dialect,capability,true,None).unwrap();
+        ]}),dialect,capability,true,false,None).unwrap();
         assert_eq!(completion.thinking.as_deref(), Some("Visible summary"));
         let Some(super::super::provider_turn::ProviderReplayPayload::CopilotResponseItems(payload)) =
             completion.provider_replay
@@ -6265,7 +6290,7 @@ data: [DONE]
                     .await?;
                 socket
                     .write_all(
-                        br#"data: {"type":"response.completed","response":{"id":"resp-safe","status":"completed","output":[{"id":"msg-safe","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"recovered"}]}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}
+                        br#"data: {"type":"response.completed","response":{"id":"resp-safe","status":"completed","output":[{"id":"msg-safe","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"recovered"}]},{"type":"function_call","call_id":"fixture-call","name":"read_file","arguments":"{}"}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}
 
 data: [DONE]
 
@@ -7411,14 +7436,37 @@ data: [DONE]
             .await
             .expect("same-route recovery should reopen Responses");
         let mut answer = String::new();
+        let mut recovered_replay = None;
         while let Some(event) = stream.next().await {
-            if let ProviderStreamEvent::Chunk { chunk } = event {
-                answer.push_str(&chunk.delta);
+            match event {
+                ProviderStreamEvent::Chunk { chunk } => answer.push_str(&chunk.delta),
+                ProviderStreamEvent::ReplayState { replay } => recovered_replay = Some(replay),
+                _ => {}
             }
         }
         server.await.expect("server task").expect("server result");
 
         assert_eq!(answer, "recovered");
+        let original_route = OpenAiProvider::new(endpoint_config(
+            ProviderType::DeepSeek,
+            "https://api.deepseek.com",
+        ))
+        .unwrap()
+        .route_snapshot(&request);
+        let mut call = ToolCallRequest {
+            id: "fixture-call".into(),
+            name: "read_file".into(),
+            arguments: "{}".into(),
+            thought_signature: None,
+        };
+        let replay = recovered_replay
+            .expect("recovery must retain the effective wire mode alongside its native calls");
+        assert!(replay.attests_deepseek_calls_without_reasoning(
+            &original_route,
+            std::slice::from_ref(&call)
+        ));
+        call.id = "unrelated".into();
+        assert!(!replay.attests_deepseek_calls_without_reasoning(&original_route, &[call]));
         let bodies = bodies.lock().expect("request bodies");
         assert_eq!(bodies.len(), 2);
         assert_eq!(bodies[0]["reasoning"]["effort"], "high");
@@ -10133,6 +10181,39 @@ data: [DONE]
         assert!(
             project_responses_stream_event(terminal, &mut stream, dialect, capability).is_err()
         );
+    }
+
+    #[test]
+    fn deepseek_responses_keeps_explicit_non_thinking_calls_and_optional_item_status() {
+        let dialect = super::super::native_search::NativeSearchDialect::DeepSeekResponses;
+        let capability = generic_responses_capability(dialect);
+        let call = serde_json::json!({"type":"function_call","call_id":"c1","name":"read_file","arguments":"{}"});
+        let mut unfinished = call.clone();
+        unfinished["status"] = serde_json::json!("in_progress");
+        let reasoning = serde_json::json!({"type":"reasoning","id":"r1","content":[{"type":"reasoning_text","text":"Locate the fixture."}]});
+        for (effort, items, reasoning_tokens, replayable) in [
+            ("none", vec![call.clone()], None, true),
+            ("high", vec![reasoning.clone(), call.clone()], Some(5), true),
+            ("high", vec![call.clone()], Some(0), true),
+            ("high", vec![call.clone()], None, false),
+            ("none", vec![call.clone()], Some(7), false),
+            ("none", vec![unfinished], Some(0), false),
+        ] {
+            let mut terminal = serde_json::json!({"status":"completed","reasoning":{"effort":effort},"output":items});
+            if let Some(tokens) = reasoning_tokens {
+                terminal["usage"] =
+                    serde_json::json!({"output_tokens_details":{"reasoning_tokens":tokens}});
+            }
+            let parsed = parse_responses_completion(terminal, dialect, capability).unwrap();
+            assert_eq!(
+                parsed
+                    .provider_replay
+                    .as_ref()
+                    .is_some_and(|replay| replay.is_present()),
+                replayable,
+                "{effort}: {items:?}"
+            );
+        }
     }
 
     #[test]

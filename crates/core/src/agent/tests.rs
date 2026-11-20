@@ -1720,6 +1720,7 @@ impl LlmProvider for ProviderHostedToolProvider {
                 replay: Box::new(
                     crate::llm::provider_turn::ProviderReplayPayload::DeepSeekResponseItems(
                         crate::llm::provider_turn::ResponsesReplayPayload {
+                            deepseek_no_reasoning_state: false,
                             response_status: "completed".to_string(),
                             items: vec![
                                 serde_json::json!({
@@ -3087,6 +3088,7 @@ impl LlmProvider for NativeContinuationProvider {
         let (replay, chunk) = match index {
             0 => (
                 Some(ResponsesReplayPayload {
+                    deepseek_no_reasoning_state: false,
                     response_status: "completed".into(),
                     items: vec![
                         serde_json::json!({"type":"reasoning","id":"rs-0","status":"completed","content":[{"type":"reasoning_text","text":"read evidence once"}]}),
@@ -3109,6 +3111,7 @@ impl LlmProvider for NativeContinuationProvider {
             ),
             1 => (
                 Some(ResponsesReplayPayload {
+                    deepseek_no_reasoning_state: false,
                     response_status: "incomplete".into(),
                     items: vec![
                         serde_json::json!({"type":"reasoning","id":"rs-1","status":"incomplete","content":[{"type":"reasoning_text","text":"ready to summarize verified evidence"}]}),
