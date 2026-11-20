@@ -36,10 +36,13 @@ impl Database {
                 next: None,
             });
         }
-        let indexed = query
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace())
-            && query.split_whitespace().count() <= 32;
+        let indexed = query.chars().all(|ch| {
+            ch.is_whitespace()
+                || ch.is_alphanumeric()
+                    && !crate::lexical::is_han(ch)
+                    && !matches!(ch as u32, 0x3040..=0x30ff | 0xac00..=0xd7af | 0x0e00..=0x0eff)
+        }) && query.split_whitespace().count() <= 32;
+        let folded = query.to_lowercase();
         let (source, predicate, terms) = if indexed {
             (
                 "fts_messages JOIN messages m ON m.id = fts_messages.message_id",
@@ -53,8 +56,12 @@ impl Database {
         } else {
             (
                 "messages m",
-                "instr(lower(m.content), lower(:terms)) > 0",
-                query.to_owned(),
+                if query.chars().any(|c| c.is_lowercase() || c.is_uppercase()) {
+                    "instr(nexa_lower(m.content), :terms) > 0"
+                } else {
+                    "instr(m.content, :terms) > 0"
+                },
+                folded.clone(),
             )
         };
         let sql = format!(
@@ -70,10 +77,10 @@ impl Database {
                 GROUP BY m.conversation_id
             )
             SELECT s.id,coalesce(s.title,''),s.updated_at,m.id,m.sort_order,
-                   substr(m.content, max(1,instr(lower(m.content),lower(:needle))-40), 150)
+                   substr(m.content, max(1,instr(nexa_lower(m.content),:needle)-40), 150)
             FROM scope s LEFT JOIN hits h ON h.conversation_id=s.id
             LEFT JOIN messages m ON m.rowid=h.message_row
-            WHERE h.message_row IS NOT NULL OR instr(lower(s.title),lower(:query)) > 0
+            WHERE h.message_row IS NOT NULL OR instr(nexa_lower(s.title),:query) > 0
             ORDER BY s.updated_at DESC,s.id DESC LIMIT 33"
         );
         let reader = self.read_only_lane()?;
@@ -83,13 +90,13 @@ impl Database {
             .map(|[date, id]| (Some(date), Some(id)))
             .unwrap_or_default();
         let needle = if indexed {
-            query.split_whitespace().next().unwrap_or(query)
+            folded.split_whitespace().next().unwrap_or(&folded)
         } else {
-            query
+            &folded
         };
         let mut rows = stmt.query(named_params! {
             ":archived": archived, ":date": date, ":id": id,
-            ":terms": terms, ":query": query, ":needle": needle,
+            ":terms": terms, ":query": folded, ":needle": needle,
         })?;
         let mut items = Vec::new();
         let mut last_date = String::new();
@@ -144,6 +151,18 @@ mod tests {
             .unwrap()
             .message_id
             .is_none());
+        db.conn()
+            .execute(
+                "UPDATE conversations SET title='ÜBERBLICK • ОТЧЁТ' WHERE id='title'",
+                [],
+            )
+            .unwrap();
+        for query in ["über", "отчёт"] {
+            assert_eq!(
+                db.search_chat_history(query, false, None).unwrap().items[0].id,
+                "title"
+            );
+        }
         for query in ["这段历史", "100%_"] {
             assert_eq!(
                 db.search_chat_history(query, false, None).unwrap().items[0].message_order,

@@ -2,7 +2,7 @@
 //! `chunks`; FTS sees the same projection on insert, delete, rebuild and read.
 use rusqlite::{functions::FunctionFlags, Connection};
 
-fn is_han(ch: char) -> bool {
+pub(crate) fn is_han(ch: char) -> bool {
     matches!(ch as u32, 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af)
 }
 
@@ -42,6 +42,18 @@ pub(crate) fn index_text(text: &str) -> String {
 }
 
 pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
+    conn.create_scalar_function(
+        "nexa_lower",
+        1,
+        FunctionFlags::SQLITE_UTF8
+            | FunctionFlags::SQLITE_DETERMINISTIC
+            | FunctionFlags::SQLITE_INNOCUOUS,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|text| text.to_lowercase()))
+        },
+    )?;
     conn.create_scalar_function(
         "nexa_lexical_v1",
         1,
