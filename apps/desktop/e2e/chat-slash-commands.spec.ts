@@ -29,6 +29,10 @@ test('live Markdown and local slash commands keep original text and never send a
   await expect(page.getByTestId('chat-draft-markdown').locator('strong')).toHaveText('中文输入');
   await expect(input).toHaveValue(source);
   await expect(input).toBeFocused();
+  await input.fill('Setext heading\n=============');
+  await expect(page.getByTestId('chat-draft-markdown').locator('h1')).toHaveText('Setext heading');
+  await input.fill('https://example.invalid/guide');
+  await expect(page.getByTestId('chat-draft-markdown')).toBeVisible();
   await input.fill('/model');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('agent-model-picker-menu')).toBeVisible();

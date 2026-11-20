@@ -1252,6 +1252,15 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 }
 
 /* ── Chat prose styling ───────────────────────────────────────────── */
+.draft-edit-region { position: relative; min-width: 0; }
+.live-draft-markdown:has(.user-markdown:empty) { display: none; }
+.draft-edit-region:has(.user-markdown:not(:empty)) textarea { max-height: 6rem; }
+:is([data-testid="chat-composer-surface"], .remote-composer):not(:focus-within) .draft-edit-region:has(.user-markdown:not(:empty)) > .draft-source {
+  position: absolute; inset: 0; z-index: 1; opacity: 0;
+}
+:is([data-testid="chat-composer-surface"], .remote-composer):not(:focus-within) .draft-edit-region:has(.user-markdown:not(:empty)) textarea {
+  width: 100%; height: 100% !important; min-height: 0; max-height: none;
+}
 .user-markdown { line-height: 1.5rem; }
 .user-markdown p { white-space: pre-wrap; margin-block: 0.5em; }
 .user-markdown :is(h1, h2, h3, h4, h5, h6) { font-weight: 600; margin-block: 0.6em 0.25em; }
