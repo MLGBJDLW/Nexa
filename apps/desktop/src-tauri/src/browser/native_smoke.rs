@@ -126,17 +126,17 @@ fn run_html_pointer_fixture(foreground: bool) {
                 let session = state.create_session(Some(conversation.clone()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
-                if !foreground {
-                    // WebView2 may activate its host when creating the controller.
-                    // Put a second test-owned window in front before observing the tab.
-                    let anchor = handle.get_window("fixture-foreground").ok_or("Missing test focus window")?;
-                    anchor.show().and_then(|_|anchor.set_focus()).map_err(|error|error.to_string())?;
-                    let expected = anchor.hwnd().map_err(|error|error.to_string())?.0 as isize;
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                    while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
-                        if std::time::Instant::now() >= deadline { return Err("The dedicated fixture window did not acquire foreground ownership.".into()); }
-                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    }
+                // Creating the child WebView can change the active window after
+                // the initial show. Establish the fixture's intended focus before
+                // collecting the observation that authorizes the first click.
+                let focus_label = if foreground { "main" } else { "fixture-foreground" };
+                let anchor = handle.get_window(focus_label).ok_or("Missing test focus window")?;
+                anchor.show().and_then(|_| anchor.set_focus()).map_err(|error| error.to_string())?;
+                let expected = anchor.hwnd().map_err(|error| error.to_string())?.0 as isize;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
+                    if std::time::Instant::now() >= deadline { return Err(format!("The {focus_label} fixture window did not acquire foreground ownership.")); }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
                 if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
                     return Err("A foreign conversation could inspect target presence".into());
