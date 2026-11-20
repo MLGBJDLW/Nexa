@@ -36,6 +36,7 @@ test.beforeEach(async ({ page }) => {
         case 'search_chat_history_cmd':return {items:[{id:'history',title:'Paged history',messageId:'a50',messageOrder:502,snippet:'Answer 50.'}],next:null};
         case 'get_conversation_timeline_page_cmd': {
           requests.push(args);
+          if (!args.anchorMessageId && !args.before && !args.after && pendingTail) await pendingTail;
           const start = args.anchorMessageId ? Number(String(args.anchorMessageId).slice(1)) : args.after ? Number(args.after.messageId.slice(1)) : args.before ? Math.max(1,Number(args.before.messageId.slice(1))-20) : 9981;
           const end = Math.min(10000,args.before ? Number(args.before.messageId.slice(1))-1 : start+19);
           const numbers=Array.from({length:end-start+1},(_,index)=>start+index);
@@ -62,7 +63,9 @@ test.beforeEach(async ({ page }) => {
         default:return null;
       }
     };
-    Object.assign(window,{__TIMELINE_TEST__:{requests,detailRequests,legacyReads,browserOpens},__TAURI_INTERNALS__:{invoke,metadata:{currentWindow:{label:'main'}},convertFileSrc:(path:string)=>path,transformCallback:(callback:(event:unknown)=>void)=>{const id=++sequence;callbacks.set(id,callback);return id;},unregisterCallback:(id:number)=>callbacks.delete(id)},__TAURI_EVENT_PLUGIN_INTERNALS__:{unregisterListener:(_event:string,id:number)=>listeners.delete(id)}});
+    let pendingTail: Promise<void> | undefined, releaseTail: (()=>void) | undefined;
+    const holdTail = () => { pendingTail = new Promise<void>(resolve => { releaseTail = resolve; }); };
+    Object.assign(window,{__TIMELINE_TEST__:{requests,detailRequests,legacyReads,browserOpens,holdTail,releaseTail:()=>releaseTail?.()},__TAURI_INTERNALS__:{invoke,metadata:{currentWindow:{label:'main'}},convertFileSrc:(path:string)=>path,transformCallback:(callback:(event:unknown)=>void)=>{const id=++sequence;callbacks.set(id,callback);return id;},unregisterCallback:(id:number)=>callbacks.delete(id)},__TAURI_EVENT_PLUGIN_INTERNALS__:{unregisterListener:(_event:string,id:number)=>listeners.delete(id)}});
   });
 });
 
@@ -103,9 +106,13 @@ test('deep links read the target page and return to the latest tail',async({page
   await expect(page.locator('[data-chat-message-id="a50"] p').first()).toBeInViewport();
   await expect(page.getByTestId('chat-load-latest')).toBeVisible();
   expect(await page.evaluate(()=>(window as any).__TIMELINE_TEST__.requests[0].anchorMessageId)).toBe('a50');
+  await page.evaluate(() => (window as any).__TIMELINE_TEST__.holdTail());
   await page.getByTestId('chat-load-latest').click();
   await expect(page).toHaveURL(/\/chat\/history$/);
+  await expect(page.locator('[data-chat-scroll-root]')).toHaveCount(0);
+  await page.evaluate(() => (window as any).__TIMELINE_TEST__.releaseTail());
   await expect(page.locator('[data-timeline-key="turn-t10000"]').getByText('Request 10000',{exact:true})).toBeVisible();
+  await expect(page.locator('[data-chat-message-id="a10000"]')).toBeInViewport();
   expect(await page.evaluate(()=>(window as any).__TIMELINE_TEST__.legacyReads)).toEqual([]);
 });
 

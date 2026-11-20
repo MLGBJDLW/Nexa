@@ -1974,10 +1974,10 @@ export function ChatPage() {
               hasNewerMessages={chat.hasNewerMessages}
               loadingOlderMessages={chat.loadingOlderMessages}
               onLoadOlderMessages={chat.loadOlderMessages}
-              onLoadLatestMessages={focusMessageId ? async () => {
+              onLoadLatestMessages={focusMessageId ? () => {
                 const query = new URLSearchParams(location.search);
                 query.delete('message');
-                navigate({ pathname: location.pathname, search: query.toString() }, { replace: true, state: location.state });
+                void navigate({ pathname: location.pathname, search: query.toString() }, { replace: true, state: location.state });
               } : chat.loadLatestMessages}
               onLoadTurnDetails={chat.loadTurnDetails}
               focusMessageId={focusMessageId}

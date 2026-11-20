@@ -102,7 +102,7 @@ interface ChatMessagesProps {
   hasNewerMessages?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => Promise<void>;
-  onLoadLatestMessages?: () => Promise<void>;
+  onLoadLatestMessages?: () => void | Promise<void>;
   onLoadTurnDetails?: (anchorId: string) => Promise<void>;
   focusMessageId?: string | null;
   focusNavigationKey?: string;
@@ -1843,6 +1843,30 @@ export function ChatMessages(props: ChatMessagesProps) {
     scrollToContainerBottom(shouldReduceMotion ? "auto" : "smooth");
   }, [scrollToContainerBottom, shouldReduceMotion]);
 
+  const pendingLatest = useRef<string | null>(null);
+  function loadLatestMessages() {
+    if (!props.onLoadLatestMessages) return;
+    pendingLatest.current = props.conversationId ?? null;
+    void props.onLoadLatestMessages();
+  }
+  useLayoutEffect(() => {
+    if (props.focusMessageId) {
+      pendingLatest.current = props.conversationId ?? null;
+      return;
+    }
+    if (!pendingLatest.current || pendingLatest.current !== props.conversationId) {
+      pendingLatest.current = null;
+      return;
+    }
+    // Navigation may resolve while the old page is mounted or a loading view
+    // owns the scroll area. Seek only after the current tail has a scroll root.
+    if (loadingMsgs || props.hasNewerMessages || !scrollContainerRef.current) return;
+    pendingLatest.current = null;
+    shouldAutoFollowRef.current = true;
+    rowVirtualizer.scrollToEnd();
+    scrollToContainerBottom('auto');
+  }, [loadingMsgs, props.conversationId, props.focusMessageId, props.hasNewerMessages, rowVirtualizer, scrollToContainerBottom]);
+
   const focusRow = useMemo(() => {
     const index = props.focusMessageId ? messageIndexById.get(props.focusMessageId) : undefined;
     if (index == null) return -1;
@@ -2215,7 +2239,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     >
       <div ref={scrollContentRef} data-chat-follow-content="true" className="flow-root min-w-0">
       {props.hasOlderMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-older" disabled={props.loadingOlderMessages} onClick={() => void loadOlderMessages()} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-60">{props.loadingOlderMessages ? t('common.loading') : t('chat.loadOlderMessages')}</button></div>}
-      {props.hasNewerMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-latest" onClick={() => { void props.onLoadLatestMessages?.().then(scrollToBottom); }} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2">{t('chat.loadLatestMessages')}</button></div>}
+      {props.hasNewerMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-latest" onClick={loadLatestMessages} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2">{t('chat.loadLatestMessages')}</button></div>}
       <TurnNavigator
         items={turnNavigationItems}
         activeId={activeTurnNavigationId}
