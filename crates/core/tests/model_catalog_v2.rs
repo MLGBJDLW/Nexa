@@ -528,7 +528,7 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes
     );
     assert!(international_flash.capabilities.vision);
 
-    for (id, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
+    for (id, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 131_072)] {
         let model = find(id, "text:openrouter");
         assert_eq!(model.limits.context_tokens, Some(1_048_576));
         assert_eq!(model.limits.max_output_tokens, Some(max_output));
