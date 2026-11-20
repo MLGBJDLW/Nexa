@@ -1,3 +1,5 @@
+import { LiveDraftMarkdown } from '../../components/chat/UserMessageText';
+import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from '../../components/chat/ConversationHistorySearch';
 import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useGenerationMetrics } from '../../lib/useGenerationMetrics';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -160,7 +162,12 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     speechGeneration.current++; setSpeakingId(null);
     void client.nativeSpeech?.stop().catch(() => {});
   }, [client, conversationId]);
-  const selectConversation = (id: string) => {
+  const [searchAnchor, setSearchAnchor] = useState<HistoryHit | null>(null);
+  const scrolledHit = useRef<HistoryHit | null>(null);
+  const findHistory = useCallback((query: string, before: HistoryPage['next']) =>
+    client.rpc<HistoryPage>('chat.search', { query, before }), [client]);
+  const selectConversation = (id: string, hit?: HistoryHit) => {
+    setSearchAnchor(hit?.messageOrder != null ? hit : null);
     selectedConversation.current = id;
     setConversationId(id);
   };
@@ -267,6 +274,14 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   useLayoutEffect(() => {
     if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
   }, [mobile, messages, timeline]);
+  useLayoutEffect(() => {
+    if (!searchAnchor?.messageId || scrolledHit.current === searchAnchor || drawerOpen) return;
+    const target = contentScroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchAnchor.messageId)}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'center' });
+      scrolledHit.current = searchAnchor;
+    }
+  }, [drawerOpen, messages, searchAnchor]);
   useLayoutEffect(() => {
     if (!mobile || !composerInput.current) return;
     composerInput.current.style.height = 'auto';
@@ -427,7 +442,10 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     };
     const read = async () => {
       const expectedRun = runId;
-      const result = await client.rpc<MessagePage>('chat.read', { conversationId });
+      const result = await client.rpc<MessagePage>('chat.read', { conversationId,
+        ...(searchAnchor?.id === conversationId && searchAnchor.messageOrder != null
+          ? { beforeOrder: searchAnchor.messageOrder + 1 } : {}),
+      });
       if (!valid() || runId !== expectedRun) return;
       const firstLoad = !historyLoaded;
       setOpenedChat({ id: conversationId, chat: result.conversation?.id === conversationId ? result.conversation : undefined });
@@ -633,7 +651,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);
     };
-  }, [client, conversationId, list]);
+  }, [client, conversationId, list, searchAnchor]);
   async function create() {
     if (sendLock.current) return;
     pendingProjectMove.current = null;
@@ -899,8 +917,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           </option>
         ))}
       </select>)}
-      {client.modelPickerAvailable !== false && <ConnectionModelPicker key={catalogRevision} connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
-        value={modelSelection} onChange={selection => chooseRoute(connectionId, selection)} load={client.models} label={t('remote.model')} disabled={sending || !connectionId} />}
+      {client.modelPickerAvailable !== false && <ConnectionModelPicker key={catalogRevision} connectionId={connectionId} defaultModel={selectedConnection?.model || ''}
+        value={modelSelection ?? selectedConnection?.defaultSelection ?? null} onChange={selection => chooseRoute(connectionId, selection)} load={client.models} label={t('remote.model')} disabled={sending || !connectionId} allowServiceTiers />}
     </>;
   const conversationControls = <>
       <div className="flex gap-2">
@@ -938,17 +956,22 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         </button>
       )}
     </>;
+  const projectHistory = <MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
+          archiveId={manageTarget?.action === 'archive' ? manageTarget.item.id : undefined}
+          onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
+          onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
+          hasMore={!!cursor} onMore={() => void list(cursor).catch(errorText)}/>;
   return (
     <main
       className={mobile ? "native-chat" : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"}
       data-testid="remote-chat"
     >
       {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connections.length}/>
-        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connections.length} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
-          archiveId={manageTarget?.action === 'archive' ? manageTarget.item.id : undefined}
-          onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
-          onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
-          hasMore={!!cursor} onMore={() => void list(cursor).catch(errorText)}/>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connections.length} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button>{client.paired.manifest.capabilities?.includes('chat-search-v1')
+          ? <ConversationHistorySearch find={findHistory} onPick={hit => {
+              selectConversation(hit.id, hit); pendingSend.current = null;
+              followOutput.current = hit.messageOrder == null; setDrawerOpen(false);
+            }}>{projectHistory}</ConversationHistorySearch> : projectHistory}
         {client.conversationManagementAvailable && <>
           <div className="mobile-archive-heading">
             <button className="mobile-add-connection" aria-expanded={archivesOpen} onClick={() => {
@@ -994,13 +1017,16 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         </p>
       )}
       {loading && <Loader2 className="mx-auto animate-spin text-accent" />}
+      {searchAnchor && <button type="button" className={remoteButton} onClick={() => {
+        followOutput.current = true; setSearchAnchor(null);
+      }}>{t('chat.scrollToBottom')}</button>}
       {beforeOrder !== null && (
         <button className={remoteButton} onClick={() => void older()}>
           {t("remote.older")}
         </button>
       )}
       <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
-        <RemoteTranscript messages={messages} timeline={timeline} running={running} finalMessageId={finalMessageId} runUserId={runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
+        <RemoteTranscript messages={messages} timeline={searchAnchor ? [] : timeline} running={!searchAnchor && running} finalMessageId={searchAnchor ? null : finalMessageId} runUserId={searchAnchor ? null : runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
           more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
       </div>
       {runStatus && (
@@ -1201,6 +1227,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
               }}>{t('chat.editDraft')}</button>}
           </div>
         )}</div>}
+        <LiveDraftMarkdown key={conversationId} text={draft} />
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
         <div className="flex min-w-0 items-start">
         <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}

@@ -1200,9 +1200,9 @@ export function ChatPage() {
   /* ── Handlers (navigation-aware wrappers) ───────────────────────── */
 
   const handleSelectConversation = useCallback(
-    (id: string) => {
+    (id: string, messageId?: string | null) => {
       chat.setActiveConversation(id);
-      navigate(`/chat/${id}`, { flushSync: true });
+      navigate(`/chat/${id}${messageId ? `?message=${encodeURIComponent(messageId)}` : ''}`, { flushSync: true });
     },
     [chat.setActiveConversation, navigate],
   );
@@ -1327,8 +1327,8 @@ export function ChatPage() {
     [chat.conversations, chat.runningConversationIds, chat.setConversations, chat.activeId, navigate, t],
   );
 
-  const handleSelectArchivedConversation = useCallback((id: string) => {
-    navigate(`/chat/${id}`);
+  const handleSelectArchivedConversation = useCallback((id: string, messageId?: string | null) => {
+    navigate(`/chat/${id}${messageId ? `?message=${encodeURIComponent(messageId)}` : ''}`);
   }, [navigate]);
 
   const handleArchivedConversationRestored = useCallback((conversation: Conversation) => {

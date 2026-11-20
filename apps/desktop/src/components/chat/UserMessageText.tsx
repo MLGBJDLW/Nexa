@@ -1,16 +1,25 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useId, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from '../../i18n';
 import { pauseScrollFollowForReading } from '../../lib/scrollFollow';
 
 /** No executable diagrams, HTML, or automatic remote image requests in user drafts. */
-export function UserMarkdown({ text }: { text: string }) {
+export const UserMarkdown = memo(function UserMarkdown({ text }: { text: string }) {
   return <div className="user-markdown prose-chat min-w-0 [overflow-wrap:anywhere]">
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
       a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
       img: ({ alt }) => <span>{alt}</span>,
     }}>{text}</ReactMarkdown>
+  </div>;
+});
+
+export function LiveDraftMarkdown({ text }: { text: string }) {
+  const rendered = useDeferredValue(text);
+  // Plain prose already looks the same in the editor. Keep its footprint small.
+  if (!text.trim() || !/(?:[*_`~#>|\[]|^\s*(?:[-+]|\d+[.)])\s)/m.test(rendered)) return null;
+  return <div data-testid="chat-draft-markdown" className="max-h-40 overflow-auto border-t border-border/35 px-4 py-2 text-sm text-text-primary">
+    <UserMarkdown text={rendered} />
   </div>;
 }
 

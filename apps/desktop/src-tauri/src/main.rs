@@ -1060,6 +1060,7 @@ fn main() {
             commands::delete_media_generation_asset_occurrence_cmd,
             commands::delete_media_generation_asset_cmd,
             commands::search_conversations_cmd,
+            commands::search_chat_history_cmd,
             // Conversation checkpoints
             commands::list_checkpoints_cmd,
             commands::restore_checkpoint_cmd,

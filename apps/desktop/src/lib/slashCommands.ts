@@ -50,7 +50,6 @@ const FIRST_COMMAND_RE = new RegExp(`(^|\\s)/((${COMMAND_NAME_PATTERN}))(?:\\s|$
 
 const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLabel" | "searchText">> = [
   { name: "model", title: "Choose model", description: "Choose a model for the next message.", action: "composer" },
-  { name: "preview", title: "Markdown preview", description: "Preview your draft without changing its source.", action: "composer" },
   { name: "options", title: "More options", description: "Show collaboration, quality, workflows, and conversation tools.", action: "composer" },
   { name: "attach", title: "Attach files", description: "Add files to the current draft.", action: "composer" },
   { name: "commands", title: "Command palette", description: "Search commands, conversations, and documents.", action: "composer" },

@@ -2216,6 +2216,9 @@ export const deleteMediaGenerationAsset = (request: RequestMediaAssetDeletion) =
 export const compactConversation = (conversationId: string) =>
   invoke<CompactConversationResult>('compact_conversation_cmd', { conversationId });
 
+export const searchChatHistory = (query: string, archived: boolean, before: [string, string] | null) =>
+  invoke<import('../components/chat/ConversationHistorySearch').HistoryPage>('search_chat_history_cmd', { query, archived, before });
+
 export const searchConversations = (query: string, limit?: number) =>
   invoke<ConversationSearchResult[]>('search_conversations_cmd', { query, limit });
 

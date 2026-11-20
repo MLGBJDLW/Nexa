@@ -2,6 +2,8 @@
 
 mod cache_observation;
 pub mod goal;
+mod history_search;
+pub use history_search::HistorySearchPage;
 pub mod memory;
 pub(crate) mod model_selection;
 mod remote_views;

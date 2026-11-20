@@ -447,6 +447,7 @@ impl RemoteHost for DesktopHost {
             "screen-control-v1".into(),
             "chat-schedules-v1".into(),
             "chat-management-v1".into(),
+            "chat-search-v1".into(),
             "chat-delete-archived-v1".into(),
             "chat-steering-v1".into(),
         ]
@@ -527,7 +528,8 @@ impl RemoteHost for DesktopHost {
             }
             Connections => state.db_executor.read(|db| {
                 Ok(db.list_agent_configs()?.into_iter().map(|config| {
-                    json!({"id":config.id,"name":config.name,"provider":config.provider,"model":config.model,"isDefault":config.is_default})
+                    json!({"id":config.id,"name":config.name,"provider":config.provider,"model":config.model,"isDefault":config.is_default,
+                        "defaultSelection":nexa_core::conversation::TurnModelSelection::from(&config)})
                 }).collect::<Vec<_>>())
             }).await.map_err(|e| e.to_string()).and_then(|result| value(result.value)),
             SyncConnections { input } => {
@@ -567,6 +569,11 @@ impl RemoteHost for DesktopHost {
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
+            SearchChats { query, before } => {
+                let db = state.db.clone();
+                tokio::task::spawn_blocking(move || db.search_chat_history(&query, false, before.as_ref()))
+                    .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string()).and_then(value)
+            }
             Conversation { conversation_id, before_order } => state.db_executor
                 .read(move |db| db.remote_messages(&conversation_id, before_order))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
