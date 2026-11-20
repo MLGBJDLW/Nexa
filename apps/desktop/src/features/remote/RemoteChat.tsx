@@ -450,11 +450,11 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       setRunning(['queued', 'running', 'waiting_approval', 'cancelling'].includes(effective));
       if (runId && ['completed', 'cancelled', 'failed', 'timed_out'].includes(effective)) terminal.add(runId);
     };
+    const anchorOrder = searchAnchor?.id === conversationId ? searchAnchor.messageOrder : null;
     const read = async () => {
       const expectedRun = runId;
       const result = await client.rpc<MessagePage>('chat.read', { conversationId,
-        ...(searchAnchor?.id === conversationId && searchAnchor.messageOrder != null
-          ? { beforeOrder: searchAnchor.messageOrder + 1 } : {}),
+        ...(anchorOrder != null ? { beforeOrder: anchorOrder + 1 } : {}),
       });
       if (!valid() || runId !== expectedRun) return;
       const firstLoad = !historyLoaded;
@@ -465,10 +465,10 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         setBeforeOrder(result.beforeOrder);
         hitToReveal.current = searchAnchor;
       }
-      // Only the canonical message for THIS run retires its live answer. A
-      // previous assistant message or a temporarily missing final cannot do so.
+      // Only the canonical message retires this run's live answer. Retry a missing
+      // final on the live tail. A search page can end before that message.
       if (finalId && result.messages.some(message => message.id === finalId)) setFinalMessageId(finalId);
-      else if (status === 'completed') readNeeded = true;
+      else if (status === 'completed' && anchorOrder == null) readNeeded = true;
     };
     if (archivePreview) {
       const readArchived = () => {

@@ -234,6 +234,11 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
           break;
         case "chat.resume":
           resumeCalls++;
+          if (params.conversationId === 'past') {
+            value = { run: { id: 'past-run', status: 'completed', finalMessageId: 'latest' },
+              events: [], hasMore: false, durableHighWater: 0, nextSequence: null };
+            break;
+          }
           value = {
             run: runEvents.length
               ? { id: currentRunId, status: runStatus, errorMessage: runStatus === 'cancelled' ? 'Request cancelled by user.' : null, finalMessageId: finalAnswer == null ? null : 'final-message' }
@@ -1273,6 +1278,7 @@ test('phone sidebar opens an older body match without paging through the interve
 test('paired web search opens title and intermediate message hits outside the first history page', async ({ page }) => {
   const app = await fixture(page);
   app.enableSearch();
+  await page.clock.install();
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   const search = async (query: string) => {
     await page.getByRole('button', { name:'Search all conversations' }).click();
@@ -1285,6 +1291,10 @@ test('paired web search opens title and intermediate message hits outside the fi
   await expect(page.getByRole('option', {name:'Previous review'})).toBeAttached();
   await search('handover');
   await expect(page.locator('[data-message-id="early"]')).toBeInViewport();
+  const historyResumes = app.counts().resumeCalls;
+  await page.clock.fastForward(9_000);
+  await page.clock.runFor(150);
+  expect(app.counts().resumeCalls).toBe(historyResumes);
   await page.getByRole('button', {name:'Scroll to bottom'}).click();
   await expect(page.locator('[data-message-id="latest"]')).toHaveText(/Recent update/);
 });
