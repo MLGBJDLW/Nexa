@@ -301,7 +301,7 @@ impl DecisionResponse {
     }
 }
 
-fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
+fn base_endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
     let preset = presets()
         .iter()
         .find(|preset| preset.id == config.provider)
@@ -312,7 +312,7 @@ fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
         .map(str::trim)
         .filter(|url| !url.is_empty())
         .unwrap_or(&preset.base_url);
-    let mut url = reqwest::Url::parse(base).map_err(|_| {
+    let url = reqwest::Url::parse(base).map_err(|_| {
         CoreError::InvalidInput(
             "Enter the provider's HTTPS System One base URL in Settings.".into(),
         )
@@ -321,12 +321,12 @@ fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned));
     let host_matches = match config.provider.as_str() {
-        "alibaba-model-studio-cn" => url
-            .host_str()
-            .is_some_and(|host| host.ends_with(".cn-beijing.maas.aliyuncs.com")),
-        "alibaba-model-studio-intl" => url
-            .host_str()
-            .is_some_and(|host| host.ends_with(".ap-southeast-1.maas.aliyuncs.com")),
+        "alibaba-model-studio-cn" => {
+            crate::provider_catalog::alibaba_workspace_region(base) == Some("cn-beijing")
+        }
+        "alibaba-model-studio-intl" => {
+            crate::provider_catalog::alibaba_workspace_region(base) == Some("ap-southeast-1")
+        }
         _ => url.host_str() == expected_host.as_deref(),
     };
     let path = url.path().trim_end_matches('/');
@@ -348,13 +348,48 @@ fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
     {
         return Err(CoreError::InvalidInput("System One base URL must match the selected provider and region, without credentials, query or fragment.".into()));
     }
+    Ok(url)
+}
+
+fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
+    let mut url = base_endpoint(config)?;
     let operation = match config.provider.as_str() {
         "openrouter" => "/api/alpha/decisions".to_owned(),
         "openai" => "/v1/decisions".to_owned(),
-        _ => format!("{expected_path}/systemone"),
+        _ => format!("{}/systemone", url.path().trim_end_matches('/')),
     };
     url.set_path(&operation);
     Ok(url)
+}
+
+impl crate::db::Database {
+    /// Resolve a saved chat key for this request. The settings row retains only
+    /// an explicit override, so key rotation and deletion apply immediately.
+    pub fn resolve_system_one_credential(
+        &self,
+        config: &mut SystemOneConfig,
+    ) -> Result<(), CoreError> {
+        if !config.enabled || !config.api_key.trim().is_empty() {
+            return Ok(());
+        }
+        let Ok(base) = base_endpoint(config) else {
+            return Ok(());
+        };
+        let scope = crate::provider_credentials::scope;
+        let target = scope(&config.provider, Some(base.as_str()));
+        if let Some(source) = self
+            .list_agent_configs()?
+            .into_iter()
+            .filter(|source| {
+                !source.api_key.trim().is_empty()
+                    && scope(&source.provider, source.base_url.as_deref()) == target
+            })
+            .min_by_key(|source| !source.is_default)
+        {
+            config.api_key = source.api_key;
+        }
+        Ok(())
+    }
 }
 
 fn prepare_request(
@@ -446,7 +481,8 @@ pub async fn evaluate(
     request: DecisionRequest,
     cancellation: &tokio_util::sync::CancellationToken,
 ) -> Result<DecisionResponse, CoreError> {
-    let config = db.load_app_config()?.system_one;
+    let mut config = db.load_app_config()?.system_one;
+    db.resolve_system_one_credential(&mut config)?;
     if !config.enabled || config.api_key.trim().is_empty() {
         return Err(CoreError::InvalidInput("Enable a System One provider and add its API key under Settings > Providers > Structured decisions.".into()));
     }
@@ -751,6 +787,56 @@ mod tests {
         assert!(serde_json::to_value(response).unwrap()["usage"]
             .get("output_tokens")
             .is_none());
+    }
+
+    #[test]
+    fn decision_credentials_follow_the_saved_endpoint_and_key_rotation() {
+        let db = crate::db::Database::open_memory().unwrap();
+        db.conn().execute("INSERT INTO agent_configs (id,name,provider,api_key,base_url,model,is_default) VALUES ('chat','Chat','open_ai','first',NULL,'fixture',1)", []).unwrap();
+        let mut config = SystemOneConfig {
+            enabled: true,
+            provider: "openai".into(),
+            model: "gpt-6-luna".into(),
+            ..Default::default()
+        };
+        let resolved = |settings: &SystemOneConfig| {
+            let mut runtime = settings.clone();
+            db.resolve_system_one_credential(&mut runtime).unwrap();
+            runtime.api_key
+        };
+        assert_eq!(resolved(&config), "first");
+        db.conn()
+            .execute("UPDATE agent_configs SET api_key='rotated'", [])
+            .unwrap();
+        assert_eq!(resolved(&config), "rotated");
+        config.api_key = "dedicated".into();
+        assert_eq!(resolved(&config), "dedicated");
+        config.api_key.clear();
+        config.provider = "alibaba-model-studio-cn".into();
+        config.base_url =
+            Some("https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1".into());
+        for endpoint in [
+            "https://other.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://user@workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        ] {
+            db.conn()
+                .execute("UPDATE agent_configs SET base_url=?1", [endpoint])
+                .unwrap();
+            assert!(resolved(&config).is_empty());
+        }
+        db.conn()
+            .execute(
+                "UPDATE agent_configs SET base_url=?1",
+                [config.base_url.as_deref().unwrap()],
+            )
+            .unwrap();
+        assert_eq!(resolved(&config), "rotated");
+        db.conn()
+            .execute("DELETE FROM agent_configs WHERE id='chat'", [])
+            .unwrap();
+        assert!(resolved(&config).is_empty());
     }
 
     #[test]

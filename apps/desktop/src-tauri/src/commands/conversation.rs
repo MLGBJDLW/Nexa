@@ -1060,7 +1060,11 @@ pub fn list_capability_packages_cmd(
     app_handle: AppHandle,
     include_runtime_checks: Option<bool>,
 ) -> Result<Vec<nexa_core::plugins::CapabilityPackageView>, String> {
-    let config = state.db.load_app_config().map_err(|e| e.to_string())?;
+    let mut config = state.db.load_app_config().map_err(|e| e.to_string())?;
+    state
+        .db
+        .resolve_system_one_credential(&mut config.system_one)
+        .map_err(|e| e.to_string())?;
     let office_runtime = if include_runtime_checks.unwrap_or(false) {
         match app_handle.path().app_data_dir() {
             Ok(data_dir) => Some(nexa_core::office_runtime::check_office_runtime(&data_dir)),

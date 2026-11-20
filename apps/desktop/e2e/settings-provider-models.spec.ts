@@ -252,6 +252,7 @@ test('image settings select GPT Image and Grok Image 2 with model-specific optio
 });
 
 test('structured decisions save opt-in settings and clear credentials across providers', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-e2e-decision-connection', '1'));
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   const panel = page.getByTestId('system-one-settings');
@@ -266,7 +267,9 @@ test('structured decisions save opt-in settings and clear credentials across pro
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'typesafe', model: 'jev-latest', apiKey: 'typesafe-fixture-key' });
   await selectControl(panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)'), 'openrouter');
   await expect(panel.locator('input[type="password"]')).toHaveValue('');
-  await expect(save).toBeDisabled();
+  await expect(panel.getByTestId('shared-credential-notice')).toHaveAttribute('data-state', 'reusing');
+  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.systemOne)).toMatchObject({ provider: 'openrouter', apiKey: '' });
   await panel.locator('input[type="password"]').fill('router-fixture-key');
   await save.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: '~perplexity/pplx-decider-flash-latest', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
@@ -643,6 +646,9 @@ test.beforeEach(async ({ page }) => {
           return clone(appearanceRegistry);
         }
         case "list_agent_configs_cmd":
+          if (localStorage.getItem('nexa-e2e-decision-connection')) return [{
+            ...clone(anthropicConfig), provider: 'openrouter', name: 'My router', apiKey: 'router-chat-fixture', baseUrl: 'https://openrouter.ai/api/v1',
+          }];
           if (localStorage.getItem("nexa-e2e-retired-kimi")) return [{
             ...clone(anthropicConfig), provider:"moonshot", name:"Saved Kimi", model:"kimi-k2.5",
             baseUrl:"https://api.moonshot.cn/v1", modelId:"kimi-k2.5",

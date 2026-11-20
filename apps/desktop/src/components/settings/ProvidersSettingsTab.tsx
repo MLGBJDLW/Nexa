@@ -443,7 +443,7 @@ export function ProvidersSettingsTab({
 
           {appConfig && connectionKind === 'api' && (
             <>
-              <SystemOneSettingsPanel appConfig={appConfig} loading={appConfigLoading} onChange={onAppConfigChange} onMarkDirty={onMarkAppConfigDirty} onSave={onAppConfigSave} />
+              <SystemOneSettingsPanel appConfig={appConfig} agentConfigs={agentConfigs} loading={appConfigLoading} onChange={onAppConfigChange} onMarkDirty={onMarkAppConfigDirty} onSave={onAppConfigSave} />
               <div className="space-y-2" data-provider-category="image-generation">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
                   <ImageIcon size={14} />
