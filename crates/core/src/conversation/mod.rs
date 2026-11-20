@@ -2189,7 +2189,7 @@ impl Database {
             // Tokenize: wrap each word in double-quotes for exact prefix matching
             let fts_query: String = trimmed
                 .split_whitespace()
-                .map(|w| format!("\"{}\"", w.replace('"', "")))
+                .map(|w| format!("\"{}\"", crate::lexical::chat_terms(w).replace('"', "")))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -2198,7 +2198,7 @@ impl Database {
             }
 
             let mut stmt = conn.prepare(
-                "SELECT f.conversation_id, c.title, f.content, f.role,
+                "SELECT f.conversation_id, c.title, m.content, f.role,
                         m.created_at, bm25(fts_messages) AS rank
                  FROM fts_messages f
                  JOIN conversations c ON c.id = f.conversation_id

@@ -37,30 +37,43 @@ impl Database {
             });
         }
         let indexed = query.chars().all(|ch| {
-            ch.is_whitespace()
-                || ch.is_alphanumeric()
-                    && !crate::lexical::is_han(ch)
-                    && !matches!(ch as u32, 0x3040..=0x30ff | 0xac00..=0xd7af | 0x0e00..=0x0eff)
+            ch.is_whitespace() || ch.is_alphanumeric() && !crate::lexical::is_unsegmented_script(ch)
         }) && query.split_whitespace().count() <= 32;
         let folded = query.to_lowercase();
-        let (source, predicate, terms) = if indexed {
+        let visible = "m.role IN ('user','assistant')
+            AND coalesce(m.display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext','questionResponse')
+            AND (m.display_reasoning_candidate = 0 OR CASE WHEN json_valid(m.tool_calls_json) THEN json_array_length(m.tool_calls_json) ELSE 0 END > 0
+              OR coalesce((SELECT t.display_trace_flags FROM conversation_turns t
+                  WHERE t.conversation_id=m.conversation_id AND t.assistant_message_id=m.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1),
+                  m.display_legacy_trace_flags,0) <> 1)";
+        let (matches, lookup, terms) = if indexed {
             (
-                "fts_messages JOIN messages m ON m.id = fts_messages.message_id",
-                "fts_messages MATCH :terms",
-                query
-                    .split_whitespace()
-                    .map(|word| format!("\"{word}\"*"))
-                    .collect::<Vec<_>>()
-                    .join(" "),
+                format!(", hits AS (
+                    SELECT m.conversation_id, max(m.rowid) AS message_row
+                    FROM fts_messages JOIN messages m ON m.id=fts_messages.message_id
+                    JOIN scope s ON s.id=m.conversation_id
+                    WHERE fts_messages MATCH :terms AND {visible} GROUP BY m.conversation_id
+                )"),
+                "LEFT JOIN hits h ON h.conversation_id=s.id LEFT JOIN messages hit ON hit.rowid=h.message_row".into(),
+                query.split_whitespace().map(|word| format!("\"{word}\"*")).collect::<Vec<_>>().join(" "),
             )
         } else {
+            // Walk the recency index, stopping as soon as a page is full. Each
+            // conversation seeks its newest visible literal hit in timeline order.
+            let content = if query.chars().any(|c| c.is_lowercase() || c.is_uppercase()) {
+                "nexa_lower(m.content)"
+            } else {
+                "m.content"
+            };
             (
-                "messages m",
-                if query.chars().any(|c| c.is_lowercase() || c.is_uppercase()) {
-                    "instr(nexa_lower(m.content), :terms) > 0"
-                } else {
-                    "instr(m.content, :terms) > 0"
-                },
+                String::new(),
+                format!(
+                    "LEFT JOIN messages hit ON hit.rowid=(
+                    SELECT m.rowid FROM messages m WHERE m.conversation_id=s.id
+                    AND {visible} AND instr({content},:terms)>0
+                    ORDER BY m.sort_order DESC,m.id DESC LIMIT 1
+                )"
+                ),
                 folded.clone(),
             )
         };
@@ -69,22 +82,11 @@ impl Database {
                 SELECT id,title,updated_at FROM conversations
                 WHERE parent_conversation_id IS NULL AND (archived_at IS NOT NULL) = :archived
                   AND (:date IS NULL OR (updated_at,id) < (:date,:id))
-            ), hits AS (
-                SELECT m.conversation_id, max(m.rowid) AS message_row
-                FROM {source} JOIN scope s ON s.id = m.conversation_id
-                WHERE {predicate} AND m.role IN ('user','assistant')
-                  AND coalesce(m.display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext','questionResponse')
-                  AND (m.display_reasoning_candidate = 0 OR CASE WHEN json_valid(m.tool_calls_json) THEN json_array_length(m.tool_calls_json) ELSE 0 END > 0
-                    OR coalesce((SELECT t.display_trace_flags FROM conversation_turns t
-                        WHERE t.conversation_id=m.conversation_id AND t.assistant_message_id=m.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1),
-                        m.display_legacy_trace_flags,0) <> 1)
-                GROUP BY m.conversation_id
-            )
-            SELECT s.id,coalesce(s.title,''),s.updated_at,m.id,m.sort_order,
-                   substr(m.content, max(1,instr(nexa_lower(m.content),:needle)-40), 150)
-            FROM scope s LEFT JOIN hits h ON h.conversation_id=s.id
-            LEFT JOIN messages m ON m.rowid=h.message_row
-            WHERE h.message_row IS NOT NULL OR instr(nexa_lower(s.title),:query) > 0
+            ) {matches}
+            SELECT s.id,coalesce(s.title,''),s.updated_at,hit.id,hit.sort_order,
+                   substr(hit.content, max(1,instr(nexa_lower(hit.content),:needle)-40), 150)
+            FROM scope s {lookup}
+            WHERE hit.id IS NOT NULL OR instr(nexa_lower(s.title),:query)>0
             ORDER BY s.updated_at DESC,s.id DESC LIMIT 33"
         );
         let conn = self.conn();
@@ -165,6 +167,40 @@ mod tests {
                 .message_id
                 .as_deref(),
             Some("steer")
+        );
+        db.conn()
+            .execute(
+                "INSERT INTO messages(id,conversation_id,role,content,sort_order)
+            VALUES ('mixed','matched','assistant','使用PKCE保护OAuth登录',8)",
+                [],
+            )
+            .unwrap();
+        for query in ["PKCE", "oauth", "保护OAuth"] {
+            let hit = db
+                .search_chat_history(query, false, None)
+                .unwrap()
+                .items
+                .remove(0);
+            assert_eq!(hit.message_id.as_deref(), Some("mixed"), "{query}");
+            assert_eq!(hit.snippet.as_deref(), Some("使用PKCE保护OAuth登录"));
+        }
+        // Pre-upgrade rows held the unsplit display text. Verify the migration
+        // repairs that projection without changing the message or its anchor.
+        {
+            let conn = db.conn();
+            conn.execute_batch(
+                "UPDATE fts_messages SET content='使用PKCE保护OAuth登录' WHERE message_id='mixed';
+                DROP INDEX idx_conversations_history_page;
+                DELETE FROM _migrations WHERE name='v163_history_search';",
+            )
+            .unwrap();
+            crate::migrations::run_migrations(&conn).unwrap();
+        }
+        assert_eq!(
+            db.search_chat_history("PKCE", false, None).unwrap().items[0]
+                .message_id
+                .as_deref(),
+            Some("mixed")
         );
         let hits = db.search_chat_history("need", false, None).unwrap().items;
         assert_eq!(hits.len(), 2);
