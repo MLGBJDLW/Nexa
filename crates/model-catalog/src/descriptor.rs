@@ -117,6 +117,8 @@ impl ServiceTier {
 pub struct ModelCapabilities {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub service_tiers: Vec<ServiceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers_until: Option<String>,
     #[serde(default)]
     pub reasoning: Option<ReasoningCapability>,
     #[serde(default)]

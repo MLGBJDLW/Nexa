@@ -840,6 +840,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: None,
             model: "gpt-test".to_string(),
+            service_tier: None,
             temperature: Some(0.2),
             max_tokens: Some(1024),
             context_window: Some(128_000),

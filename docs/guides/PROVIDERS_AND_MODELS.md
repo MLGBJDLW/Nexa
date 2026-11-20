@@ -154,6 +154,23 @@ Choose a provider to restore that connection's saved model and reasoning setting
 choose the model label to browse only its models. Subscription and ACP catalogs
 still determine which saved choices are currently available.
 
+Open the reasoning control and choose the lightning button to select a speed for
+the current conversation. Available speeds depend on the connection and model.
+OpenAI Fast and Ultrafast use the API service tier. Claude Fast uses the Messages
+speed parameter. ChatGPT subscriptions use the speeds returned by the signed-in
+Codex account. Premium speeds may cost more. Choosing Default restores the
+provider or account setting. [OpenAI Fast](https://developers.openai.com/api/docs/guides/fast-mode),
+[OpenAI Ultrafast](https://developers.openai.com/api/docs/guides/ultrafast-mode),
+[Claude Fast](https://platform.claude.com/docs/en/build-with-claude/fast-mode).
+
+On Alibaba Token Plan, choose the Beijing or Singapore connection for your
+subscription and select Qwen4 Max. Both regions support the production
+`qwen4-max` ID, text and visual input, tool calling and the Low, High and XHigh
+reasoning settings. The two plan connections retain their own credentials.
+[Token Plan for Beijing](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview),
+[Token Plan for Singapore](https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview),
+[Qwen4 Max](https://help.aliyun.com/zh/model-studio/qwen4-max).
+
 ### October 24, 2026 additions
 
 - Direct Moonshot `kimi-k3.1-pro` and `kimi-k3.1-pro-highspeed` use

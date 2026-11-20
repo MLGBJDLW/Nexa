@@ -132,6 +132,8 @@ pub struct ReasoningCapability {
 pub struct ProviderCapabilities {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub service_tiers: Vec<crate::model_catalog::ServiceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers_until: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub reasoning: Option<ReasoningCapability>,
     #[serde(default)]
@@ -153,6 +155,8 @@ impl<'de> Deserialize<'de> for ProviderCapabilities {
             #[serde(default)]
             service_tiers: Vec<crate::model_catalog::ServiceTier>,
             #[serde(default)]
+            service_tiers_until: Option<chrono::NaiveDate>,
+            #[serde(default)]
             reasoning: Option<ReasoningCapability>,
             #[serde(default)]
             vision: Option<bool>,
@@ -165,6 +169,7 @@ impl<'de> Deserialize<'de> for ProviderCapabilities {
 
         Ok(Self {
             service_tiers: raw.service_tiers,
+            service_tiers_until: raw.service_tiers_until,
             reasoning: raw.reasoning,
             vision: raw.vision,
             reasoning_declared,
@@ -580,6 +585,11 @@ pub fn model_service_tiers(
             })
         })
         .and_then(|entry| entry.capabilities.as_ref())
+        .filter(|capabilities| {
+            capabilities
+                .service_tiers_until
+                .is_none_or(|until| chrono::Utc::now().date_naive() < until)
+        })
         .map_or(&[], |capabilities| capabilities.service_tiers.as_slice())
 }
 
@@ -1075,6 +1085,7 @@ fn merge_capabilities(
 
     if let Some(capabilities) = model_capabilities {
         merged.service_tiers.clone_from(&capabilities.service_tiers);
+        merged.service_tiers_until = capabilities.service_tiers_until;
         if capabilities.reasoning_declared {
             merged.reasoning = capabilities.reasoning.clone();
             merged.reasoning_declared = true;

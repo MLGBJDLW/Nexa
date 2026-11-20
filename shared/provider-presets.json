@@ -24699,7 +24699,8 @@
           },
           "serviceTiers": [
             "fast"
-          ]
+          ],
+          "serviceTiersUntil": "2026-11-30"
         },
         "lastVerifiedAt": "2026-11-20"
       },

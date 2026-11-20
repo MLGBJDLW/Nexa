@@ -219,12 +219,12 @@ pub struct TurnModelSelection {
 
 impl TurnModelSelection {
     pub fn apply(&self, saved: &AgentConfig) -> Result<AgentConfig, CoreError> {
-        self.validate_for_provider(&saved.provider, saved.base_url.as_deref())?;
+        self.validate_for_provider(&saved.provider)?;
         let mut selected = saved.clone();
         selected.model = self.model.trim().into();
         selected.model_id = Some(selected.model.clone());
         selected.model_selection_resolution = None;
-        selected.service_tier = self.service_tier;
+        selected.service_tier = self.service_tier_for(&saved.provider, saved.base_url.as_deref());
         selected.reasoning_enabled = Some(true);
         selected.reasoning_effort = self
             .reasoning_effort
@@ -238,9 +238,9 @@ impl TurnModelSelection {
         &self,
         saved: &mut crate::connection_sync::SharedModelConnection,
     ) -> Result<(), CoreError> {
-        self.validate_for_provider(&saved.provider, saved.base_url.as_deref())?;
+        self.validate_for_provider(&saved.provider)?;
         saved.model = self.model.trim().into();
-        saved.service_tier = self.service_tier;
+        saved.service_tier = self.service_tier_for(&saved.provider, saved.base_url.as_deref());
         saved.reasoning_enabled = Some(true);
         saved.reasoning_effort = self
             .reasoning_effort
@@ -250,23 +250,22 @@ impl TurnModelSelection {
         Ok(())
     }
 
-    fn validate_for_provider(
+    fn service_tier_for(
         &self,
         provider: &str,
         base_url: Option<&str>,
-    ) -> Result<(), CoreError> {
+    ) -> Option<crate::model_catalog::ServiceTier> {
+        // Codex validates its live, account-scoped catalog at launch. Dropping stale API
+        // speeds lets saved and scheduled conversations continue after an endpoint change.
+        self.service_tier.filter(|tier| {
+            provider == "openai_codex"
+                || crate::provider_catalog::model_service_tiers(provider, base_url, &self.model)
+                    .contains(tier)
+        })
+    }
+
+    fn validate_for_provider(&self, provider: &str) -> Result<(), CoreError> {
         let model = self.model.trim();
-        // The subscription runtime revalidates its live, account-scoped catalog before launch.
-        if provider != "openai_codex"
-            && self.service_tier.is_some_and(|tier| {
-                !crate::provider_catalog::model_service_tiers(provider, base_url, model)
-                    .contains(&tier)
-            })
-        {
-            return Err(CoreError::InvalidInput(
-                "The selected speed is unavailable for this model connection".into(),
-            ));
-        }
         if model.is_empty() || model.len() > 512 || model.chars().any(char::is_control) {
             return Err(CoreError::InvalidInput("Choose a valid model ID".into()));
         }
@@ -323,6 +322,13 @@ mod tests {
             reasoning_effort: Some("high".into()),
             thinking_budget: None,
         };
+        let mut changed_endpoint = config.clone();
+        changed_endpoint.base_url = Some("https://private.example/v1".into());
+        assert!(selection
+            .apply(&changed_endpoint)
+            .unwrap()
+            .service_tier
+            .is_none());
         db.select_conversation_model(&conversation.id, &config.id, &selection)
             .unwrap();
         save("connection-a", "another-window-model", false);
