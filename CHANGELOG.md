@@ -16,6 +16,17 @@
 
 * **catalog:** reconcile withdrawn deadlines and scoped November 20 routes ([#585](https://github.com/MLGBJDLW/Nexa/issues/585)) ([626886c](https://github.com/MLGBJDLW/Nexa/commit/626886c67d028b5c73164a4ade3f7c4cda406f9e))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 9394d45fc0fe5816641ecad5284c7ad3057495b2 -->
+
+### What's Changed
+* fix(catalog): reconcile withdrawn deadlines and November 20 routes by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/585
+* feat(workspace)!: search conversation history and improve agent controls across devices by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/587
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18) (2026-11-19)
 
 ### Features
