@@ -919,6 +919,7 @@ fn test_agent_config() -> DbAgentConfig {
         provider_endpoint_id: None,
         model_id: None,
         model_selection_resolution: None,
+        service_tier: None,
         created_at: String::new(),
         updated_at: String::new(),
     }

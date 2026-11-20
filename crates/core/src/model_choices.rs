@@ -15,6 +15,8 @@ pub struct ModelChoice {
     pub id: String,
     pub name: String,
     pub reasoning: Option<ReasoningCapability>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub service_tiers: Vec<crate::model_catalog::ServiceTier>,
     pub vision: Option<bool>,
     pub available: bool,
     pub replacement_model_id: Option<String>,
@@ -37,6 +39,7 @@ impl ModelChoices {
                     id: model.into(),
                     name: model.into(),
                     reasoning: None,
+                    service_tiers: Vec::new(),
                     vision: None,
                     available: retired.is_none(),
                     replacement_model_id: retired.and_then(|item| item.replacement_model_id),
@@ -99,6 +102,12 @@ pub async fn cloud_model_choices(
             .into_iter()
             .filter(|model| retirement.get(&model.id).is_none())
             .map(|model| ModelChoice {
+                service_tiers: crate::provider_catalog::model_service_tiers(
+                    provider_key,
+                    base_url.as_deref(),
+                    &model.id,
+                )
+                .to_vec(),
                 id: model.id,
                 name: model.name,
                 reasoning: model

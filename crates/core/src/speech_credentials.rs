@@ -1,50 +1,7 @@
 //! Speech inherits keys at the same endpoint boundary as the provider UI.
 //! Only exact reviewed endpoints may share keys across API paths or aliases.
+use crate::provider_credentials::scope;
 use crate::{app_settings::AppConfig, db::Database, error::CoreError};
-use std::{collections::HashMap, sync::OnceLock};
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Scopes {
-    endpoints: HashMap<String, String>,
-    provider_aliases: HashMap<String, String>,
-}
-
-fn scope(provider: &str, endpoint: Option<&str>) -> Option<String> {
-    static SCOPES: OnceLock<Scopes> = OnceLock::new();
-    let scopes = SCOPES.get_or_init(|| {
-        serde_json::from_str(include_str!(
-            "../../../shared/provider-credential-scopes.json"
-        ))
-        .expect("reviewed credential scopes")
-    });
-    let Some(endpoint) = endpoint.filter(|endpoint| !endpoint.trim().is_empty()) else {
-        let provider = provider.trim().to_lowercase();
-        return Some(
-            scopes
-                .provider_aliases
-                .get(&provider)
-                .cloned()
-                .unwrap_or(provider),
-        );
-    };
-    let url = url::Url::parse(endpoint.trim()).ok()?;
-    if !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return None;
-    }
-    let normalized = url.as_str().trim_end_matches('/');
-    Some(
-        scopes
-            .endpoints
-            .get(normalized)
-            .cloned()
-            .unwrap_or_else(|| format!("endpoint:{normalized}")),
-    )
-}
 
 /// Return the speech preset's endpoint for a specific saved connection.
 pub fn connection_speech_endpoint(

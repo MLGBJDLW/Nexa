@@ -461,7 +461,7 @@ impl Tool for NativeBrowserSessionTool {
                 &actions,
                 &session_optional_actions,
             );
-        serde_json::json!({
+        let mut schema = serde_json::json!({
             "type": "object",
             "properties": {
                 "action": { "type": "string", "enum": actions },
@@ -494,7 +494,14 @@ impl Tool for NativeBrowserSessionTool {
             "required": ["action"],
             "oneOf": action_variants,
             "additionalProperties": false
-        })
+        });
+        if !cfg!(windows) {
+            if let Some(properties) = schema["properties"].as_object_mut() {
+                properties.remove("point");
+                properties.remove("endPoint");
+            }
+        }
+        schema
     }
 
     fn categories(&self) -> &'static [ToolCategory] {

@@ -115,6 +115,7 @@ pub mod project_memory;
 pub mod project_runtime;
 pub mod protocol_exports;
 pub mod provider_catalog;
+mod provider_credentials;
 pub mod provider_registry;
 pub mod quality_eval;
 pub mod quality_profile;

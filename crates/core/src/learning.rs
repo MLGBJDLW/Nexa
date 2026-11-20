@@ -135,6 +135,7 @@ pub async fn distill_text_llm(
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type,
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     };

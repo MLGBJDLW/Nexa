@@ -17,8 +17,8 @@ mod provider_endpoint;
 pub use cache::{CatalogCacheKey, LastGoodCatalogCache};
 pub use descriptor::{
     ModelAccess, ModelCapabilities, ModelCatalogSource, ModelDescriptor, ModelLifecycle,
-    ModelLimits, ModelModality, ProductReadiness, ReasoningCapability, ThinkingBudgetCapability,
-    MODEL_DESCRIPTOR_SCHEMA_VERSION,
+    ModelLimits, ModelModality, ProductReadiness, ReasoningCapability, ServiceTier,
+    ThinkingBudgetCapability, MODEL_DESCRIPTOR_SCHEMA_VERSION,
 };
 pub use discovery::DiscoveredModel;
 pub use lifecycle::{

@@ -126,6 +126,10 @@ pub struct GeminiThoughtSignatureSet {
 pub struct ResponsesReplayPayload {
     pub response_status: String,
     pub items: Vec<serde_json::Value>,
+    /// The DeepSeek wire request/response disabled thinking, or the terminal
+    /// usage recorded zero reasoning tokens and no reasoning was observed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deepseek_no_reasoning_state: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -219,6 +223,21 @@ impl ResponsesReplayPayload {
                 .is_none_or(|status| status == "completed")
     }
 
+    /// DeepSeek's terminal response makes item status and item ID optional.
+    /// Function calls are identified separately by call_id. Only standard
+    /// assistant output gets this rule; hosted tools retain their own receipt.
+    pub(super) fn completed_deepseek_item(item: &serde_json::Value) -> bool {
+        if !matches!(
+            item["type"].as_str(),
+            Some("reasoning" | "function_call" | "message")
+        ) {
+            return Self::completed_item(item);
+        }
+        item.get("id")
+            .is_none_or(|id| id.as_str().is_some_and(|s| !s.trim().is_empty()))
+            && item.get("status").is_none_or(|s| s == "completed")
+    }
+
     /// DeepSeek returns failed page reads alongside successful signed pages in
     /// completed turns. Both are terminal web results in its input contract.
     pub(super) fn failed_deepseek_web_item(item: &serde_json::Value) -> bool {
@@ -239,7 +258,8 @@ impl ResponsesReplayPayload {
         let optional_reasoning = matches!(
             contract,
             ResponsesReplayContract::OpenAi | ResponsesReplayContract::Copilot
-        );
+        ) || (contract == ResponsesReplayContract::DeepSeek
+            && self.deepseek_no_reasoning_state);
         let mut call_ids = std::collections::HashSet::new();
         let deepseek_web_without_thinking = contract == ResponsesReplayContract::DeepSeek
             && self
@@ -250,6 +270,8 @@ impl ResponsesReplayPayload {
         for item in &self.items {
             let completed = if contract == ResponsesReplayContract::OpenAi {
                 Self::completed_openai_item(item)
+            } else if contract == ResponsesReplayContract::DeepSeek {
+                Self::completed_deepseek_item(item)
             } else {
                 Self::completed_item(item)
             };
@@ -597,6 +619,17 @@ pub enum ProviderReplayPayload {
 }
 
 impl ProviderReplayPayload {
+    pub(crate) fn attests_deepseek_calls_without_reasoning(
+        &self,
+        route: &RouteSnapshot,
+        calls: &[ToolCallRequest],
+    ) -> bool {
+        matches!(self, Self::DeepSeekResponseItems(p) if
+            route.provider_family == "deepseek" && route.api_style == ReasoningApiStyle::OpenAiResponses
+            && p.deepseek_no_reasoning_state && !calls.is_empty()
+            && !p.items.iter().any(|item| item["type"] == "reasoning")
+            && p.authorizes_calls(calls, ResponsesReplayContract::DeepSeek))
+    }
     pub fn is_present(&self) -> bool {
         match self {
             Self::DeepSeekReasoningContent(content)
@@ -1214,6 +1247,7 @@ pub fn decode_responses_reasoning_items(signature: &str) -> Option<ResponsesRepl
                 serde_json::from_str::<Vec<serde_json::Value>>(payload)
                     .ok()
                     .map(|items| ResponsesReplayPayload {
+                        deepseek_no_reasoning_state: false,
                         response_status: "legacy_unknown".to_string(),
                         items,
                     })
@@ -1299,6 +1333,7 @@ mod tests {
         );
 
         let response_payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({
@@ -1365,6 +1400,7 @@ mod tests {
     #[test]
     fn responses_replay_without_client_tools_is_turn_level_state() {
         let payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({
@@ -1570,6 +1606,7 @@ mod tests {
     #[test]
     fn incomplete_or_reasoning_missing_responses_payload_never_authorizes_tools() {
         let payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({
@@ -1646,6 +1683,7 @@ mod tests {
         })
         .to_string();
         let payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({
@@ -1711,6 +1749,7 @@ mod tests {
         })
         .to_string();
         let payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({
@@ -1767,6 +1806,7 @@ mod tests {
     fn mismatched_responses_sensitive_ledger_becomes_non_replayable_without_leaking() {
         let sentinel = "mismatched-response-secret-129a";
         let payload = ResponsesReplayPayload {
+            deepseek_no_reasoning_state: false,
             response_status: "completed".to_string(),
             items: vec![
                 serde_json::json!({

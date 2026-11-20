@@ -406,6 +406,7 @@ Use semantic contrast suitable for a desktop chat interface. Content is decorati
         reasoning_enabled: Some(false),
         reasoning_effort: None,
         provider_type: Some(provider_type),
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: false,
     };

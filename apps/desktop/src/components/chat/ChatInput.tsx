@@ -8,7 +8,7 @@ import {
   NexaSelect,
 } from "../ui/overlay";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ClipboardList, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert, Ellipsis, Eye, PenLine } from "lucide-react";
+import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ClipboardList, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert, Ellipsis } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, type TranslationKey } from "../../i18n";
 import type { ArtifactPayload, Conversation, ImageAttachment, VisionTurnOverride } from "../../types/conversation";
@@ -57,7 +57,7 @@ import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
 import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
-import { UserMarkdown } from './UserMessageText';
+import { DraftEditRegion } from './UserMessageText';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
 import { CodeReviewPanel } from './CodeReviewPanel';
@@ -229,7 +229,7 @@ function persistOrchestrationPolicy(key: string, policy: StoredOrchestrationPoli
 
 const SLASH_COMMAND_TABS: SlashCommandTab[] = ["all", "command", "skill", "workflow"];
 const LOCALIZED_COMMON_SLASH_COMMANDS = new Set([
-  "model", "preview", "options", "attach", "commands",
+  "model", "options", "attach", "commands",
   "plan",
   "goal",
   "review",
@@ -252,7 +252,7 @@ function commonSlashCommandKey(name: string, field: "title" | "description"): Tr
   if (name === 'review') return field === 'description' ? 'chat.reviewHelp' : 'chat.reviewTitle';
   if (name === 'review-prompt') return `chat.slashCommand.review.${field}` as TranslationKey;
   if (field === 'description' && ['nexus', 'moa', 'quality'].includes(name)) return `chat.slashCommand.${name}.description` as TranslationKey;
-  const composerKeys: Record<string, TranslationKey> = { model: 'settings.defaultModel', preview: field === 'description' ? 'chat.previewHint' : 'chat.previewDraft', options: 'chat.moreOptions', attach: 'chat.attachImage', commands: 'nav.commandPalette' };
+  const composerKeys: Record<string, TranslationKey> = { model: 'settings.defaultModel', options: 'chat.moreOptions', attach: 'chat.attachImage', commands: 'nav.commandPalette' };
   Object.assign(composerKeys, { nexus: 'chat.nexusMode', moa: 'chat.moaMode', quality: 'chat.qualityProfile', normal: 'chat.normalLabel', voice: 'voice.startRecording', screen: 'chat.shareScreen', emoji: 'chat.insertEmoji', checkpoints: 'chat.checkpoints', stop: 'chat.stop', resume: 'chat.resumeTask' });
   if (composerKeys[name]) return composerKeys[name];
   return LOCALIZED_COMMON_SLASH_COMMANDS.has(name)
@@ -427,8 +427,7 @@ export function ChatInput({
   const [moaPickerOpen, setMoaPickerOpen] = useState(false);
   const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
   const appCommands = useAppCommands();
-  const [draftPreview, setDraftPreview] = useState(false);
-  useEffect(() => { setDraftPreview(false); setMoreOptionsOpen(false); }, [draftKey]);
+  useEffect(() => { setMoreOptionsOpen(false); }, [draftKey]);
   const [loadedDraftKey, setLoadedDraftKey] = useState(draftKey);
   const [isDragging, setIsDragging] = useState(false);
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowCatalogTemplate[]>([]);
@@ -464,10 +463,6 @@ export function ChatInput({
   const [visionTurnOverride, setVisionTurnOverride] = useState<VisionTurnOverride | null>(null);
   const [sendPending, setSendPending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const draftPreviewRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (draftPreview) draftPreviewRef.current?.focus({ preventScroll: true });
-  }, [draftPreview]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle>(null);
   const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -491,14 +486,14 @@ export function ChatInput({
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
   const inputLocked = disabled || loadedDraftKey !== draftKey;
   const holdToDictate = useHoldToDictate({
-    enabled: !inputLocked && !draftPreview,
+    enabled: !inputLocked,
     pointerTypes: ['mouse'],
     onStart: () => voiceInputRef.current?.startHold(),
     onFinish: () => voiceInputRef.current?.finishHold(),
     onCancel: () => voiceInputRef.current?.cancelHold(),
   });
   const sendLocked = inputLocked || (isCompacting && !isForkWaiting) || visionDecisionRequired || sendPending;
-  const visibleFollowups = !isStreaming && !sendLocked && !draftPreview && !value && !attachments.length && !activeSlashCommandId
+  const visibleFollowups = !isStreaming && !sendLocked && !value && !attachments.length && !activeSlashCommandId
     && followupSuggestions?.key !== dismissedFollowupKey ? followupSuggestions : null;
   const ghostSuggestion = visibleFollowups?.items[0]?.prompt ?? '';
   // Attachments belong to the next draft, independent of the running turn.
@@ -729,7 +724,7 @@ export function ChatInput({
 
   useEffect(() => {
     adjustHeight();
-  }, [value, draftPreview, adjustHeight]);
+  }, [value, adjustHeight]);
 
   const applyInputHistoryValue = useCallback((nextValue: string, cursor: "start" | "end" | number) => {
     setValue(nextValue);
@@ -939,10 +934,6 @@ export function ChatInput({
     if (name === 'commands') openCommandPalette();
     if (name === 'options') setMoreOptionsOpen(true);
     if (name === 'attach' && !attachmentLocked) fileInputRef.current?.click();
-    if (name === 'preview') {
-      setDraftPreview(!draftPreview);
-      if (draftPreview) requestAnimationFrame(() => textareaRef.current?.focus());
-    }
     if (name === 'nexus' && !nativeAgent) changeNexusMode(argument);
     if (name === 'normal' && !nativeAgent) setPlanMode(false);
     if (name === 'moa' && agentRuntime === 'api') {
@@ -955,15 +946,14 @@ export function ChatInput({
       if (argument) persistRuntimePolicy({ orchestrationProfile: argument as OrchestrationProfile });
       else { setMoreOptionsOpen(true); setQualityPickerOpen(true); }
     }
-    if (!['model', 'commands', 'options', 'attach', 'preview', 'nexus', 'normal', 'moa', 'quality'].includes(name)) {
+    if (!['model', 'commands', 'options', 'attach', 'nexus', 'normal', 'moa', 'quality'].includes(name)) {
       if (name === 'emoji' || name === 'checkpoints') setMoreOptionsOpen(true);
       runAppCommand(appCommandId ?? `chat.${name}`);
     }
-  }, [agentRuntime, attachmentLocked, changeNexusMode, draftPreview, inputLocked, moaPreset, nativeAgent, persistRuntimePolicy, setPlanMode]);
+  }, [agentRuntime, attachmentLocked, changeNexusMode, inputLocked, moaPreset, nativeAgent, persistRuntimePolicy, setPlanMode]);
   useAppCommand({ id: 'chat.mcp-context', label: 'chat.mcpContentTitle', keywords: '/mcp-context resources prompts 资源 提示模板', enabled: !inputLocked, run: () => setMcpContentOpen(true) });
   useAppCommand({ id: 'chat.worktree', label: 'chat.worktreeTitle', keywords: '/worktree git workspace 工作树', enabled: Boolean(conversationId) && !inputLocked, run: () => setWorktreeOpen(true) });
   useAppCommand({ id: 'chat.review', label: 'chat.reviewTitle', keywords: '/review diff findings pr 审阅 评审', enabled: Boolean(conversationId) && !inputLocked, run: () => setReviewOpen(true) });
-  useAppCommand({ id: 'chat.preview', label: 'chat.previewDraft', keywords: '/preview markdown draft 预览', enabled: !inputLocked, run: () => runComposerAction('preview') });
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
   useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
@@ -1092,7 +1082,6 @@ export function ChatInput({
     setAttachments([]);
     setActiveSlashCommandId(null);
     setPreviewAttachment(null);
-    setDraftPreview(false);
     setDismissedSlashToken(null);
     setCaretPosition(0);
     setTimeout(() => {
@@ -2013,10 +2002,10 @@ export function ChatInput({
       )}
 
       <div className="space-y-2">
-        <div className="flex min-h-8 items-start justify-between gap-2">
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div
             data-testid="chat-composer-primary-controls"
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+            className="flex max-w-full flex-wrap items-center gap-1.5"
           >
             {!nativeAgent && modeSegment}
             {nativeAgent && <span className="text-xs text-text-tertiary" title={t('settings.externalAgentControls')}>{t('settings.externalAgents')}</span>}
@@ -2135,7 +2124,7 @@ export function ChatInput({
           onChange={handleFileSelect}
         />
 
-        <div className="relative">
+        <DraftEditRegion draftKey={draftKey} text={value} sourceClassName="relative">
         {ghostSuggestion && <div data-testid="chat-input-ghost" aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 px-4 pb-3 pt-3.5 text-sm leading-6 text-text-tertiary/70">
           <span className="line-clamp-2">{ghostSuggestion}</span><kbd className="ml-1 rounded border border-border px-1 text-[10px]">Tab</kbd>
         </div>}
@@ -2164,15 +2153,10 @@ export function ChatInput({
           aria-description={[ghostSuggestion && t('chat.followupTabHint', { prompt: ghostSuggestion }), !inputLocked && t('voice.holdComposerToDictate')].filter(Boolean).join(' ') || undefined}
           disabled={inputLocked}
           rows={1}
-          hidden={draftPreview}
           className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
         />
         </NexaPopoverAnchor>
-        </div>
-        {draftPreview && <div ref={draftPreviewRef} data-testid="chat-draft-preview" role="region" aria-label={t('chat.previewDraft')} tabIndex={0} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); runComposerAction('preview'); } }} className="max-h-72 min-h-20 overflow-auto px-4 py-3 text-sm text-text-primary">
-          <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-text-tertiary"><span>{t('chat.previewHint')}</span><button type="button" onClick={() => runComposerAction('preview')} className="shrink-0 rounded px-2 py-1 hover:bg-surface-2">{t('chat.editDraft')}</button></div>
-          <UserMarkdown text={value} />
-        </div>}
+        </DraftEditRegion>
 
         <div id="chat-advanced-options" data-testid="chat-advanced-options" hidden={!moreOptionsOpen} className="border-t border-border/35 p-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -2333,7 +2317,6 @@ export function ChatInput({
             {sessionControls}
             {attachmentControl}
             <button type="button" data-testid="chat-more-options" aria-expanded={moreOptionsOpen} aria-controls="chat-advanced-options" aria-label={t("chat.moreOptions")} title={t("chat.moreOptions")} onClick={() => setMoreOptionsOpen(!moreOptionsOpen)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2"><Ellipsis className="h-4 w-4" /></button>
-            <button type="button" data-testid="chat-preview-toggle" aria-pressed={draftPreview} aria-label={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} title={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} onClick={() => runComposerAction("preview")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2">{draftPreview ? <PenLine className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
           </div>
 
           <ScreenCaptureButton draftKey={draftKey} disabled={attachmentLocked} onCapture={addAttachmentFromDataUrl} />

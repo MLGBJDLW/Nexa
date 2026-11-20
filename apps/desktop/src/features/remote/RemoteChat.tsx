@@ -1,7 +1,9 @@
+import { DraftEditRegion } from '../../components/chat/UserMessageText';
+import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from '../../components/chat/ConversationHistorySearch';
 import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useGenerationMetrics } from '../../lib/useGenerationMetrics';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
+import { ListChecks, Trash2, ArrowLeft, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileSchedules } from './MobileSchedules';
 import { CalendarClock } from 'lucide-react';
@@ -108,14 +110,17 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const listGeneration = useRef(0);
   const archiveGeneration = useRef(0);
   const [cursor, setCursor] = useState<string | null>(null);
-  const { projectView, drawerConversations } = useMobileChatProjects(mobile?.projectStore, client, drawerOpen, conversations, cursor);
+  const { projectView, drawerConversations, selectChatFolder } = useMobileChatProjects(mobile?.projectStore, client, drawerOpen, conversations, cursor);
   const pendingProjectMove = useRef<{ conversationId: string; projectId: string } | null>(null);
-  const [conversationId, setConversationId] = useState(
+  const [archivedHit, setArchivedHit] = useState<HistoryHit | null>(null);
+  const [activeConversationId, setConversationId] = useState(
     () =>
       localStorage.getItem(
         `nexa.remote.chat.${client.paired.manifest.serverId}`,
       ) || "",
   );
+  const conversationId = archivedHit?.id ?? activeConversationId;
+  const archivePreview = !!archivedHit;
   const selectedConversation = useRef(conversationId);
   const serverId = client.paired.manifest.serverId;
   const [openedChat, setOpenedChat] = useState<{ id: string; chat?: Conversation } | null>(null);
@@ -126,11 +131,13 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [modelRevision, setModelRevision] = useState(0);
   const modelDraft = useMemo(() => readChatModelDraft(routeKey), [routeKey, modelRevision]);
   const { connectionId, modelSelection } = resolveChatModel(connections, conversationId, opened || chat?.agentConfigId ? chat : undefined, modelDraft);
+  const selectedConnection = connections.find(item => item.id === connectionId);
   useEffect(() => {
     if (!modelDraft || !chat?.modelSelection || chat.agentConfigId !== modelDraft.connectionId || !connectionId) return;
     const choice = modelDraft.modelSelection;
     const confirmed = choice ? choice.model === chat.modelSelection.model &&
       choice.reasoningEffort === chat.modelSelection.reasoningEffort &&
+      (choice.serviceTier ?? null) === (chat.modelSelection.serviceTier ?? null) &&
       choice.thinkingBudget === chat.modelSelection.thinkingBudget &&
       (choice.reasoningEnabled == null || choice.reasoningEnabled === chat.modelSelection.reasoningEnabled)
       : modelDraft.submitted && chat.model === connections.find(item => item.id === connectionId)?.model;
@@ -160,7 +167,17 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     speechGeneration.current++; setSpeakingId(null);
     void client.nativeSpeech?.stop().catch(() => {});
   }, [client, conversationId]);
-  const selectConversation = (id: string) => {
+  const [selectedHit, setSelectedHit] = useState<HistoryHit | null>(null);
+  const viewedHit = archivedHit ?? selectedHit;
+  const searchAnchor = viewedHit?.messageOrder != null ? viewedHit : null;
+  const hitToReveal = useRef<HistoryHit | null>(null);
+  const findHistory = useCallback((query: string, before: HistoryPage['next']) =>
+    client.rpc<HistoryPage>('chat.search', { query, before }), [client]);
+  const findArchivedHistory = useCallback((query: string, before: HistoryPage['next']) =>
+    client.rpc<HistoryPage>('chat.search', { query, before, archived: true }), [client]);
+  const selectConversation = (id: string, hit?: HistoryHit) => {
+    setArchivedHit(null);
+    setSelectedHit(hit ?? null);
     selectedConversation.current = id;
     setConversationId(id);
   };
@@ -204,7 +221,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [timelineRunId, setTimelineRunId] = useState<string | null>(null);
   const [runUserId, setRunUserId] = useState<string | null>(null);
   const [finalMessageId, setFinalMessageId] = useState<string | null>(null);
-  const markReplyRead = mobile?.onReplyRead;
+  const markReplyRead = archivePreview ? undefined : mobile?.onReplyRead;
   // Replay may reparent the canonical answer under a timeline after the
   // final ID is known. Observe the currently mounted article in either layout.
   const [renderedReply, setRenderedReply] = useState<HTMLElement | null>(null);
@@ -265,8 +282,16 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     onCancel: () => { heldControls.current?.cancel(); heldControls.current = null; },
   });
   useLayoutEffect(() => {
-    if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
-  }, [mobile, messages, timeline]);
+    if (mobile && !searchAnchor && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
+  }, [mobile, messages, timeline, searchAnchor]);
+  useLayoutEffect(() => {
+    if (!searchAnchor?.messageId || hitToReveal.current !== searchAnchor || drawerOpen) return;
+    const target = contentScroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchAnchor.messageId)}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      hitToReveal.current = null;
+    }
+  }, [drawerOpen, messages, searchAnchor]);
   useLayoutEffect(() => {
     if (!mobile || !composerInput.current) return;
     composerInput.current.style.height = 'auto';
@@ -398,8 +423,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     setGeneration(undefined); setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
     setProgress(''); setRunning(false); setMessages([]); setPendingSteers([]); setDismissedFollowup('');
     setApprovals([]); setInteractions([]); setBeforeOrder(null);
-    if (!conversationId) return;
-    localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
+    if (!conversationId) { setSyncingHistory(false); return; }
+    if (!archivePreview) localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
     const valid = () => !stopped && scope.current === generation && selectedConversation.current === conversationId;
     const publish = () => {
       if (paint) return;
@@ -425,20 +450,36 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       setRunning(['queued', 'running', 'waiting_approval', 'cancelling'].includes(effective));
       if (runId && ['completed', 'cancelled', 'failed', 'timed_out'].includes(effective)) terminal.add(runId);
     };
+    const anchorOrder = searchAnchor?.id === conversationId ? searchAnchor.messageOrder : null;
     const read = async () => {
       const expectedRun = runId;
-      const result = await client.rpc<MessagePage>('chat.read', { conversationId });
+      const result = await client.rpc<MessagePage>('chat.read', { conversationId,
+        ...(anchorOrder != null ? { beforeOrder: anchorOrder + 1 } : {}),
+      });
       if (!valid() || runId !== expectedRun) return;
       const firstLoad = !historyLoaded;
       setOpenedChat({ id: conversationId, chat: result.conversation?.id === conversationId ? result.conversation : undefined });
       historyLoaded = true;
       setMessages(current => mergeRemoteHistory(current, result.messages));
-      if (firstLoad) setBeforeOrder(result.beforeOrder);
-      // Only the canonical message for THIS run retires its live answer. A
-      // previous assistant message or a temporarily missing final cannot do so.
+      if (firstLoad) {
+        setBeforeOrder(result.beforeOrder);
+        hitToReveal.current = searchAnchor;
+      }
+      // Only the canonical message retires this run's live answer. Retry a missing
+      // final on the live tail. A search page can end before that message.
       if (finalId && result.messages.some(message => message.id === finalId)) setFinalMessageId(finalId);
-      else if (status === 'completed') readNeeded = true;
+      else if (status === 'completed' && anchorOrder == null) readNeeded = true;
     };
+    if (archivePreview) {
+      const readArchived = () => {
+        setSyncingHistory(true);
+        void read().catch(reason => { if (valid()) errorText(reason); })
+          .finally(() => { if (valid()) setSyncingHistory(false); });
+      };
+      refreshRef.current = readArchived;
+      readArchived();
+      return () => { stopped = true; };
+    }
     const questions = async () => {
       const expectedRun = runId;
       const [nextApprovals, nextInteractions] = await Promise.all([
@@ -633,7 +674,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);
     };
-  }, [client, conversationId, list]);
+  }, [archivePreview, client, conversationId, list, searchAnchor]);
   async function create() {
     if (sendLock.current) return;
     pendingProjectMove.current = null;
@@ -655,7 +696,14 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     if (managing) return;
     listGeneration.current++; archiveGeneration.current++;
     setRestoringId(id); setManaging(true); setError('');
-    try { await client.rpc('chat.restore', { conversationId: id }); await Promise.all([list(), listArchived()]); }
+    try {
+      await client.rpc('chat.restore', { conversationId: id });
+      if (archivedHit?.id === id && selectedConversation.current === id) {
+        selectChatFolder(id);
+        selectConversation(id, archivedHit);
+      }
+      await Promise.all([list(), listArchived()]);
+    }
     catch (error) { setRestoringId(null); errorText(error); }
     finally { setManaging(false); }
   }
@@ -789,6 +837,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       }
       if (pendingSend.current === request) pendingSend.current = null;
       if (selectedConversation.current === id) {
+        setSelectedHit(null); followOutput.current = true;
         setDraft((current) => (current === request.message ? "" : current));
         setAttachments(current => current === request.attachments ? [] : current);
         setRunning(true);
@@ -899,8 +948,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           </option>
         ))}
       </select>)}
-      {client.modelPickerAvailable !== false && <ConnectionModelPicker key={catalogRevision} connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
-        value={modelSelection} onChange={selection => chooseRoute(connectionId, selection)} load={client.models} label={t('remote.model')} disabled={sending || !connectionId} />}
+      {client.modelPickerAvailable !== false && <ConnectionModelPicker key={catalogRevision} connectionId={connectionId} defaultModel={selectedConnection?.model || ''}
+        value={modelSelection ?? selectedConnection?.defaultSelection ?? null} onChange={selection => chooseRoute(connectionId, selection)} load={client.models} label={t('remote.model')} disabled={sending || !connectionId} allowServiceTiers />}
     </>;
   const conversationControls = <>
       <div className="flex gap-2">
@@ -914,6 +963,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           }}
         >
           <option value="">{t("remote.newChat")}</option>
+          {conversationId && !conversations.some(item => item.id === conversationId) &&
+            <option value={conversationId}>{chat?.title || selectedHit?.title || t('remote.conversation')}</option>}
           {conversations.map((item) => (
             <option key={item.id} value={item.id}>
               {item.title || t('remote.newChat')}
@@ -938,17 +989,74 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         </button>
       )}
     </>;
+  const projectHistory = <MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
+          archiveId={manageTarget?.action === 'archive' ? manageTarget.item.id : undefined}
+          onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
+          onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
+          hasMore={!!cursor} onMore={() => void list(cursor).catch(errorText)}/>;
+  const history = mobile ? projectHistory : conversationControls;
+  const searchableHistory = client.paired.manifest.capabilities?.includes('chat-search-v1')
+    ? <ConversationHistorySearch find={findHistory} onPick={hit => {
+        selectChatFolder(hit.id);
+        selectConversation(hit.id, hit);
+        pendingSend.current = null;
+        followOutput.current = hit.messageOrder == null;
+        setDrawerOpen(false);
+      }}>{history}</ConversationHistorySearch> : history;
+  function openArchivedHit(hit: HistoryHit) {
+    selectedConversation.current = hit.id;
+    followOutput.current = hit.messageOrder == null;
+    setError(''); setArchivedHit(hit); setDrawerOpen(false);
+  }
+  const archiveList = drawerOpen && archivesOpen && <>
+    <nav className="mobile-history mobile-archive-history"><AnimatePresence initial={false} custom={restoringId}>{archived.map(item => {
+      const title = item.title || t('remote.newChat');
+      return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
+        restoring={restoringId === item.id && managing} preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
+        onRestore={() => void restoreConversation(item.id)}
+        onDelete={client.archivedDeletionAvailable ? () => { setRestoringId(null); setManageTarget({ item, action: 'delete' }); } : undefined}>
+        <button className="min-w-0 flex-1 truncate text-start" disabled={managing}
+          onClick={() => openArchivedHit({ id: item.id, title, messageId: null, messageOrder: null, snippet: null })}>{title}</button>
+      </MobileConversationRow>;
+    })}</AnimatePresence></nav>
+    {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
+  </>;
+  const transcript = <>
+    {searchAnchor && <button type="button" className={remoteButton} onClick={() => {
+      followOutput.current = true;
+      const latest = { ...searchAnchor, messageOrder: null, messageId: null };
+      if (archivePreview) setArchivedHit(latest); else setSelectedHit(latest);
+    }}>{t('chat.scrollToBottom')}</button>}
+    {beforeOrder !== null && <button className={remoteButton} onClick={() => void older()}>{t('remote.older')}</button>}
+    <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
+      <RemoteTranscript messages={messages} focusMessageId={searchAnchor?.messageId} timeline={searchAnchor || archivePreview ? [] : timeline}
+        running={!archivePreview && !searchAnchor && running} finalMessageId={searchAnchor || archivePreview ? null : finalMessageId}
+        runUserId={searchAnchor || archivePreview ? null : runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
+        more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
+    </div>
+  </>;
+  if (archivedHit && mobile) return <main className="native-chat" data-testid="remote-chat">
+    <header className="native-chat-header">
+      <button className="mobile-icon-button" aria-label={t('chat.backToConversations')} onClick={() => {
+        selectedConversation.current = activeConversationId;
+        setArchivedHit(null); setError(''); setDrawerOpen(true);
+      }}><ArrowLeft size={20} /></button>
+      <div className="native-chat-heading truncate">{archivedHit.title || t('chat.archivedConversations')}</div>
+      <button className={`${remoteButton} shrink-0`} disabled={managing} onClick={() => void restoreConversation(archivedHit.id)}>{t('chat.restoreConversation')}</button>
+    </header>
+    <div ref={contentScroll} className="native-chat-content">
+      {error && <p role="alert" className="mobile-error">{error} <button onClick={() => { setError(''); refreshRef.current(); }}>{t('common.retry')}</button></p>}
+      {opened ? transcript : syncingHistory && <Loader2 className="mx-auto animate-spin text-accent" />}
+    </div>
+    <p className="native-chat-caption">{t('chat.restoreToContinue')}</p>
+  </main>;
   return (
     <main
       className={mobile ? "native-chat" : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"}
       data-testid="remote-chat"
     >
       {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connections.length}/>
-        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connections.length} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><MobileProjectHistory projects={projectView} conversations={drawerConversations} activeId={conversationId}
-          archiveId={manageTarget?.action === 'archive' ? manageTarget.item.id : undefined}
-          onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
-          onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
-          hasMore={!!cursor} onMore={() => void list(cursor).catch(errorText)}/>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connections.length} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button>{searchableHistory}
         {client.conversationManagementAvailable && <>
           <div className="mobile-archive-heading">
             <button className="mobile-add-connection" aria-expanded={archivesOpen} onClick={() => {
@@ -959,17 +1067,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
               <button className="mobile-icon-button" disabled={managing} aria-label={t('chat.deleteAll')} title={t('chat.deleteAll')} onClick={() => void prepareDeleteArchived()}><Trash2 size={17}/></button>}
           </div>
           {archivesOpen && <>{error && <p role="alert" className="mobile-error">{error}</p>}
-            <nav className="mobile-history mobile-archive-history"><AnimatePresence initial={false} custom={restoringId}>{archived.map(item => {
-              const title = item.title || t('remote.newChat');
-              return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
-                restoring={restoringId === item.id && managing}
-                preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
-                onRestore={() => void restoreConversation(item.id)}
-                onDelete={client.archivedDeletionAvailable ? () => { setRestoringId(null); setManageTarget({ item, action: 'delete' }); } : undefined}>
-                <span className="min-w-0 flex-1 truncate">{title}</span>
-              </MobileConversationRow>;
-            })}</AnimatePresence></nav>
-            {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
+            {client.paired.manifest.capabilities?.includes('chat-archive-search-v1') ?
+              <ConversationHistorySearch archived find={findArchivedHistory} onPick={openArchivedHit}>{archiveList}</ConversationHistorySearch> : archiveList}
           </>}
         </>}
         {client.paired.manifest.capabilities?.includes('chat-schedules-v1') && <button className="mobile-drawer-new" onClick={() => { setDrawerOpen(false); setSchedulesOpen(true); }}><CalendarClock size={17}/>{t('chat.scheduledTasks')}</button>}
@@ -983,7 +1082,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         <MobileDialog open={!!manageTarget} title={t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')} onClose={() => { if (!managing) setManageTarget(null); }}>{error && <p role="alert" className="mobile-error">{error}</p>}<p>{manageTarget?.item.title || t('remote.newChat')}</p><p className="mobile-section-hint">{t(manageTarget?.action === 'archive' ? 'remote.archiveChatHint' : 'remote.deleteChatHint')}</p><div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setManageTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing} onClick={() => void manageConversation()}>{t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')}</button></div></MobileDialog>
         <MobileDialog open={deleteArchivedIds !== null} title={t('chat.deleteAll')} onClose={() => { if (!managing) setDeleteArchivedIds(null); }}><p>{t('chat.archivedConversations')}</p><p className="mobile-section-hint">{t('chat.deleteAllConfirmDesc', { count: deleteArchivedIds?.length ?? 0 })}</p>{error && <p role="alert" className="mobile-error">{error}</p>}<div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setDeleteArchivedIds(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing || !deleteArchivedIds?.length} onClick={() => void deleteArchived()}>{t('chat.deleteAll')}</button></div></MobileDialog>
         <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>
-      </> : <>{conversationControls}{providerControls}</>}
+      </> : <>{searchableHistory}{providerControls}</>}
       <div ref={contentScroll} className={mobile ? 'native-chat-content' : 'contents'} onScroll={mobile ? event => { const view = event.currentTarget; followOutput.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; } : undefined}>
       {error && (
         <p
@@ -994,15 +1093,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         </p>
       )}
       {loading && <Loader2 className="mx-auto animate-spin text-accent" />}
-      {beforeOrder !== null && (
-        <button className={remoteButton} onClick={() => void older()}>
-          {t("remote.older")}
-        </button>
-      )}
-      <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
-        <RemoteTranscript messages={messages} timeline={timeline} running={running} finalMessageId={finalMessageId} runUserId={runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
-          more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
-      </div>
+      {transcript}
       {runStatus && (
         <div role="status" data-testid="remote-run-status" className="remote-run-status">
           {running && <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}
@@ -1202,7 +1293,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           </div>
         )}</div>}
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
-        <div className="flex min-w-0 items-start">
+        <DraftEditRegion draftKey={conversationId} text={draft} sourceClassName="flex min-w-0 items-start">
         <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
@@ -1225,7 +1316,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           onClick={() => { draftRef.current = ghostPrompt; setDraft(ghostPrompt); composerInput.current?.focus(); }}>
           <SquarePen size={16}/>
         </button>}
-        </div>
+        </DraftEditRegion>
         {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
           {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}

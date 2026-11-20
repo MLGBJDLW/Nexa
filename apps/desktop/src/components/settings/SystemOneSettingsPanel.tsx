@@ -2,8 +2,9 @@ import { SettingsRow } from './SettingsRow';
 import { useId, useState } from 'react';
 import { Eye, EyeOff, Save } from 'lucide-react';
 import { useTranslation } from '../../i18n';
-import type { AppConfig, SystemOneConfig } from '../../types/conversation';
-import { changeSystemOneProvider, DEFAULT_SYSTEM_ONE_CONFIG, SYSTEM_ONE_PROVIDERS, systemOneConfigured, systemOneModelRemoved } from '../../lib/systemOneProviders';
+import type { AgentConfig, AppConfig, SystemOneConfig } from '../../types/conversation';
+import { changeSystemOneProvider, DEFAULT_SYSTEM_ONE_CONFIG, SYSTEM_ONE_PROVIDERS, systemOneBaseUrl, systemOneConfigured, systemOneCredential, systemOneModelRemoved } from '../../lib/systemOneProviders';
+import { SharedCredentialNotice } from './SharedCredentialNotice';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { CollapsiblePanel } from './SettingsSection';
@@ -11,18 +12,20 @@ import { NexaSelect } from '../ui/overlay';
 
 interface Props {
   appConfig: AppConfig;
+  agentConfigs: AgentConfig[];
   loading: boolean;
   onChange: (config: AppConfig) => void;
   onMarkDirty: () => void;
   onSave: (config?: AppConfig) => void | Promise<void>;
 }
 
-export function SystemOneSettingsPanel({ appConfig, loading, onChange, onMarkDirty, onSave }: Props) {
+export function SystemOneSettingsPanel({ appConfig, agentConfigs, loading, onChange, onMarkDirty, onSave }: Props) {
   const { t } = useTranslation();
   const id = useId();
   const [showKey, setShowKey] = useState(false);
   const config = appConfig.systemOne ?? DEFAULT_SYSTEM_ONE_CONFIG;
   const preset = SYSTEM_ONE_PROVIDERS.find(item => item.id === config.provider);
+  const credential = systemOneCredential(config, agentConfigs);
   const update = (patch: Partial<SystemOneConfig>) => {
     onChange({ ...appConfig, systemOne: { ...config, ...patch } });
     onMarkDirty();
@@ -38,7 +41,8 @@ export function SystemOneSettingsPanel({ appConfig, loading, onChange, onMarkDir
           <div className="space-y-1.5">
             <SettingsRow label={t('settings.systemOneProvider')} htmlFor={`${id}-provider`}>
               <NexaSelect aria-label={t('settings.systemOneProvider')} id={`${id}-provider`} value={config.provider} disabled={loading} className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-text-primary" onChange={event => {
-                const next = changeSystemOneProvider(config, event.target.value);
+                const next = changeSystemOneProvider(config, event.target.value, agentConfigs);
+                setShowKey(false);
                 onChange({ ...appConfig, systemOne: next }); onMarkDirty();
               }}>
                 {!preset && <option value={config.provider}>{config.provider}</option>}
@@ -59,16 +63,23 @@ export function SystemOneSettingsPanel({ appConfig, loading, onChange, onMarkDir
               <Input aria-label={t('settings.apiKey')} id={`${id}-key`} type={showKey ? 'text' : 'password'} value={config.apiKey} disabled={loading} autoComplete="off" onChange={event => update({ apiKey: event.target.value })} />
               <Button variant="ghost" iconOnly aria-label={t(showKey ? 'settings.systemOneHideKey' : 'settings.systemOneShowKey')} onClick={() => setShowKey(!showKey)} icon={showKey ? <EyeOff size={16} /> : <Eye size={16} />} />
             </div></SettingsRow>
+          <SharedCredentialNotice source={credential} hasOwnKey={Boolean(config.apiKey.trim())}
+            onApply={() => update({ apiKey: credential?.apiKey ?? '' })} onReset={() => update({ apiKey: '' })} />
         </div>
         {preset && <div className="space-y-1.5">
           <SettingsRow label={t('settings.systemOneEndpoint')} htmlFor={`${id}-url`}>
-            <Input aria-label={t('settings.systemOneEndpoint')} id={`${id}-url`} value={config.baseUrl ?? preset.baseUrl} placeholder={preset.baseUrlPlaceholder ?? preset.baseUrl} disabled={loading} onChange={event => update({ baseUrl: event.target.value || null })} />
+            <Input aria-label={t('settings.systemOneEndpoint')} id={`${id}-url`} value={config.baseUrl ?? preset.baseUrl} placeholder={preset.baseUrlPlaceholder ?? preset.baseUrl} disabled={loading}
+              onChange={event => {
+                const baseUrl = event.target.value || null;
+                const previous = systemOneBaseUrl(config);
+                update({ baseUrl, apiKey: previous && previous !== systemOneBaseUrl({ ...config, baseUrl }) ? '' : config.apiKey });
+              }} />
           </SettingsRow>
         </div>}
         <p className="text-xs leading-5 text-text-tertiary">{t('settings.systemOneAccess')}</p>
         <div data-settings-actions className="flex flex-wrap items-center justify-between gap-3">
           {preset && <a className="text-xs text-accent underline" href={preset.documentationRef} target="_blank" rel="noreferrer">{t('settings.systemOneDocs')}</a>}
-          <Button icon={<Save size={14} />} disabled={loading || (config.enabled && !systemOneConfigured(config))} onClick={() => void onSave({ ...appConfig, systemOne: config })}>{t('common.save')}</Button>
+          <Button icon={<Save size={14} />} disabled={loading || (config.enabled && !systemOneConfigured(config, Boolean(credential)))} onClick={() => void onSave({ ...appConfig, systemOne: config })}>{t('common.save')}</Button>
         </div>
       </div>
     </CollapsiblePanel>

@@ -266,7 +266,7 @@ const PRESET_ID_TO_ICON: Record<string, string> = {
 const BASE_URL_ICON_MATCHERS: Array<[RegExp, string]> = [
   [/xiaomimimo\.com|mimo\.mi\.com/i, 'xiaomimimo'],
   [/openrouter\.ai/i, 'openrouter'],
-  [/aiplatform\.googleapis\.com/i, 'vertex'],
+  [/aiplatform(?:\.(?:us|eu)\.rep)?\.googleapis\.com/i, 'vertex'],
   [/bedrock(?:-runtime)?\.[a-z0-9-]+\.amazonaws\.com/i, 'bedrock'],
   [/anthropic\.com/i, 'anthropic'],
   [/googleapis\.com|generativelanguage/i, 'gemini'],

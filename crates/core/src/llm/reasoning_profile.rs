@@ -1499,7 +1499,7 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
-        if qwen_payg && model == "qwen4-max" {
+        if (qwen_payg || token_plan) && model == "qwen4-max" {
             let mut value = profile(
                 key,
                 "alibaba-qwen4-max-chat-v1",
@@ -1523,12 +1523,8 @@ pub fn resolve_reasoning_profile(
             value.send_preserve_thinking = true;
             return value;
         }
-        let qwen4_token_plan = token_plan
-            && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview")
-            && find_provider_preset("qwen", base_url).is_some_and(|preset| {
-                preset.id == "qwen-token-plan-cn"
-                    || (preset.id == "qwen-token-plan-global" && model == "qwen4-max-preview")
-            });
+        let qwen4_token_plan =
+            token_plan && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview");
         if qwen4_token_plan
             || matches!(
                 model.as_str(),
@@ -2498,26 +2494,52 @@ mod tests {
         );
     }
     #[test]
-    fn qwen4_ga_keeps_the_payg_effort_and_budget_contract() {
-        let profile = resolve_reasoning_profile(
-            ProviderType::AlibabaModelStudio,
-            Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-            ReasoningApiStyle::OpenAiChatCompletions,
-            "qwen4-max",
-        );
-        assert_eq!(profile.default_effort, Some(ReasoningEffort::High));
-        assert_eq!(
-            profile
-                .wire_effort(Some(&ReasoningEffort::Medium))
-                .as_deref(),
-            Some("high")
-        );
-        assert_eq!(
-            profile.wire_effort(Some(&ReasoningEffort::Max)).as_deref(),
-            Some("xhigh")
-        );
-        assert_eq!(profile.wire_budget(Some(300_000), false), Some(262_144));
-        assert!(profile.use_max_completion_tokens && profile.send_preserve_thinking);
+    fn qwen4_ga_resolves_on_both_token_plans_and_payg() {
+        for (provider, endpoint) in [
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                ProviderType::Qwen,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                ProviderType::Qwen,
+                "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            ),
+        ] {
+            let profile = resolve_reasoning_profile(
+                provider,
+                Some(endpoint),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                "qwen4-max",
+            );
+            assert_eq!(profile.replay_policy, ReasoningReplayPolicy::NotRequired);
+            assert!(profile.preserve_reasoning_history);
+            assert_eq!(profile.default_effort, Some(ReasoningEffort::High));
+            assert_eq!(
+                profile
+                    .wire_effort(Some(&ReasoningEffort::Medium))
+                    .as_deref(),
+                Some("high")
+            );
+            assert_eq!(
+                profile.wire_effort(Some(&ReasoningEffort::Max)).as_deref(),
+                Some("xhigh")
+            );
+            assert_eq!(profile.wire_budget(Some(300_000), false), Some(262_144));
+            assert!(profile.use_max_completion_tokens && profile.send_preserve_thinking);
+            if provider == ProviderType::Qwen {
+                let preview_alias = resolve_reasoning_profile(
+                    provider,
+                    Some(endpoint),
+                    ReasoningApiStyle::OpenAiChatCompletions,
+                    "qwen4.0-max-preview",
+                );
+                assert_eq!(preview_alias.default_effort, Some(ReasoningEffort::XHigh));
+            }
+        }
     }
 
     #[test]

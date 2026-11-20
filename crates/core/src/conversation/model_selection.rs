@@ -25,6 +25,7 @@ impl From<&AgentConfig> for TurnModelSelection {
         Self {
             model: config.model.clone(),
             reasoning_enabled: config.reasoning_enabled,
+            service_tier: config.service_tier,
             reasoning_effort: config.reasoning_effort.clone(),
             thinking_budget: config.thinking_budget,
         }
@@ -36,6 +37,7 @@ impl From<&crate::connection_sync::SharedModelConnection> for TurnModelSelection
         Self {
             model: connection.model.clone(),
             reasoning_enabled: connection.reasoning_enabled,
+            service_tier: connection.service_tier,
             reasoning_effort: connection.reasoning_effort.clone(),
             thinking_budget: connection.thinking_budget,
         }
@@ -210,6 +212,8 @@ pub struct TurnModelSelection {
     pub model: String,
     pub reasoning_enabled: Option<bool>,
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     pub thinking_budget: Option<i64>,
 }
 
@@ -220,6 +224,7 @@ impl TurnModelSelection {
         selected.model = self.model.trim().into();
         selected.model_id = Some(selected.model.clone());
         selected.model_selection_resolution = None;
+        selected.service_tier = self.service_tier_for(&saved.provider, saved.base_url.as_deref());
         selected.reasoning_enabled = Some(true);
         selected.reasoning_effort = self
             .reasoning_effort
@@ -235,6 +240,7 @@ impl TurnModelSelection {
     ) -> Result<(), CoreError> {
         self.validate_for_provider(&saved.provider)?;
         saved.model = self.model.trim().into();
+        saved.service_tier = self.service_tier_for(&saved.provider, saved.base_url.as_deref());
         saved.reasoning_enabled = Some(true);
         saved.reasoning_effort = self
             .reasoning_effort
@@ -242,6 +248,20 @@ impl TurnModelSelection {
             .filter(|effort| effort != "none");
         saved.thinking_budget = self.thinking_budget.filter(|budget| *budget > 0);
         Ok(())
+    }
+
+    fn service_tier_for(
+        &self,
+        provider: &str,
+        base_url: Option<&str>,
+    ) -> Option<crate::model_catalog::ServiceTier> {
+        // Codex validates its live, account-scoped catalog at launch. Dropping stale API
+        // speeds lets saved and scheduled conversations continue after an endpoint change.
+        self.service_tier.filter(|tier| {
+            provider == "openai_codex"
+                || crate::provider_catalog::model_service_tiers(provider, base_url, &self.model)
+                    .contains(tier)
+        })
     }
 
     fn validate_for_provider(&self, provider: &str) -> Result<(), CoreError> {
@@ -296,11 +316,19 @@ mod tests {
             })
             .unwrap();
         let selection = TurnModelSelection {
-            model: "chat-model".into(),
+            service_tier: Some(crate::model_catalog::ServiceTier::Ultrafast),
+            model: "gpt-6.2-sol".into(),
             reasoning_enabled: Some(true),
             reasoning_effort: Some("high".into()),
             thinking_budget: None,
         };
+        let mut changed_endpoint = config.clone();
+        changed_endpoint.base_url = Some("https://private.example/v1".into());
+        assert!(selection
+            .apply(&changed_endpoint)
+            .unwrap()
+            .service_tier
+            .is_none());
         db.select_conversation_model(&conversation.id, &config.id, &selection)
             .unwrap();
         save("connection-a", "another-window-model", false);
@@ -311,8 +339,12 @@ mod tests {
             let resolved = db
                 .resolve_conversation_agent_config(&reloaded, requested)
                 .unwrap();
-            assert_eq!(resolved.model, "chat-model");
+            assert_eq!(resolved.model, "gpt-6.2-sol");
             assert_eq!(resolved.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(
+                resolved.service_tier,
+                Some(crate::model_catalog::ServiceTier::Ultrafast)
+            );
             assert_eq!(resolved.api_key, "test-key");
         }
         assert_eq!(
@@ -360,7 +392,7 @@ mod tests {
             .resolve_conversation_agent_config(&branch.conversation, None)
             .unwrap();
         assert_eq!(branch_config.id, "connection-a");
-        assert_eq!(branch_config.model, "chat-model");
+        assert_eq!(branch_config.model, "gpt-6.2-sol");
         assert_eq!(branch_config.reasoning_effort.as_deref(), Some("high"));
         db.delete_agent_config("connection-a").unwrap();
         assert!(db
@@ -380,6 +412,7 @@ mod tests {
         }))
         .unwrap();
         let selection = TurnModelSelection {
+            service_tier: None,
             model: "another-model".into(),
             reasoning_enabled: Some(true),
             reasoning_effort: Some("high".into()),

@@ -1,3 +1,4 @@
+import { PROJECT_ICON_OPTIONS, ProjectIcon } from '../../lib/projectIcons';
 import { useEffect, useRef, useState } from 'react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useDroppable, useSensor, useSensors,
@@ -9,7 +10,7 @@ import { useTranslation } from '../../i18n';
 import { MobileDialog } from './MobileChatShell';
 import { MobileConversationRow } from './MobileConversationRow';
 
-interface Project { id: string; name: string }
+interface Project { id: string; name: string; icon?: string | null }
 interface Chat { id: string; title: string; model: string }
 const dropButtonAt = (x: number, y: number) =>
   document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-project-drop]');
@@ -20,6 +21,7 @@ export interface MobileProjectView {
   selectedId: string | null;
   select(id: string | null): void;
   create(name: string): Promise<void>;
+  setIcon?(id: string, icon: string): Promise<void>;
   rename(id: string, name: string): Promise<void>;
   remove(id: string): Promise<void>;
   move(conversationId: string, projectId: string | null): Promise<void>;
@@ -51,18 +53,18 @@ const targetAtPointer: CollisionDetection = ({ pointerCoordinates, droppableCont
   return target ? [{ id: target.id }] : [];
 };
 
-function ProjectDestination({ id, name, selected, disabled, onSelect }: {
-  id: string | null; name: string; selected: boolean; disabled: boolean; onSelect(): void;
+function ProjectDestination({ id, name, selected, disabled, onSelect, separateIcon }: {
+  id: string | null; name: string; selected: boolean; disabled: boolean; onSelect(): void; separateIcon?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'project:' + (id ?? ''), data: { projectId: id }, disabled: selected || disabled });
   const Icon = !id ? MessagesSquare : selected ? FolderOpen : Folder;
   return <button ref={setNodeRef} className="mobile-project-destination" data-project-drop={id ?? ''} data-over={isOver || undefined}
     aria-pressed={selected} disabled={disabled} onClick={onSelect}>
-    <Icon size={17} aria-hidden="true"/><span>{name}</span>{selected && <Check size={14} aria-hidden="true"/>}
+    {!separateIcon && <Icon size={17} aria-hidden="true"/>}<span>{name}</span>{selected && <Check size={14} aria-hidden="true"/>}
   </button>;
 }
 
-type Editor = { kind: 'create' } | { kind: 'move'; chat: Chat } | { kind: 'menu' | 'rename' | 'delete'; project: Project };
+type Editor = { kind: 'create' } | { kind: 'move'; chat: Chat } | { kind: 'menu' | 'rename' | 'delete' | 'appearance'; project: Project };
 
 export function MobileProjectHistory({ projects, conversations, activeId, archiveId, onArchive, onOpen, hasMore, onMore }: {
   projects?: MobileProjectView; conversations: Chat[]; activeId: string; archiveId?: string;
@@ -127,7 +129,7 @@ export function MobileProjectHistory({ projects, conversations, activeId, archiv
     void save(() => projects.move(chat.id, target));
   };
   const form = editor?.kind === 'create' || editor?.kind === 'rename';
-  const dialogTitle = editor?.kind === 'move' ? t('project.moveToProject') : editor?.kind === 'delete' ? t('project.delete')
+  const dialogTitle = editor?.kind === 'appearance' ? t('project.appearance') : editor?.kind === 'move' ? t('project.moveToProject') : editor?.kind === 'delete' ? t('project.delete')
     : editor?.kind === 'rename' ? t('project.editProject') : editor?.kind === 'menu' ? editor.project.name : t('project.createNew');
   const error = failure || projects?.error;
   return <>
@@ -150,7 +152,11 @@ export function MobileProjectHistory({ projects, conversations, activeId, archiv
         </div>
         <div className="mobile-project-list" ref={projectList}>
           {projects.projects.map(project => <div className="mobile-project-entry" key={project.id}>
-            <ProjectDestination id={project.id} name={project.name} selected={selectedId === project.id} disabled={busy}
+            {projects.setIcon && <button className="mobile-icon-button" aria-label={t('project.appearance') + ' · ' + project.name}
+              disabled={!editable} onClick={() => show({ kind: 'appearance', project })}>
+              <ProjectIcon icon={project.icon} size={18} className="h-8 w-8"/>
+            </button>}
+            <ProjectDestination separateIcon={!!projects.setIcon} id={project.id} name={project.name} selected={selectedId === project.id} disabled={busy}
               onSelect={() => projects.select(project.id)}/>
             {selectedId === project.id && <button className="mobile-icon-button" disabled={!editable}
               aria-label={t('common.moreOptions')} onClick={() => show({ kind:'menu', project })}><MoreHorizontal size={17}/></button>}
@@ -197,6 +203,16 @@ export function MobileProjectHistory({ projects, conversations, activeId, archiv
         <div className="mobile-confirm-actions"><button disabled={busy} onClick={() => setEditor(null)}>{t('common.cancel')}</button>
           <button className="mobile-primary" disabled={busy} onClick={() => void save(() => projects.remove(editor.project.id))}>{t('common.delete')}</button></div>
       </>}
+      {editor?.kind === 'appearance' && projects.setIcon && <div className="grid grid-cols-5 gap-1">
+        {PROJECT_ICON_OPTIONS.map(option => {
+          const label = t(option.labelKey);
+          return <button key={option.id} type="button" className="mobile-icon-button"
+            title={label} aria-label={label} aria-pressed={option.id === (editor.project.icon || 'folder')}
+            disabled={busy} onClick={() => void save(() => projects.setIcon!(editor.project.id, option.id))}>
+            <ProjectIcon icon={option.id} size={20} className="h-8 w-8"/>
+          </button>;
+        })}
+      </div>}
       {editor?.kind === 'move' && <div className="mobile-project-options">
         {projects.projects.map(project => <button key={project.id} disabled={busy || projects.memberships[editor.chat.id] === project.id}
           onClick={() => move(editor.chat, project.id)}><Folder size={17}/>{project.name}</button>)}

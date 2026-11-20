@@ -44,6 +44,19 @@ test('Qwen September models retain region, alias, vision and effort controls in 
   }
 });
 
+test('Qwen4 Max exposes its GA chat controls in both Token Plan regions', () => {
+  for (const region of ['cn-beijing', 'ap-southeast-1']) {
+    const model = findProviderModelPreset({
+      provider: 'qwen', baseUrl: `https://token-plan.${region}.maas.aliyuncs.com/compatible-mode/v1`, model: 'qwen4-max',
+    });
+    assert.equal(model.descriptor.access, 'account_enablement');
+    assert.deepEqual(model.descriptor.inputModalities, ['text', 'image', 'video']);
+    assert.equal(model.descriptor.capabilities.toolCalling, true);
+    assert.deepEqual(model.capabilities.reasoning.effortLevels, ['low', 'high', 'xhigh']);
+    assert.equal(model.descriptor.limits.maxOutputTokens, 262144);
+  }
+});
+
 test('Qwen PAYG model metadata cannot leak into subscription, trial, or private routes', () => {
   for (const baseUrl of [
     'https://trial.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',

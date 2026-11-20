@@ -1013,6 +1013,18 @@ mod tests {
             .unwrap();
         assert_eq!(around.oldest_cursor.as_ref().unwrap().message_id, "u00002");
         assert!(around.has_more_after);
+        db.conn().execute("INSERT INTO messages(id,conversation_id,role,content,sort_order) VALUES('interim',?1,'assistant','Intermediate answer',21),('other',?1,'assistant','Other answer',21)", [&id]).unwrap();
+        let selected = db
+            .conversation_timeline_page(&id, None, None, Some("interim"), Some(1))
+            .unwrap();
+        assert!(selected
+            .messages
+            .iter()
+            .any(|message| message.id == "interim"));
+        assert!(!selected
+            .messages
+            .iter()
+            .any(|message| message.id == "other" || message.id == "tool00002"));
         assert!(db
             .conversation_timeline_page(&id, None, None, Some("foreign"), None)
             .is_err());
@@ -1363,15 +1375,19 @@ impl Database {
         let conversation = self.get_conversation(conversation_id)?;
         let connection = self.conn();
         let transaction = connection.unchecked_transaction()?;
+        let mut requested_body = None;
         let anchor = if let Some(id) = anchor_message_id {
-            let cursor = transaction
+            let (cursor, has_body) = transaction
                 .query_row(
-                    "SELECT sort_order,id FROM messages WHERE conversation_id=?1 AND id=?2",
+                    "SELECT sort_order,id,role IN ('user','assistant') FROM messages WHERE conversation_id=?1 AND id=?2",
                     params![conversation_id, id],
-                    cursor_from_row,
+                    |row| Ok((cursor_from_row(row)?, row.get::<_, bool>(2)?)),
                 )
                 .optional()?
                 .ok_or_else(|| CoreError::NotFound(format!("Conversation message {id}")))?;
+            if has_body {
+                requested_body = Some((cursor.sort_order, cursor.message_id.clone()));
+            }
             root_before(&transaction, conversation_id, &cursor, true)?.or(Some(cursor))
         } else {
             None
@@ -1525,6 +1541,14 @@ impl Database {
                 turns.push(turn);
             }
             end_before = next;
+        }
+        // The summary normally omits intermediate replies and older steering.
+        // Keep just the requested bubble without loading the whole turn's trace.
+        if let Some((_, id)) = requested_body.filter(|key| !messages.contains_key(key)) {
+            insert_message(
+                &mut messages,
+                read_message(&transaction, conversation_id, &id, false, None, true)?,
+            );
         }
         // Include visible compaction markers, including a leading marker on the
         // oldest page. Runtime system rows stay out of the initial display read.

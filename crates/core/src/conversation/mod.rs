@@ -2,6 +2,8 @@
 
 mod cache_observation;
 pub mod goal;
+mod history_search;
+pub use history_search::HistorySearchPage;
 pub mod memory;
 pub(crate) mod model_selection;
 mod remote_views;
@@ -686,6 +688,9 @@ pub struct AgentConfig {
     pub is_default: bool,
     pub reasoning_enabled: Option<bool>,
     pub thinking_budget: Option<i64>,
+    /// Selected per conversation in model_selection_json. Connections carry no paid speed default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     pub reasoning_effort: Option<String>,
     pub max_iterations: Option<i64>,
     /// Optional cheaper model for summarization (e.g. "gpt-4o-mini").
@@ -1214,23 +1219,23 @@ pub(crate) fn validate_agent_config_numeric_overrides(
     // Zero intentionally disables the corresponding outer timeout.
     validate_nonnegative_u32_override("toolTimeoutSecs", input.tool_timeout_secs)?;
     validate_nonnegative_u32_override("agentTimeoutSecs", input.agent_timeout_secs)?;
-    for (field, value, maximum) in [
-        (
-            "providerStreaming.streamIdleTimeoutMs",
-            input.provider_streaming.stream_idle_timeout_ms,
-            3_600_000_u64,
-        ),
-        (
-            "providerStreaming.connectTimeoutMs",
-            input.provider_streaming.connect_timeout_ms,
-            300_000_u64,
-        ),
-    ] {
-        if value.is_some_and(|value| !(1_000..=maximum).contains(&value)) {
-            return Err(CoreError::InvalidInput(format!(
-                "{field} must be between 1000 and {maximum} when set"
-            )));
+    if let Some(ms) = input.provider_streaming.stream_idle_timeout_ms {
+        if ms < 1_000
+            || std::time::Instant::now()
+                .checked_add(std::time::Duration::from_millis(ms))
+                .is_none()
+        {
+            return Err(CoreError::InvalidInput("providerStreaming.streamIdleTimeoutMs must be a representable duration of at least 1000 ms".into()));
         }
+    }
+    if input
+        .provider_streaming
+        .connect_timeout_ms
+        .is_some_and(|ms| !(1_000..=300_000).contains(&ms))
+    {
+        return Err(CoreError::InvalidInput(
+            "providerStreaming.connectTimeoutMs must be between 1000 and 300000 when set".into(),
+        ));
     }
     if input
         .provider_streaming
@@ -2184,7 +2189,7 @@ impl Database {
             // Tokenize: wrap each word in double-quotes for exact prefix matching
             let fts_query: String = trimmed
                 .split_whitespace()
-                .map(|w| format!("\"{}\"", w.replace('"', "")))
+                .map(|w| format!("\"{}\"", crate::lexical::chat_terms(w).replace('"', "")))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -2193,7 +2198,7 @@ impl Database {
             }
 
             let mut stmt = conn.prepare(
-                "SELECT f.conversation_id, c.title, f.content, f.role,
+                "SELECT f.conversation_id, c.title, m.content, f.role,
                         m.created_at, bm25(fts_messages) AS rank
                  FROM fts_messages f
                  JOIN conversations c ON c.id = f.conversation_id
@@ -5177,6 +5182,7 @@ fn agent_config_on_connection(
                 reasoning_enabled: row.get(10)?,
                 thinking_budget: row.get(11)?,
                 reasoning_effort: row.get(12)?,
+                service_tier: None,
                 created_at: row.get(13)?,
                 updated_at: row.get(14)?,
                 max_iterations: row.get(15)?,
@@ -5434,6 +5440,7 @@ impl Database {
                 reasoning_enabled: row.get(10)?,
                 thinking_budget: row.get(11)?,
                 reasoning_effort: row.get(12)?,
+                service_tier: None,
                 created_at: row.get(13)?,
                 updated_at: row.get(14)?,
                 max_iterations: row.get(15)?,
@@ -5535,6 +5542,7 @@ impl Database {
                     reasoning_enabled: row.get(10)?,
                     thinking_budget: row.get(11)?,
                     reasoning_effort: row.get(12)?,
+                service_tier: None,
                     created_at: row.get(13)?,
                     updated_at: row.get(14)?,
                     max_iterations: row.get(15)?,
@@ -5853,6 +5861,7 @@ pub async fn generate_title_with_usage(
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type,
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     };
@@ -6147,7 +6156,7 @@ mod tests {
         input.provider = "custom".into();
         input.model = "private-model".into();
         input.provider_streaming = crate::llm::ProviderStreamingConfig {
-            stream_idle_timeout_ms: Some(420_000),
+            stream_idle_timeout_ms: Some(7_200_000),
             connect_timeout_ms: Some(25_000),
             stream_max_retries: Some(3),
         };
@@ -6684,6 +6693,7 @@ mod tests {
         };
 
         let selection = TurnModelSelection {
+            service_tier: None,
             model: "gpt-5".into(),
             reasoning_effort: Some("high".into()),
             reasoning_enabled: Some(true),

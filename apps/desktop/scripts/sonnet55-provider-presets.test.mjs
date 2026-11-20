@@ -13,10 +13,17 @@ const compiled = await build({
   },
   bundle: true, platform: 'node', format: 'esm', write: false,
 });
-const { PROVIDER_PRESETS, getReasoningCapability,
+const { PROVIDER_PRESETS, getReasoningCapability, modelServiceTiers,
   defaultReasoningEffort, catalogModelsForSnapshot } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`
 );
+
+test('service tiers expire independently of model availability at the UTC cutoff', () => {
+  const model = { capabilities: { serviceTiers: ['fast'], serviceTiersUntil: '2026-11-30' }, descriptor: { availableToCredential: true } };
+  assert.deepEqual(modelServiceTiers(model, Date.parse('2026-11-29T23:59:59.999Z')), ['fast']);
+  assert.equal(modelServiceTiers(model, Date.parse('2026-11-30T00:00:00Z')), undefined);
+  assert.equal(modelServiceTiers({ ...model, descriptor: { availableToCredential: false } }, 0), undefined);
+});
 
 test('agent reasoning intensity enables optional models without exposing an off mode', () => {
   const router = getReasoningCapability({ provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'upstage/solar-mini4' });

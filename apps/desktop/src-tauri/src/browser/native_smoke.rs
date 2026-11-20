@@ -80,8 +80,9 @@ fn run_html_pointer_fixture(foreground: bool) {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
     std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
-      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;const cursor=document.querySelector('[data-nexa-agent-cursor]');window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey,cursorVisible:!!cursor&&getComputedStyle(cursor).visibility==='visible'};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
       <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
+      <button onclick="window.defaultWebviewClicks=(window.defaultWebviewClicks||0)+1;const cursor=document.querySelector('[data-nexa-agent-cursor]');window.defaultWebviewFeedback=!!cursor&amp;&amp;getComputedStyle(cursor).visibility==='visible'&amp;&amp;event.isTrusted">WebView action</button>
       <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
       <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
       <div id=scrollbox style="position:absolute;left:350px;top:150px;width:200px;height:140px;overflow:auto"><div style="height:1500px">Nested content</div></div>
@@ -125,17 +126,17 @@ fn run_html_pointer_fixture(foreground: bool) {
                 let session = state.create_session(Some(conversation.clone()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
-                if !foreground {
-                    // WebView2 may activate its host when creating the controller.
-                    // Put a second test-owned window in front before observing the tab.
-                    let anchor = handle.get_window("fixture-foreground").ok_or("Missing test focus window")?;
-                    anchor.show().and_then(|_|anchor.set_focus()).map_err(|error|error.to_string())?;
-                    let expected = anchor.hwnd().map_err(|error|error.to_string())?.0 as isize;
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                    while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
-                        if std::time::Instant::now() >= deadline { return Err("The dedicated fixture window did not acquire foreground ownership.".into()); }
-                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    }
+                // Creating the child WebView can change the active window after
+                // the initial show. Establish the fixture's intended focus before
+                // collecting the observation that authorizes the first click.
+                let focus_label = if foreground { "main" } else { "fixture-foreground" };
+                let anchor = handle.get_window(focus_label).ok_or("Missing test focus window")?;
+                anchor.show().and_then(|_| anchor.set_focus()).map_err(|error| error.to_string())?;
+                let expected = anchor.hwnd().map_err(|error| error.to_string())?.0 as isize;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
+                    if std::time::Instant::now() >= deadline { return Err(format!("The {focus_label} fixture window did not acquire foreground ownership.")); }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
                 if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
                     return Err("A foreign conversation could inspect target presence".into());
@@ -172,11 +173,20 @@ fn run_html_pointer_fixture(foreground: bool) {
                         return Err("Unfocused default input did not pause".into());
                     }
                 }
-                let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click",
-                    serde_json::json!({"action":"click","delivery":if foreground {"foreground"} else {"background"},"target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await
+                let mut click = serde_json::json!({"action":"click","delivery":if foreground {"foreground"} else {"background"},"target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id});
+                if foreground {
+                    click["target_ref"] = serde_json::json!(target.element_ref);
+                } else {
+                    click["x"] = serde_json::json!(target.bounds.x + target.bounds.width / 2.);
+                    click["y"] = serde_json::json!(target.bounds.y + target.bounds.height / 2.);
+                }
+                let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click", click).await
                     .map_err(|error| format!("Public native click: {error}"))?;
                 if !after.text.contains("clicked once") || after.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
+                }
+                if state.eval_action(&session.id,tab_id,"window.fixtureClick.cursorVisible").await?.as_bool() != Some(!foreground) {
+                    return Err("The tab cursor did not match the WebView or system delivery mode at click time".into());
                 }
                 let expected_route = if foreground { "system_pointer" } else { "webview_input" };
                 if interaction.as_ref().and_then(|i| i["pointerDelivery"].as_str()) != Some(expected_route) {
@@ -193,6 +203,14 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let center=(target.bounds.x+target.bounds.width/2., target.bounds.y+target.bounds.height/2.);
                     if (point.0-center.0).abs()>1. || (point.1-center.1).abs()>1. {
                         return Err(format!("Received click at {point:?}, expected button center {center:?}"));
+                    }
+                    state.verify_fixture_cursor(&session.id,tab_id,&after.viewport,center).await?;
+                    let next = after.elements.iter().find(|el| el.name == "WebView action").ok_or("Missing default WebView target")?;
+                    let (_, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "default-webview-click",
+                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":after.observation_id,"x":next.bounds.x+next.bounds.width/2.,"y":next.bounds.y+next.bounds.height/2.})).await?;
+                    if receipt.is_none_or(|r| r["pointerDelivery"] != "webview_input")
+                        || state.eval_action(&session.id,tab_id,"window.defaultWebviewClicks===1 && window.defaultWebviewFeedback").await? != true {
+                        return Err("Default WebView coordinate input did not display its tab cursor and deliver exactly one trusted click".into());
                     }
                     state.verify_fixture_cursor(&session.id,tab_id,&after.viewport,center).await?;
                 }
@@ -258,13 +276,13 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let observed = state.observe(&session.id, tab_id, "modified-click").await?;
                     let button = observed.elements.iter().find(|element| element.name == "Continue").ok_or("Missing chord button")?;
                     let (clicked, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-click",
-                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":observed.observation_id,"target_ref":button.element_ref,"modifiers":["Control","Shift"]})).await?;
+                        serde_json::json!({"delivery":"foreground","action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":observed.observation_id,"target_ref":button.element_ref,"modifiers":["Control","Shift"]})).await?;
                     let flags = state.eval_action(&session.id,tab_id,"window.fixtureClick").await?;
-                    if flags["ctrl"] != true || flags["shift"] != true || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
-                        return Err(format!("Missing physical click modifiers: {flags}"));
+                    if flags["ctrl"] != true || flags["shift"] != true || flags["cursorVisible"] != false || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
+                        return Err(format!("Physical click modifiers or cursor ownership did not match: {flags}"));
                     }
                     let (zoomed, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-wheel",
-                        serde_json::json!({"action":"scroll","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":clicked.observation_id,"point":{"x":400,"y":200},"modifiers":["Control"],"scroll_y":-100})).await?;
+                        serde_json::json!({"delivery":"foreground","action":"scroll","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":clicked.observation_id,"point":{"x":400,"y":200},"modifiers":["Control"],"scroll_y":-100})).await?;
                     if clicked.viewport["deviceScaleFactor"] == zoomed.viewport["deviceScaleFactor"] || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
                         return Err("Control-wheel did not zoom the foreground tab.".into());
                     }

@@ -876,6 +876,7 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type,
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     };

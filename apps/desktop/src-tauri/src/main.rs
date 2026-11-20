@@ -858,6 +858,7 @@ fn main() {
             commands::get_index_stats,
             commands::get_database_storage_stats_cmd,
             commands::get_storage_usage_cmd,
+            commands::set_storage_report_access_cmd,
             commands::get_conversation_storage_page_cmd,
             commands::archive_conversations_batch_cmd,
             commands::rebuild_index,
@@ -1060,6 +1061,7 @@ fn main() {
             commands::delete_media_generation_asset_occurrence_cmd,
             commands::delete_media_generation_asset_cmd,
             commands::search_conversations_cmd,
+            commands::search_chat_history_cmd,
             // Conversation checkpoints
             commands::list_checkpoints_cmd,
             commands::restore_checkpoint_cmd,

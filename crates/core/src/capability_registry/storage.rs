@@ -1724,6 +1724,53 @@ mod tests {
     }
 
     #[test]
+    fn paid_speed_is_bound_to_the_saved_connection_model_and_primary_route() {
+        use crate::model_catalog::ServiceTier;
+        let db = Database::open_memory().unwrap();
+        let mut selected = db
+            .save_agent_config(&agent(
+                "open_ai",
+                "https://api.openai.com/v1",
+                "gpt-6.2-sol",
+                "key-a",
+            ))
+            .unwrap();
+        selected.service_tier = Some(ServiceTier::Fast);
+        let scope = RegistryScope {
+            agent_id: Some(selected.id.clone()),
+            ..Default::default()
+        };
+        let route = db
+            .resolve_runtime_capability(&scope, "text_generation")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            route.selected_service_tier(&selected),
+            Some(ServiceTier::Fast)
+        );
+        let mut edited = selected.clone();
+        edited.base_url = None;
+        assert_eq!(
+            route.selected_service_tier(&edited),
+            Some(ServiceTier::Fast)
+        );
+        edited.base_url = Some("https://private.example/v1".into());
+        assert_eq!(route.selected_service_tier(&edited), None);
+        let mut edited = selected.clone();
+        edited.model = "gpt-6.2-astra".into();
+        assert_eq!(route.selected_service_tier(&edited), None);
+        let mut edited = selected.clone();
+        edited.id = "other-profile-with-the-same-key".into();
+        assert_eq!(route.selected_service_tier(&edited), None);
+        let mut edited = selected.clone();
+        edited.api_key = "key-b".into();
+        assert_eq!(route.selected_service_tier(&edited), None);
+        let mut resumed = route;
+        resumed.snapshot.fallback_index = 1;
+        assert_eq!(resumed.selected_service_tier(&selected), None);
+    }
+
+    #[test]
     fn migrated_agent_resolves_through_registry_without_exposing_secret() {
         let db = Database::open_memory().unwrap();
         let mut input = agent(

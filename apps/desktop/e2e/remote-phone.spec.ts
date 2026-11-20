@@ -162,6 +162,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
           value = { connectionId: params.connectionId, discoverySucceeded: true, error: null, models: [
             { id: 'qwen-vl', name: 'Qwen VL', vision: true, reasoning: null },
             { id: 'qwen-plus', name: 'Qwen Plus', vision: true, reasoning: { mode:'optional', effortLevels:['low', 'high'] } },
+            { id: 'priority-chat', name: 'Priority chat', serviceTiers: ['fast'], vision: true, reasoning: { mode:'optional', effortLevels:['low', 'high'] } },
           ] };
           break;
         case "connections.list":
@@ -173,7 +174,18 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
         case "chat.list":
           value = { items: conversations, nextCursor: null };
           break;
+        case "chat.search":
+          value = { items: [{ id: 'past', title: 'Previous review',
+            ...(params.query === 'handover' ? { messageId:'early', messageOrder:5, snippet:'handover finding' }
+              : { messageId:null, messageOrder:null, snippet:null }) }], next: null };
+          break;
         case "chat.read":
+          if (params.conversationId === 'past') {
+            const older = params.beforeOrder === 6;
+            value = { messages: [{ id: older ? 'early' : 'latest', role:'assistant', intermediate:older,
+              content: older ? 'The handover finding' : 'Recent update', sortOrder: older ? 5 : 100 }], beforeOrder:null };
+            break;
+          }
           if (historyEnabled && params.beforeOrder != null) {
             await new Promise<void>((resolve) => historyReplies.push(resolve));
             value = {
@@ -222,6 +234,11 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
           break;
         case "chat.resume":
           resumeCalls++;
+          if (params.conversationId === 'past') {
+            value = { run: { id: 'past-run', status: 'completed', finalMessageId: 'latest' },
+              events: [], hasMore: false, durableHighWater: 0, nextSequence: null };
+            break;
+          }
           value = {
             run: runEvents.length
               ? { id: currentRunId, status: runStatus, errorMessage: runStatus === 'cancelled' ? 'Request cancelled by user.' : null, finalMessageId: finalAnswer == null ? null : 'final-message' }
@@ -406,6 +423,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
       socket?.send(JSON.stringify({event:'voice:event',payload:{sessionId:voiceId,sequence:++voiceSequence,kind:'interim',text}}));
     },
     preferences: (value: any) => { preferences = value; },
+    enableSearch: () => Object.assign(manifest, { capabilities: ['chat-search-v1'] }),
     counts: () => ({
       pairCount,
       audio,
@@ -865,16 +883,22 @@ test("remote Chat and Live choose provider models independently of saved desktop
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   const chats = page.getByLabel('Conversation', { exact:true });
   await selectControl(chats, 'chat-1');
-  await selectControl(page.getByLabel('Model connection', { exact:true }), 'qwen-plus');
+  await expect(page.getByTestId('service-tiers')).toHaveCount(0);
+  await selectControl(page.getByLabel('Model connection', { exact:true }), 'priority-chat');
+  await page.getByRole('button', { name: 'Fast', exact: true }).click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+  await expect(page.locator('.nexa-intensity')).toHaveAttribute('data-service-tier', 'fast');
+  await page.getByRole('button', { name: 'List', exact: true }).click();
   await selectControl(page.getByLabel('Model connection · Reasoning Effort', { exact:true }), 'high');
   await selectControl(chats, 'chat-2');
   await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen VL');
   await selectControl(chats, 'chat-1');
   await page.reload();
-  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen Plus');
+  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Priority chat');
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByLabel('Message', { exact:true }).fill('Use the newly selected model');
   await page.getByRole('button', { name:'Send', exact:true }).click();
-  await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'qwen-plus', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null });
+  await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'priority-chat', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null, serviceTier:'fast' });
   await page.getByRole('button', { name:'Live', exact:true }).click();
   await selectControl(page.getByLabel('Observation model', { exact:true }), 'qwen-plus');
   await selectControl(page.getByLabel('Summary model', { exact:true }), 'qwen-vl');
@@ -1219,6 +1243,61 @@ test("an old chat launch cannot clear the new conversation draft", async ({
   ).toHaveCount(0);
 });
 
+
+test('phone sidebar opens an older body match without paging through the intervening chat', async ({ page }) => {
+  await page.goto('/?projects');
+  await page.evaluate(async () => {
+    localStorage.setItem('fixture.chatProjects.phone', JSON.stringify({ projects: [{ id:'reports', name:'Reports' }], memberships:{ old:'reports' } }));
+    const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity();
+  });
+  const phone = page.locator('.mobile-app');
+  await phone.locator('.native-chat-header button').first().click();
+  await phone.getByRole('button', { name: 'Search all conversations' }).click();
+  await phone.getByRole('searchbox').fill('旧记录');
+  await phone.getByRole('button', { name: /Previous work.*旧记录/ }).click();
+  await expect(phone.locator('[data-message-id="historical"]')).toContainText('旧记录的正文');
+  await phone.getByRole('button', { name: 'Scroll to bottom' }).click();
+  await expect(phone.locator('[data-message-id="historical"]')).toHaveCount(0);
+  await phone.locator('.native-chat-header button').first().click();
+  await expect(phone.getByRole('button', { name:'Reports', exact:true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(phone.getByRole('navigation', { name:'Reports' }).getByText('Previous work')).toBeVisible();
+  await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.seedArchives());
+  await phone.getByRole('button', {name:'Archived conversations', exact:true}).click();
+  await phone.getByRole('button', {name:'Search archived conversations'}).click();
+  await phone.getByRole('searchbox', {name:'Search archived conversations'}).fill('decision');
+  await phone.getByRole('button', {name:/Archived e.*decision/}).click();
+  await expect(phone.locator('[data-message-id="archived-note"]')).toContainText('A previous decision.');
+  await expect(phone.getByLabel('Message', {exact:true})).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions
+    .filter((item:any) => item.params.conversationId === 'e').map((item:any) => item.method))).toEqual(['chat.read']);
+  await phone.getByRole('button', {name:'Restore', exact:true}).click();
+  await expect(phone.getByLabel('Message', {exact:true})).toBeVisible();
+  await expect(phone.locator('[data-message-id="archived-note"]')).toContainText('A previous decision.');
+});
+
+test('paired web search opens title and intermediate message hits outside the first history page', async ({ page }) => {
+  const app = await fixture(page);
+  app.enableSearch();
+  await page.clock.install();
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  const search = async (query: string) => {
+    await page.getByRole('button', { name:'Search all conversations' }).click();
+    await page.getByRole('searchbox').fill(query);
+    await page.getByRole('button', { name:/Previous review/ }).click();
+  };
+  await search('Previous review');
+  await expect(page.locator('[data-message-id="latest"]')).toHaveText(/Recent update/);
+  await expect(page.getByLabel('Conversation', {exact:true})).toHaveValue('past');
+  await expect(page.getByRole('option', {name:'Previous review'})).toBeAttached();
+  await search('handover');
+  await expect(page.locator('[data-message-id="early"]')).toBeInViewport();
+  const historyResumes = app.counts().resumeCalls;
+  await page.clock.fastForward(9_000);
+  await page.clock.runFor(150);
+  expect(app.counts().resumeCalls).toBe(historyResumes);
+  await page.getByRole('button', {name:'Scroll to bottom'}).click();
+  await expect(page.locator('[data-message-id="latest"]')).toHaveText(/Recent update/);
+});
 
 test('native phone reuses blank drafts, streams before completion, and manages conversations', async ({ page }, testInfo) => {
   await page.goto('/');

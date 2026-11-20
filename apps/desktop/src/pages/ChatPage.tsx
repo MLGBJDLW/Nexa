@@ -508,6 +508,7 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const focusMessageId = useMemo(() => new URLSearchParams(location.search).get('message'), [location.search]);
   const { activeProjectId, setProject } = useActiveProject();
 
   const onConversationCreated = useCallback(
@@ -556,7 +557,7 @@ export function ChatPage() {
   const chat = useChatSession({
     historyFork,
     conversationId,
-    anchorMessageId: new URLSearchParams(location.search).get('message'),
+    anchorMessageId: focusMessageId,
     onConversationCreated,
     systemPrompt: ((location.state as { systemPrompt?: string } | null)?.systemPrompt ?? '').trim(),
     initialSourceIds,
@@ -975,13 +976,23 @@ export function ChatPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [handleToggleBrowser]);
 
-  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
+  const [savedAgentConfigs, setSavedAgentConfigs] = useState<AgentConfig[]>([]);
+  const modelPickerRoute = JSON.stringify(chat.activeId ? [chat.activeId] : [null, location.key, initialProjectId]);
+  const currentModelRoute = useRef(modelPickerRoute);
+  currentModelRoute.current = modelPickerRoute;
+  const [rememberedModels, setRememberedModels] = useState<{
+    route: string;
+    connections: AgentConfig[];
+    configs: AgentConfig[];
+  } | null>(null);
+  const agentConfigs = rememberedModels?.route === modelPickerRoute && rememberedModels.connections === savedAgentConfigs
+    ? rememberedModels.configs : savedAgentConfigs;
   useEffect(() => {
     let active = true;
     let generation = 0;
     const refresh = async () => {
       const request = ++generation;
-      try { const configs = await api.listAgentConfigs(); if (active && request === generation) setAgentConfigs(configs); }
+      try { const configs = await api.listAgentConfigs(); if (active && request === generation) setSavedAgentConfigs(configs); }
       catch { /* Keep the last confirmed model list during a transient read failure. */ }
     };
     void refresh();
@@ -998,11 +1009,24 @@ export function ChatPage() {
     (selection: AgentModelSelection) => {
       const apply = async () => {
         try {
+          if (!chat.activeId && currentModelRoute.current !== modelPickerRoute) return false;
           const nextConfig = { ...selection.config, model: selection.model, modelId: selection.model,
             reasoningEnabled: selection.reasoningEnabled, reasoningEffort: selection.reasoningEffort,
-            thinkingBudget: selection.thinkingBudget };
+            thinkingBudget: selection.thinkingBudget, serviceTier: selection.serviceTier ?? null };
           await chat.switchAgentConfig(nextConfig);
-          setAgentConfigs(current => current.map(config => config.id === nextConfig.id ? nextConfig : config));
+          // Remember choices across provider switches inside this chat. A late
+          // save or a refreshed connection must not seed another chat's picker.
+          if (currentModelRoute.current === modelPickerRoute) {
+            setRememberedModels(current => {
+              const configs = current?.route === modelPickerRoute && current.connections === savedAgentConfigs
+                ? current.configs : savedAgentConfigs;
+              return {
+                route: modelPickerRoute,
+                connections: savedAgentConfigs,
+                configs: configs.map(config => config.id === nextConfig.id ? nextConfig : config),
+              };
+            });
+          }
           return true;
         } catch (error) {
           toast.error(formatUserError(t('settings.defaultModel'), error));
@@ -1013,12 +1037,13 @@ export function ChatPage() {
       modelSelectionQueue.current = result.then(() => undefined, () => undefined);
       return result;
     },
-    [chat, t],
+    [chat, t, modelPickerRoute, savedAgentConfigs],
   );
   const sessionControls = agentConfigs.length > 0 || personas.length > 0 ? (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       {agentConfigs.length > 0 && (
         <AgentModelPicker
+          key={modelPickerRoute}
           conversationId={chat.activeId}
           projectId={chat.activeConversation?.projectId ?? initialProjectId}
           agentConfigs={agentConfigs}
@@ -1200,9 +1225,9 @@ export function ChatPage() {
   /* ── Handlers (navigation-aware wrappers) ───────────────────────── */
 
   const handleSelectConversation = useCallback(
-    (id: string) => {
+    (id: string, messageId?: string | null) => {
       chat.setActiveConversation(id);
-      navigate(`/chat/${id}`, { flushSync: true });
+      navigate(`/chat/${id}${messageId ? `?message=${encodeURIComponent(messageId)}` : ''}`, { flushSync: true });
     },
     [chat.setActiveConversation, navigate],
   );
@@ -1327,8 +1352,8 @@ export function ChatPage() {
     [chat.conversations, chat.runningConversationIds, chat.setConversations, chat.activeId, navigate, t],
   );
 
-  const handleSelectArchivedConversation = useCallback((id: string) => {
-    navigate(`/chat/${id}`);
+  const handleSelectArchivedConversation = useCallback((id: string, messageId?: string | null) => {
+    navigate(`/chat/${id}${messageId ? `?message=${encodeURIComponent(messageId)}` : ''}`);
   }, [navigate]);
 
   const handleArchivedConversationRestored = useCallback((conversation: Conversation) => {
@@ -1949,9 +1974,14 @@ export function ChatPage() {
               hasNewerMessages={chat.hasNewerMessages}
               loadingOlderMessages={chat.loadingOlderMessages}
               onLoadOlderMessages={chat.loadOlderMessages}
-              onLoadLatestMessages={chat.loadLatestMessages}
+              onLoadLatestMessages={focusMessageId ? () => {
+                const query = new URLSearchParams(location.search);
+                query.delete('message');
+                void navigate({ pathname: location.pathname, search: query.toString() }, { replace: true, state: location.state });
+              } : chat.loadLatestMessages}
               onLoadTurnDetails={chat.loadTurnDetails}
-              focusMessageId={new URLSearchParams(location.search).get('message')}
+              focusMessageId={focusMessageId}
+              focusNavigationKey={location.key}
               streamText={chat.streamText}
               streamRounds={chat.streamRounds}
               traceEvents={chat.traceEvents}

@@ -128,6 +128,86 @@ test('Tab cursor yields to nested capture scopes and is removed on cancellation'
   expect((await page.screenshot()).equals(baseline)).toBe(true);
 });
 
+test('WebView shows the agent travelling to the next target before committing input', async ({ page }) => {
+  await page.setContent('<button>First</button><button style="margin-left:550px">Second</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  const observation = await observe(page);
+  const first = { ...actionInput(observation, 'move', observation.elements[0].ref), presentationId: 'one', showCursor: true };
+  const second = { ...actionInput(observation, 'click', observation.elements[1].ref), presentationId: 'two', showCursor: true };
+  await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(input), first);
+  const cursor = page.locator('[data-nexa-agent-cursor]');
+  await expect(cursor).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('one').status)).toBe('arrived');
+  const start = (await cursor.boundingBox())!;
+  const progress = await page.evaluate(input => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.cancelPresentation('one');
+    return bridge.previewAction(input);
+  }, second);
+  expect(progress.durationMs).toBeGreaterThan(100);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('two').status)).toBe('arrived');
+  expect((await cursor.boundingBox())!.x - start.x).toBeGreaterThan(500);
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.invalidateForUserTakeover());
+  await expect(cursor).toHaveCount(0);
+});
+
+for (const legacyHistory of [false, true]) {
+  test(`Same-document navigation retires observed and prepared targets (${legacyHistory ? 'History API' : 'Navigation API'})`, async ({ page }) => {
+    if (legacyHistory) {
+      await page.addInitScript(() => Object.defineProperty(window, 'navigation', { value: undefined }));
+    }
+    await page.route('**/history-fixture', route => route.fulfill({
+      contentType: 'text/html', body: '<select aria-label="View"><option>A</option><option>B</option></select>',
+    }));
+    await page.goto('/history-fixture');
+    await page.addScriptTag({ content: runtimeSource });
+    const observed = await observe(page);
+    const select = { ...actionInput(observed, 'select', observed.elements[0].ref), value: 'B', presentationId: 'view', showCursor: true };
+    const prepared = await page.evaluate(input => {
+      const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+      const pointer = bridge.prepareNativePointer(input);
+      bridge.previewAction(input);
+      history.replaceState({ view: 'next' }, '');
+      return pointer;
+    }, select);
+    await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCount(0);
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input), select))
+      .rejects.toThrow(/stale observation/);
+    await expect(page.locator('select')).toHaveValue('A');
+
+    const next = await observe(page);
+    expect(next.elements[0].ref).not.toBe(select.targetRef);
+    await expect(page.evaluate(({ input, prepared }) => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), { input: select, prepared }))
+      .rejects.toThrow(/stale observation/);
+    await page.evaluate(async () => {
+      history.pushState({}, '', '#another-view');
+      const returned = new Promise<void>(resolve => window.addEventListener('popstate', () => resolve(), { once: true }));
+      history.back();
+      await returned;
+    });
+    expect(page.url()).toBe(observed.url);
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.validateAction(input),
+      actionInput(next, 'select', next.elements[0].ref))).rejects.toThrow(/stale observation/);
+    const fresh = await observe(page);
+    await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+      { ...actionInput(fresh, 'select', fresh.elements[0].ref), value: 'B' });
+    await expect(page.locator('select')).toHaveValue('B');
+  });
+}
+
+test('Navigation inside an observed frame retires its prepared target', async ({ page }) => {
+  await page.setContent('<iframe srcdoc="<button>Frame action</button>"></iframe>');
+  const button = page.frameLocator('iframe').getByRole('button');
+  await expect(button).toBeVisible();
+  await page.addScriptTag({ content: runtimeSource });
+  const observed = await observe(page);
+  const input = actionInput(observed, 'move', observed.elements.find(element => element.name === 'Frame action')!.ref);
+  const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
+  await button.evaluate(element => element.ownerDocument.defaultView!.history.replaceState({ view: 'next' }, ''));
+  await expect(page.evaluate(({ input, prepared }) => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), { input, prepared }))
+    .rejects.toThrow(/stale observation/);
+});
+
 test('Agent browser interaction commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
     <!doctype html>
@@ -653,11 +733,12 @@ test('set_checked rejects disabled controls, radio clearing and stale checked st
 });
 
 test('set_checked preparation uses guarded trusted clicks and skips matching state', async ({ page }) => {
-  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted">');
+  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted;window.sawPulse=!!document.querySelector(\'[data-nexa-agent-click]\')">');
   await page.addScriptTag({ content: runtimeSource });
   await page.addScriptTag({ content: takeoverSource });
   const snapshot = await observe(page);
-  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true };
+  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true, presentationId: 'checked-click', showCursor: true };
+  await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(input), input);
   const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
   const binding = await targetBinding(page, 'input');
   const x = prepared.bounds.x + prepared.bounds.width / 2;
@@ -665,6 +746,7 @@ test('set_checked preparation uses guarded trusted clicks and skips matching sta
   expect(await page.evaluate(({ binding, x, y }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
     'playwright-takeover-token', 'checked-click', { pointerDown: 1, keyDown: 0, input: 1 }, { kind: 'pointer', x, y, button: 'left', ...binding }), { binding, x, y })).toBe(true);
   await page.mouse.click(x, y);
+  expect(await page.evaluate(() => (window as unknown as { sawPulse: boolean }).sawPulse)).toBe(true);
   expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'checked-click'))).toBe(true);
   await expect(page.locator('input')).toBeChecked();
   expect(await page.evaluate(() => (window as Window & { trusted: boolean }).trusted)).toBe(true);

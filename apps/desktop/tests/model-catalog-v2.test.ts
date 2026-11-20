@@ -323,7 +323,7 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   });
   for (const [id, expectedVision, expectedOutput] of [
     ['z-ai/glm-5.3', false, 943_718],
-    ['z-ai/glm-5.3-flash', true, 943_717],
+    ['z-ai/glm-5.3-flash', true, 131_072],
   ] as const) {
     const candidate = openrouterModels.find(model => model.id === id);
     assert(candidate, `${id} should be listed by OpenRouter`);

@@ -2,8 +2,38 @@
 //! `chunks`; FTS sees the same projection on insert, delete, rebuild and read.
 use rusqlite::{functions::FunctionFlags, Connection};
 
-fn is_han(ch: char) -> bool {
+pub(crate) fn is_han(ch: char) -> bool {
     matches!(ch as u32, 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af)
+}
+
+pub(crate) fn is_unsegmented_script(ch: char) -> bool {
+    is_han(ch) || matches!(ch as u32, 0x3040..=0x30ff | 0xac00..=0xd7af | 0x0e00..=0x0eff)
+}
+
+// Separate only adjacent word characters from different scripts. The word index
+// then finds identifiers inside CJK prose without expanding the stored bodies.
+pub(crate) fn chat_terms(text: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    if text.is_ascii() {
+        return Cow::Borrowed(text);
+    }
+    let mut separated = String::new();
+    let mut copied = 0;
+    let mut previous = None;
+    for (offset, ch) in text.char_indices() {
+        let script = ch.is_alphanumeric().then(|| is_unsegmented_script(ch));
+        if matches!((previous, script), (Some(a), Some(b)) if a != b) {
+            separated.push_str(&text[copied..offset]);
+            separated.push(' ');
+            copied = offset;
+        }
+        previous = script;
+    }
+    if copied == 0 {
+        return Cow::Borrowed(text);
+    }
+    separated.push_str(&text[copied..]);
+    Cow::Owned(separated)
 }
 
 fn han_runs(text: &str) -> impl Iterator<Item = &str> {
@@ -42,6 +72,26 @@ pub(crate) fn index_text(text: &str) -> String {
 }
 
 pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
+    conn.create_scalar_function(
+        "nexa_chat_terms_v1",
+        1,
+        FunctionFlags::SQLITE_UTF8
+            | FunctionFlags::SQLITE_DETERMINISTIC
+            | FunctionFlags::SQLITE_INNOCUOUS,
+        |context| Ok(chat_terms(context.get_raw(0).as_str()?).into_owned()),
+    )?;
+    conn.create_scalar_function(
+        "nexa_lower",
+        1,
+        FunctionFlags::SQLITE_UTF8
+            | FunctionFlags::SQLITE_DETERMINISTIC
+            | FunctionFlags::SQLITE_INNOCUOUS,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|text| text.to_lowercase()))
+        },
+    )?;
     conn.create_scalar_function(
         "nexa_lexical_v1",
         1,

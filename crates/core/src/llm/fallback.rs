@@ -88,9 +88,17 @@ impl AutomaticFallbackProvider {
 
     fn request_for_route(&self, request: &CompletionRequest, position: usize) -> CompletionRequest {
         let mut request = request.clone();
-        request.model = self.routes[position].model.clone();
-        request.provider_type = Some(self.routes[position].provider_type);
         let route = &self.routes[position];
+        if route.fallback_index != 0
+            || request.model != route.model
+            || request
+                .provider_type
+                .is_some_and(|kind| kind != route.provider_type)
+        {
+            request.service_tier = None;
+        }
+        request.model = route.model.clone();
+        request.provider_type = Some(route.provider_type);
         if let ReplayHistoryProjection::Caller(history_policy) =
             route.provider.replay_history_projection(&request)
         {
@@ -756,6 +764,41 @@ mod tests {
         CompletionRequest {
             model: "primary-model".to_string(),
             ..CompletionRequest::default()
+        }
+    }
+
+    #[test]
+    fn paid_speed_is_not_replayed_on_restored_or_substituted_fallbacks() {
+        let mut request = request();
+        request.service_tier = Some(crate::model_catalog::ServiceTier::Fast);
+        request.provider_type = Some(ProviderType::OpenAi);
+        for primary_index in [0, 2] {
+            let mock = || provider("same-model", Behavior::CompleteSuccess, Default::default());
+            let routes = AutomaticFallbackProvider::new(
+                primary_index,
+                mock(),
+                request.model.clone(),
+                ProviderType::OpenAi,
+                vec![AutomaticFallbackCandidate {
+                    fallback_index: primary_index + 1,
+                    provider: mock(),
+                    model: request.model.clone(),
+                    provider_type: ProviderType::OpenAi,
+                }],
+                Arc::new(|_, _, _| Ok(())),
+            )
+            .unwrap();
+            assert_eq!(
+                routes.request_for_route(&request, 0).service_tier,
+                (primary_index == 0).then_some(crate::model_catalog::ServiceTier::Fast)
+            );
+            assert_eq!(routes.request_for_route(&request, 1).service_tier, None);
+            let mut different_model = request.clone();
+            different_model.model = "another-selected-model".into();
+            assert_eq!(
+                routes.request_for_route(&different_model, 0).service_tier,
+                None
+            );
         }
     }
 

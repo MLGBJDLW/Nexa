@@ -95,9 +95,30 @@ pub struct ReasoningCapability {
     pub thinking_budget: Option<ThinkingBudgetCapability>,
 }
 
+/// Premium inference speeds explicitly selected for a conversation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceTier {
+    Fast,
+    Ultrafast,
+}
+
+impl ServiceTier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Ultrafast => "ultrafast",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCapabilities {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_tiers: Vec<ServiceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers_until: Option<String>,
     #[serde(default)]
     pub reasoning: Option<ReasoningCapability>,
     #[serde(default)]

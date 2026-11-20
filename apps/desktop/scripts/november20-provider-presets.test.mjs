@@ -35,3 +35,20 @@ test('other corroborated withdrawals stay scoped to their operation', () => {
   const m = decisions.find(p => p.id === 'openrouter').models.find(m => m.id === 'liquid/d1-ultra');
   assert.equal(m.status, 'active'); assert.equal(m.deprecationDate, undefined);
 });
+
+test('Google-managed Claude snapshots keep their native route IDs, access and limits', () => {
+  const vertex = models('vertex-anthropic');
+  for (const id of ['claude-opus-4-5@20251101', 'claude-haiku-4-5@20251001', 'claude-sonnet-4-5@20250929']) {
+    const model = vertex.find(entry => entry.id === id);
+    assert.equal(model.contextTokens, 200_000);
+    assert.equal(model.maxOutputTokens, 64_000);
+    assert.equal(model.access, 'account_enablement');
+    assert.ok(!vertex.some(entry => entry.id === id.replace('@', '-')));
+  }
+  assert.equal(vertex.find(m => m.id === 'claude-sonnet-4-5@20250929').deprecationDate, '2026-11-30');
+  for (const id of ['claude-mythos-5', 'claude-mythos-5-1', 'claude-mythos-5-2']) {
+    assert.equal(vertex.find(m => m.id === id).status, 'gated');
+  }
+  assert.deepEqual(vertex.filter(m => m.capabilities?.serviceTiers?.includes('fast')).map(m => m.id).sort(),
+    ['claude-fable-5-2', 'claude-mythos-5-2']);
+});

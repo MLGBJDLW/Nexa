@@ -107,7 +107,8 @@ pub async fn public_state(app: &AppHandle) -> Result<Value, String> {
     records.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     Ok(
         json!({"settings":active.map(settings),"activeConnectionId":store.active_id,
-        "connections":records.iter().map(|record|json!({"id":record.id,"name":record.name,"provider":record.provider,"model":record.model,"baseUrl":record.base_url})).collect::<Vec<_>>(),
+        "connections":records.into_iter().map(|record|json!({"id":record.id,"name":record.name,"provider":record.provider,"model":record.model,"baseUrl":record.base_url,
+            "defaultSelection":nexa_core::conversation::TurnModelSelection::from(record)})).collect::<Vec<_>>(),
         "connectionSync":store.sync}),
     )
 }

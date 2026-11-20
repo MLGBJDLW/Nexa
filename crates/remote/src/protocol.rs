@@ -89,6 +89,13 @@ pub enum RemoteCommand {
     Models { connection_id: String },
     #[serde(rename = "chat.list")]
     Conversations { before: Option<String> },
+    #[serde(rename = "chat.search")]
+    SearchChats {
+        query: String,
+        before: Option<[String; 2]>,
+        #[serde(default)]
+        archived: bool,
+    },
     #[serde(rename = "chat.read")]
     Conversation {
         conversation_id: String,

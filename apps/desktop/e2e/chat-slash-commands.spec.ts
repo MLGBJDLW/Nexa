@@ -20,17 +20,19 @@ test('user Markdown folds by rendered height, preserves source, and does not loa
   await page.screenshot({ path: '../../.artifacts/chat-command-center/message-source.png' });
 });
 
-test('draft preview and local slash commands keep original text and never send a command to the model', async ({ page }) => {
+test('live Markdown and local slash commands keep original text and never send a command to the model', async ({ page }) => {
   await page.goto('/chat/conv-slash');
   const input = page.getByTestId('chat-input-textarea');
   const source = '# Draft\n\n**中文输入**\n\n- keep raw text';
   await input.fill(source);
-  await page.getByTestId('chat-preview-toggle').click();
-  await expect(input).toBeHidden();
-  await expect(page.getByTestId('chat-draft-preview').locator('h1')).toHaveText('Draft');
-  await page.getByTestId('chat-draft-preview').getByRole('button', { name: 'Edit draft' }).click();
+  await expect(page.getByTestId('chat-draft-markdown').locator('h1')).toHaveText('Draft');
+  await expect(page.getByTestId('chat-draft-markdown').locator('strong')).toHaveText('中文输入');
   await expect(input).toHaveValue(source);
   await expect(input).toBeFocused();
+  await input.fill('Setext heading\n=============');
+  await expect(page.getByTestId('chat-draft-markdown').locator('h1')).toHaveText('Setext heading');
+  await input.fill('https://example.invalid/guide');
+  await expect(page.getByTestId('chat-draft-markdown')).toBeVisible();
   await input.fill('/model');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('agent-model-picker-menu')).toBeVisible();
@@ -44,36 +46,6 @@ test('draft preview and local slash commands keep original text and never send a
   await page.getByTestId('chat-send').click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<{ message: string }> }).__slashAgentChatCalls__[0]?.message)).toBe(source);
 });
-
-test('keyboard preview commands transfer focus and Escape returns to the original draft', async ({ page }) => {
-  await page.goto('/chat/conv-slash');
-  const input = page.getByTestId('chat-input-textarea');
-  const preview = page.getByTestId('chat-draft-preview');
-  await input.fill('/preview');
-  await page.keyboard.press('Enter');
-  await expect(preview).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(input).toBeFocused();
-  await expect(input).toHaveValue('');
-  await input.fill('# Preserve this draft');
-  await page.keyboard.press('Control+Shift+P');
-  const dialog = page.getByRole('dialog', { name: /command palette/i });
-  await dialog.getByRole('combobox').fill('Preview draft');
-  await dialog.getByRole('option', { name: 'Preview draft', exact: true }).click();
-  await expect(preview).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(input).toBeFocused();
-  await expect(input).toHaveValue('# Preserve this draft');
-});
-
-for (const message of ['Please inspect the /model endpoint and explain its response.', 'The /preview route is returning 404.']) {
-  test(`literal command path remains ordinary message text: ${message}`, async ({ page }) => {
-    await page.goto('/chat/conv-slash');
-    await page.getByTestId('chat-input-textarea').fill(message);
-    await page.getByTestId('chat-send').click();
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<{ message: string }> }).__slashAgentChatCalls__[0]?.message)).toBe(message);
-  });
-}
 
 test('command palette runs chat actions, searches conversations, restores focus, and supports a persisted custom chord', async ({ page }) => {
   await page.goto('/chat/conv-slash');
@@ -356,6 +328,13 @@ test('live turn timing appears after three seconds without a global elapsed stat
   await expect(elapsed).toContainText(/Thinking · \d+:\d{2}/);
   const duration = (await elapsed.innerText()).match(/(\d+):(\d{2})/)!;
   expect(Number(duration[1]) * 60 + Number(duration[2])).toBeGreaterThanOrEqual(3);
+
+  // A docked workspace can leave the composer narrower than the app viewport.
+  const row = page.getByTestId('chat-composer-primary-controls').locator('..');
+  await row.evaluate(el => { el.style.width = '236px'; });
+  const mode = (await page.getByTestId('chat-mode-segment').boundingBox())!;
+  const timing = (await elapsed.boundingBox())!;
+  expect(mode.x + mode.width <= timing.x || mode.y + mode.height <= timing.y).toBe(true);
 
   await page.getByTestId('chat-context-trigger').hover();
   await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('First event');

@@ -72,10 +72,13 @@ export function findSharedProviderCredential<T extends ProviderCredentialConfig>
   baseUrl?: string | null,
 ): T | null {
   const targetScope = providerCredentialScope(provider, baseUrl);
-  const candidates = configs.filter(
-    (config) =>
-      config.apiKey.trim().length > 0 &&
-      providerCredentialScope(config.provider, config.baseUrl) === targetScope,
-  );
+  const candidates = configs.filter(config => {
+    if (!config.apiKey.trim()) return false;
+    if (config.baseUrl?.trim()) {
+      const url = endpointUrl(config.baseUrl);
+      if (!url || url.username || url.password || url.search || url.hash) return false;
+    }
+    return providerCredentialScope(config.provider, config.baseUrl) === targetScope;
+  });
   return candidates.find((config) => config.isDefault) ?? candidates[0] ?? null;
 }

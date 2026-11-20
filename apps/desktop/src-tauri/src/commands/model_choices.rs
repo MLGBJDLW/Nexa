@@ -38,6 +38,7 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
             .unwrap_or_default()
             .into_iter()
             .map(|model| ModelChoice {
+                service_tiers: model.service_tiers,
                 id: model.id,
                 name: model.name,
                 vision: None,

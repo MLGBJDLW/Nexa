@@ -38,7 +38,7 @@
         "status": "active",
         "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -66,7 +66,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -88,7 +92,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18T07:38:10Z",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -116,7 +120,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -173,7 +181,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-09-30",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -201,7 +209,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -248,10 +260,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-10-28",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
         "inputModalities": [
           "text",
@@ -295,10 +310,14 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-07"
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-6-sol",
@@ -334,10 +353,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6-sol",
         "inputModalities": [
           "text",
@@ -383,10 +405,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6-luna",
         "inputModalities": [
           "text",
@@ -426,8 +451,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.6-terra",
@@ -457,8 +486,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.6-luna",
@@ -488,8 +521,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.5",
@@ -507,8 +544,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.5-pro",
@@ -560,8 +601,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.4-pro",
@@ -613,8 +658,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.4-nano",
@@ -681,8 +730,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.2-pro",
@@ -761,7 +814,7 @@
         "recommended": false,
         "deprecationDate": "2027-04-01",
         "replacementModelId": "gpt-6-sol",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
         "contextTokens": 400000,
         "maxOutputTokens": 128000,
@@ -787,7 +840,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -801,7 +857,7 @@
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-6.1-sol",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
         "contextTokens": 400000,
         "maxOutputTokens": 128000,
@@ -827,7 +883,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -845,13 +904,16 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-5.6-terra",
-        "lastVerifiedAt": "2026-10-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
@@ -885,8 +947,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4.1-mini",
@@ -895,8 +962,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4.1-nano",
@@ -920,8 +992,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4o-mini",
@@ -930,8 +1007,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "o3-pro",
@@ -1013,13 +1095,16 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-5.6-sol",
-        "lastVerifiedAt": "2026-10-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
@@ -2275,10 +2360,10 @@
         "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-20",
         "inputModalities": [
           "text",
           "image"
@@ -5462,7 +5547,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-20",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -5475,7 +5560,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943717,
+        "maxOutputTokens": 131072,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -5881,7 +5966,6 @@
           "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
@@ -5898,7 +5982,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/moonshotai/kimi-k2.7-code",
         "maxOutputTokens": 235929
       },
@@ -18149,10 +18233,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 54000,
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-20",
         "recommended": false
       },
@@ -18187,7 +18271,6 @@
           "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "repetition_penalty",
           "seed",
@@ -18199,11 +18282,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 72000,
-        "status": "deprecated",
-        "deprecationDate": "2026-11-20",
+        "status": "active",
         "recommended": false
       },
       {
@@ -24169,10 +24251,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
         "inputModalities": [
           "text",
@@ -24217,10 +24302,13 @@
               "enabled": false
             },
             "mode": "always"
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-11",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/fable-5-2/overview"
       },
       {
@@ -24320,7 +24408,7 @@
         "status": "gated",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-11",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -24348,7 +24436,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -24423,10 +24514,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/opus-5/overview",
         "inputModalities": [
           "text",
@@ -24599,8 +24693,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ],
+          "serviceTiersUntil": "2026-11-30"
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "claude-opus-4-7",
@@ -25770,10 +25869,13 @@
             },
             "mode": "always"
           },
-          "vision": true
+          "vision": true,
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-13",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-2",
         "access": "account_enablement",
         "inputModalities": [
@@ -25789,6 +25891,510 @@
           "us",
           "eu"
         ]
+      },
+      {
+        "id": "claude-mythos-5-2",
+        "name": "Claude Mythos 5.2",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        }
+      },
+      {
+        "id": "claude-fable-5-1",
+        "name": "Claude Fable 5.1",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-1",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          }
+        }
+      },
+      {
+        "id": "claude-mythos-5-1",
+        "name": "Claude Mythos 5.1",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.claude.com/docs/en/models/mythos-5-1/overview",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          }
+        }
+      },
+      {
+        "id": "claude-mythos-5",
+        "name": "Claude Mythos 5",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.claude.com/docs/en/models/mythos-5/overview",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          }
+        }
+      },
+      {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-4-8",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-4-7",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-4-6",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-opus-4-5@20251101",
+        "name": "Claude Opus 4.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-4-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-4-6",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-sonnet-4-5@20250929",
+        "name": "Claude Sonnet 4.5",
+        "source": "official",
+        "status": "deprecated",
+        "deprecationDate": "2026-11-30",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-4-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-haiku-4-5@20251001",
+        "name": "Claude Haiku 4.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/haiku-4-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       }
     ]
   },
@@ -31598,13 +32204,45 @@
         "source": "official",
         "status": "active",
         "access": "account_enablement",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
         "regions": [
           "cn-beijing"
         ],
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        }
       },
       {
         "id": "qwen3.8-max",
@@ -32184,13 +32822,45 @@
         "source": "official",
         "status": "active",
         "access": "account_enablement",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
         "regions": [
           "ap-southeast-1"
         ],
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        }
       },
       {
         "id": "qwen3.8-max",

@@ -210,6 +210,8 @@ pub struct CompletionRequest {
     /// documented default instead of inventing a cross-provider fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     /// Provider-specific reasoning effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -246,6 +248,7 @@ impl Default for CompletionRequest {
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         }
@@ -691,7 +694,7 @@ impl ProviderStreamingConfig {
         std::time::Duration::from_millis(
             self.stream_idle_timeout_ms
                 .unwrap_or(DEFAULT_STREAM_IDLE_TIMEOUT.as_millis() as u64)
-                .clamp(1_000, 3_600_000),
+                .max(1_000),
         )
     }
 
@@ -725,6 +728,22 @@ pub struct ProviderConfig {
     pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub streaming: ProviderStreamingConfig,
+}
+
+impl ProviderConfig {
+    fn service_tier(
+        &self,
+        request: &CompletionRequest,
+    ) -> Option<crate::model_catalog::ServiceTier> {
+        request.service_tier.filter(|tier| {
+            crate::provider_catalog::model_service_tiers(
+                crate::provider_registry::canonical_provider_key(self.provider_type),
+                self.base_url.as_deref(),
+                &request.model,
+            )
+            .contains(tier)
+        })
+    }
 }
 
 pub(crate) fn configured_request_timeout(timeout_secs: u64) -> Option<std::time::Duration> {
@@ -1875,13 +1894,13 @@ mod tests {
         assert_eq!(config.connect_timeout(), std::time::Duration::from_secs(10));
 
         let overridden = ProviderStreamingConfig {
-            stream_idle_timeout_ms: Some(420_000),
+            stream_idle_timeout_ms: Some(7_200_000),
             connect_timeout_ms: Some(25_000),
             stream_max_retries: Some(3),
         };
         assert_eq!(
             overridden.stream_idle_timeout(),
-            std::time::Duration::from_secs(420)
+            std::time::Duration::from_secs(7_200)
         );
         assert_eq!(
             overridden.connect_timeout(),

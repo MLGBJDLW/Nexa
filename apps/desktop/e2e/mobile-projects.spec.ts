@@ -19,6 +19,24 @@ async function createProject(page: Page, name: string) {
   await expect(dialog).not.toBeVisible();
 }
 
+test('phone project icons show the localized tooltip and selected accessible name', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fixture.chatProjects.phone', JSON.stringify({
+      projects: [{ id: 'photos', name: '相册', icon: 'camera' }], memberships: {},
+    }));
+  });
+  await page.goto(fixture + '&locale=zh-CN');
+  await button(page.locator('.mobile-app'), '对话').click();
+  const appearance = button(page.getByRole('dialog', { name: '对话', exact: true }), '外观 · 相册');
+  await expect(appearance.getByTitle('摄影', { exact: true })).toBeVisible();
+  await appearance.click();
+  const picker = page.getByRole('dialog', { name: '外观', exact: true });
+  const photography = button(picker, '摄影');
+  await expect(photography).toHaveAttribute('title', '摄影');
+  await expect(photography).toHaveAttribute('aria-pressed', 'true');
+  await expect(button(picker, '音乐')).toHaveAttribute('title', '音乐');
+});
+
 test('dragging a chat into a Project persists on this phone and keeps paired hosts separate', async ({page}) => {
   await page.goto(fixture);
   const drawer = await openDrawer(page);

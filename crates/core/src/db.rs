@@ -14,6 +14,7 @@ use crate::error::CoreError;
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     path: Option<PathBuf>,
+    pub(crate) shared_storage_report: Arc<Mutex<crate::storage_usage::SharedStorageReport>>,
     pub(crate) privacy_runs: Arc<crate::privacy::runtime::PrivacyRuns>,
 }
 
@@ -70,6 +71,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: Some(path.as_ref().to_path_buf()),
+            shared_storage_report: Arc::default(),
             privacy_runs: Arc::default(),
         })
     }
@@ -97,6 +99,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: None,
+            shared_storage_report: Arc::default(),
             privacy_runs: Arc::default(),
         })
     }
@@ -128,6 +131,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: Some(path.clone()),
+            shared_storage_report: self.shared_storage_report.clone(),
             privacy_runs: self.privacy_runs.clone(),
         })
     }

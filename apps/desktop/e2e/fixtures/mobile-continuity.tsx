@@ -6,12 +6,12 @@ import type { NativeSpeechProgress, RemoteChatClient, RemoteEnvelope } from '../
 import { phoneChatProjects } from '../../../mobile/src/phoneChatProjects';
 import '../../../mobile/src/mobile.css';
 export function renderMobileContinuity() {
-  localStorage.setItem('nexa-locale', 'en');
+  const params = new URLSearchParams(location.search);
+  localStorage.setItem('nexa-locale', params.get('locale') ?? 'en');
   localStorage.removeItem('nexa.remote.chat.mobile-fixture');
   const actions: {method:string;params:any}[] = [];
   const listeners = new Set<(event:RemoteEnvelope)=>void>();
   let chats = [{id:'old',title:'Previous work',model:'model'}];
-  const params = new URLSearchParams(location.search);
   const projectsFixture = params.has('projects');
   const hostId = params.get('host');
   if (projectsFixture) {
@@ -123,13 +123,18 @@ export function renderMobileContinuity() {
   };
   let schedules: {id:string;definitionRevision:number;enabled:boolean;name:string}[] = [];
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1','chat-schedules-v1']}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-search-v1','chat-archive-search-v1','chat-steering-v1','chat-schedules-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
     async rpc(method:string,params:any={}) {
       actions.push({method,params});
       if (method==='connections.list') return [{id:'connection',name:'Provider',model:'model',isDefault:true}];
+      if (method==='chat.search' && params.archived) return {items: archived.filter(item => item.id==='e' && params.query==='decision')
+        .map(item => ({id:item.id,title:item.title,messageId:'archived-note',messageOrder:6,snippet:'A previous decision.'})),next:null};
+      if (method==='chat.read' && params.conversationId==='e' && params.beforeOrder===7) return {messages:[{id:'archived-note',role:'user',content:'A previous decision.',sortOrder:6,totalChars:20}],beforeOrder:null};
+      if (method==='chat.search') return {items:params.query==='旧记录' ? [{id:'old',title:'Previous work',messageId:'historical',messageOrder:7,snippet:'旧记录的正文'}] : [],next:null};
+      if (method==='chat.read' && params.beforeOrder===8) return {messages:[{id:'historical',role:'user',content:'旧记录的正文',totalChars:6,sortOrder:7}],beforeOrder:null};
       if (method==='chat.list') {
         if (!projectsFixture || !new URLSearchParams(location.search).has('paged')) return {items:chats,nextCursor:null};
         const start = params.before ? chats.findIndex(item => item.id === params.before) + 1 : 0;

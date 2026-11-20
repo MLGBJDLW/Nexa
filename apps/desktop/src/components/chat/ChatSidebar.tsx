@@ -1,3 +1,4 @@
+import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from './ConversationHistorySearch';
 import type { WorkflowAutomation } from "../../types/workflows";
 import { ConversationScheduleBadge } from "./ConversationSchedules";
 import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -16,7 +17,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   Star,
   Trash2,
   X,
@@ -51,14 +51,14 @@ interface ChatSidebarProps {
   onProjectChange: (id: string | null) => void;
   runningConversationIds: ReadonlySet<string>;
   activeConversationArchived: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, messageId?: string | null) => void;
   onNew: (projectId?: string | null) => void;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDeleteBatch: (ids: string[]) => void;
   onDeleteAll: () => void;
-  onSelectArchived: (id: string) => void;
+  onSelectArchived: (id: string, messageId?: string | null) => void;
   onArchivedRestored?: (conversation: Conversation) => void;
   onArchivedDeleted?: (id: string) => void;
   onConversationMoved?: () => void | Promise<void>;
@@ -149,7 +149,7 @@ const listItemVariants = {
   visible: (i: number) => ({
     opacity: 1,
     x: 0,
-    transition: { delay: i * 0.03, duration: 0.2, ease: [0.16, 1, 0.3, 1] as const },
+    transition: { delay: Math.min(i, 5) * 0.03, duration: 0.2, ease: [0.16, 1, 0.3, 1] as const },
   }),
   exit: { opacity: 0, x: -12, transition: { duration: 0.15 } },
 };
@@ -232,7 +232,7 @@ function ConversationItem({
     <motion.div
       custom={index}
       variants={listItemVariants}
-      initial="hidden"
+      initial={index < 6 ? "hidden" : false}
       animate="visible"
       exit="exit"
       data-running={isRunning ? 'true' : 'false'}
@@ -475,7 +475,6 @@ function ChatSidebarComponent({
     () => new Set(attentionItems.filter(item => item.kind === 'approval').map(item => item.conversationId)),
     [attentionItems],
   );
-  const [searchQuery, setSearchQuery] = useState('');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(getPinnedIds);
 
   // Project-related state for move-to-project context menu
@@ -536,7 +535,6 @@ function ChatSidebarComponent({
   const menuRef = useRef<HTMLDivElement>(null);
   const [showArchived, setShowArchived] = useState(false);
   useEffect(() => {
-    setSearchQuery('');
     setSelectMode(false);
     setSelectedIds(new Set());
   }, [activeProjectId]);
@@ -595,17 +593,10 @@ function ChatSidebarComponent({
     });
   }, []);
 
-  // Filter by search query
-  const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return projectFiltered;
-    const q = searchQuery.toLowerCase();
-    return projectFiltered.filter((c) =>
-      (c.title || '').toLowerCase().includes(q),
-    );
-  }, [projectFiltered, searchQuery]);
-
-  // Group filtered conversations
-  const groups = useMemo(() => groupConversations(filtered, pinnedIds), [filtered, pinnedIds]);
+  const groups = useMemo(() => groupConversations(projectFiltered, pinnedIds), [projectFiltered, pinnedIds]);
+  const findHistory = useCallback((query: string, before: HistoryPage['next']) =>
+    api.searchChatHistory(query, showArchived, before), [showArchived]);
+  const selectHit = (hit: HistoryHit) => (showArchived ? onSelectArchived : onSelect)(hit.id, hit.messageId);
 
   // Move conversation to/from project
   const handleMoveToProject = useCallback(async (convId: string, projectId: string | null) => {
@@ -665,7 +656,6 @@ function ChatSidebarComponent({
       setShowArchived(true);
     } else if (wasViewingArchivedConversationRef.current) {
       setShowArchived(false);
-      setSearchQuery('');
     }
     wasViewingArchivedConversationRef.current = Boolean(activeId && activeConversationArchived);
   }, [activeConversationArchived, activeId]);
@@ -673,7 +663,6 @@ function ChatSidebarComponent({
   const openArchivedConversations = useCallback(async () => {
     setMenuOpen(false);
     setShowArchived(true);
-    setSearchQuery('');
     await loadArchivedConversations(true);
   }, [loadArchivedConversations]);
 
@@ -689,8 +678,7 @@ function ChatSidebarComponent({
       } catch { /* the conversation is already restored; the active list can refresh later */ }
       if (activeId === conversation.id) {
         setShowArchived(false);
-        setSearchQuery('');
-      }
+          }
       toast.success(t('chat.conversation.unarchived'));
     } catch (error) {
       setArchivedConversations((items) =>
@@ -727,14 +715,6 @@ function ChatSidebarComponent({
     });
   }, [onArchivedDeleted, t]);
 
-  const archivedFiltered = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return archivedConversations;
-    return archivedConversations.filter((conversation) =>
-      (conversation.title || '').toLowerCase().includes(query),
-    );
-  }, [archivedConversations, searchQuery]);
-
   if (showArchived) {
     return (
       <div className="flex h-full min-h-0 flex-col border-r border-border bg-surface-1" data-theme-surface="chrome">
@@ -743,7 +723,6 @@ function ChatSidebarComponent({
             type="button"
             onClick={() => {
               setShowArchived(false);
-              setSearchQuery('');
             }}
             className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
             aria-label={t('chat.backToConversations')}
@@ -759,32 +738,7 @@ function ChatSidebarComponent({
           )}
         </div>
 
-        {archivedConversations.length > 0 && (
-          <div className="border-b border-border px-2 py-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={t('chat.searchArchivedConversations')}
-                className="w-full rounded-md border border-border bg-surface-0 py-1.5 pl-7 pr-7 text-xs
-                  text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
-                  aria-label={t('common.clear')}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
+        <ConversationHistorySearch key="archived" archived find={findHistory} onPick={selectHit}>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5" data-testid="archived-conversation-list">
           {archivedLoading ? (
             <div className="flex h-24 items-center justify-center text-text-tertiary">
@@ -806,14 +760,8 @@ function ChatSidebarComponent({
               title={t('chat.noArchivedConversations')}
               description={t('chat.noArchivedConversationsDesc')}
             />
-          ) : archivedFiltered.length === 0 ? (
-            <EmptyState
-              icon={<Search className="h-6 w-6" />}
-              title={t('chat.noSearchResults')}
-              description=""
-            />
           ) : (
-            archivedFiltered.map((conversation) => (
+            archivedConversations.map((conversation) => (
               <div
                 key={conversation.id}
                 data-testid={`archived-conversation-${conversation.id}`}
@@ -880,6 +828,7 @@ function ChatSidebarComponent({
             ))
           )}
         </div>
+        </ConversationHistorySearch>
       </div>
     );
   }
@@ -944,6 +893,7 @@ function ChatSidebarComponent({
         </div>
       </div>
 
+      <ConversationHistorySearch key="active" find={findHistory} onPick={selectHit}>
       {/* Project switcher */}
       <div className="px-2 py-1.5 border-b border-border">
         <ProjectSwitcher activeProjectId={activeProjectId} conversationId={activeId} onProjectChange={onProjectChange} />
@@ -967,34 +917,6 @@ function ChatSidebarComponent({
         </button>
       </div>
 
-      {/* Search bar */}
-      {projectFiltered.length > 0 && (
-        <div className="px-2 py-2 border-b border-border">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-tertiary pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('chat.searchConversations')}
-              className="w-full bg-surface-0 border border-border rounded-md pl-7 pr-7 py-1.5 text-xs
-                text-text-primary placeholder:text-text-tertiary outline-none
-                focus:border-accent transition-colors"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary
-                  hover:text-text-secondary cursor-pointer"
-                aria-label={t('common.clear')}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Conversation list */}
       <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5">
         {projectFiltered.length === 0 ? (
@@ -1002,12 +924,6 @@ function ChatSidebarComponent({
             icon={<MessageCircle className="h-6 w-6" />}
             title={t('chat.noConversations')}
             description={t('chat.noConversationsDesc')}
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={<Search className="h-6 w-6" />}
-            title={t('chat.noSearchResults')}
-            description=""
           />
         ) : (
           groups.map((group) => {
@@ -1057,6 +973,7 @@ function ChatSidebarComponent({
           })
         )}
       </div>
+      </ConversationHistorySearch>
 
       {/* Selection mode bottom bar */}
       {selectMode && (

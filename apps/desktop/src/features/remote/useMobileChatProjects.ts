@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RemoteChatClient } from './remoteClient';
 
 export interface ChatProjectSnapshot {
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; icon?: string | null }[];
   memberships: Record<string, string>;
 }
 
 export interface ChatProjectStore {
   list(): Promise<ChatProjectSnapshot>;
   create(projectId: string, name: string): Promise<ChatProjectSnapshot>;
+  setIcon?(projectId: string, icon: string): Promise<ChatProjectSnapshot>;
   rename(projectId: string, name: string): Promise<ChatProjectSnapshot>;
   remove(projectId: string): Promise<ChatProjectSnapshot>;
   move(conversationId: string, projectId: string | null): Promise<ChatProjectSnapshot>;
@@ -29,6 +30,7 @@ export function useMobileChatProjects(
   const [readingHistory, setReadingHistory] = useState(false);
   const [older, setOlder] = useState<ChatSummary[]>([]);
   const queue = useRef(Promise.resolve());
+  const pendingFolderForChat = useRef<string | null>(null);
 
   // A focus refresh and a drop can overlap. Apply snapshots in operation order
   // so an older read cannot put a moved chat back in its previous folder.
@@ -37,7 +39,10 @@ export function useMobileChatProjects(
       try {
         const next = await operation();
         setSnapshot(next);
-        select(current => next.projects.some(project => project.id === current) ? current : null);
+        const chatId = pendingFolderForChat.current;
+        pendingFolderForChat.current = null;
+        if (chatId) select(next.memberships[chatId] ?? null);
+        else select(current => next.projects.some(project => project.id === current) ? current : null);
         setError('');
       } catch (failure) {
         setError(String(failure));
@@ -101,10 +106,16 @@ export function useMobileChatProjects(
       await apply(() => store.create(id, name));
       select(id);
     },
+    setIcon: store.setIcon ? (id: string, icon: string) => apply(() => store.setIcon!(id, icon)) : undefined,
     rename: (id: string, name: string) => apply(() => store.rename(id, name)),
     remove: (id: string) => apply(() => store.remove(id)),
     move: (conversationId: string, projectId: string | null) => apply(() => store.move(conversationId, projectId)),
   };
   const drawerConversations = store && !snapshot ? [] : selectedId ? [...conversations, ...older] : conversations;
-  return { projectView, drawerConversations };
+  function selectChatFolder(chatId: string) {
+    if (!store) return;
+    if (snapshot) select(snapshot.memberships[chatId] ?? null);
+    else pendingFolderForChat.current = chatId;
+  }
+  return { projectView, drawerConversations, selectChatFolder };
 }

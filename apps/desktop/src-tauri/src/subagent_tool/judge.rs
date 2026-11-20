@@ -417,6 +417,7 @@ impl Tool for JudgeSubagentResultsTool {
                 reasoning_enabled: judge_config.reasoning_enabled,
                 reasoning_effort: judge_config.reasoning_effort.clone(),
                 provider_type: judge_config.provider_type,
+                service_tier: None,
                 routing_session_id: None,
                 parallel_tool_calls: true,
             };

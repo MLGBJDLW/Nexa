@@ -122,8 +122,11 @@ export function projectSnapshotModels(
     const byId = new Map(snapshot.models.map(model => [model.id.trim().toLowerCase(), model]));
     return snapshot.descriptors.filter(descriptor => descriptor.lifecycle !== 'removed').map((descriptor) => {
       const legacy = byId.get(descriptor.id.trim().toLowerCase());
+      const serviceTiers = descriptor.capabilities.serviceTiers ?? legacy?.capabilities?.serviceTiers;
+      const serviceTiersUntil = descriptor.capabilities.serviceTiersUntil ?? legacy?.capabilities?.serviceTiersUntil;
       return {
         ...legacy,
+        ...(serviceTiers ? { capabilities: { ...legacy?.capabilities, serviceTiers, serviceTiersUntil } } : {}),
         id: descriptor.id,
         name: legacy?.name ?? descriptor.displayName,
         recommended: descriptor.recommended,

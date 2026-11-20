@@ -130,6 +130,10 @@ pub struct ReasoningCapability {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCapabilities {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_tiers: Vec<crate::model_catalog::ServiceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers_until: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub reasoning: Option<ReasoningCapability>,
     #[serde(default)]
@@ -149,6 +153,10 @@ impl<'de> Deserialize<'de> for ProviderCapabilities {
         #[serde(rename_all = "camelCase")]
         struct RawProviderCapabilities {
             #[serde(default)]
+            service_tiers: Vec<crate::model_catalog::ServiceTier>,
+            #[serde(default)]
+            service_tiers_until: Option<chrono::NaiveDate>,
+            #[serde(default)]
             reasoning: Option<ReasoningCapability>,
             #[serde(default)]
             vision: Option<bool>,
@@ -160,6 +168,8 @@ impl<'de> Deserialize<'de> for ProviderCapabilities {
         let raw = RawProviderCapabilities::deserialize(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
+            service_tiers: raw.service_tiers,
+            service_tiers_until: raw.service_tiers_until,
             reasoning: raw.reasoning,
             vision: raw.vision,
             reasoning_declared,
@@ -558,6 +568,29 @@ pub(crate) fn find_endpoint_model_preset(
                 .any(|id| normalize_endpoint_model_id(id) == normalized_model)
         })
     })
+}
+
+/// Only the exact provider, endpoint and model can grant a paid inference tier.
+pub fn model_service_tiers(
+    provider: &str,
+    base_url: Option<&str>,
+    model: &str,
+) -> &'static [crate::model_catalog::ServiceTier] {
+    find_provider_preset(provider, base_url)
+        .and_then(|preset| {
+            preset.models.iter().find(|entry| {
+                std::iter::once(&entry.id)
+                    .chain(&entry.aliases)
+                    .any(|id| id.eq_ignore_ascii_case(model.trim()))
+            })
+        })
+        .and_then(|entry| entry.capabilities.as_ref())
+        .filter(|capabilities| {
+            capabilities
+                .service_tiers_until
+                .is_none_or(|until| chrono::Utc::now().date_naive() < until)
+        })
+        .map_or(&[], |capabilities| capabilities.service_tiers.as_slice())
 }
 
 /// Whether this exact endpoint/model identity may consume global catalog
@@ -1051,6 +1084,8 @@ fn merge_capabilities(
     }
 
     if let Some(capabilities) = model_capabilities {
+        merged.service_tiers.clone_from(&capabilities.service_tiers);
+        merged.service_tiers_until = capabilities.service_tiers_until;
         if capabilities.reasoning_declared {
             merged.reasoning = capabilities.reasoning.clone();
             merged.reasoning_declared = true;
@@ -1751,7 +1786,7 @@ mod tests {
             Some(true)
         );
         // OpenRouter's gateway limits are distinct from the direct Z.ai endpoint.
-        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
+        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 131_072)] {
             let limits = model_limits_from_catalog(ProviderType::OpenRouter, model)
                 .expect("OpenRouter GLM-5.3 route should expose limits");
             assert_eq!(limits.context_tokens, Some(1_048_576));

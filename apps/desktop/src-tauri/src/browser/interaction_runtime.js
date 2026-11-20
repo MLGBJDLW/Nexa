@@ -55,6 +55,36 @@
     geometryIds: new WeakMap(),
     nextGeometryId: 0,
   };
+  let navigationGeneration = 0;
+  const watchedDocuments = new WeakSet();
+  const watchNavigation = (ownerDocument) => {
+    const view = ownerDocument.defaultView;
+    if (!view || watchedDocuments.has(ownerDocument)) return;
+    watchedDocuments.add(ownerDocument);
+    const invalidate = () => {
+      navigationGeneration++;
+      runtime.refs.clear();
+      runtime.refIds = new WeakMap();
+      if (presentation) cancelPresentation(presentation.id);
+      lastCursorPoint = null;
+    };
+    if (view.navigation?.currentEntry) {
+      view.navigation.addEventListener('currententrychange', invalidate);
+    } else {
+      // Older WebViews emit no event for successful pushState/replaceState.
+      const history = view.History.prototype;
+      for (const method of ['pushState', 'replaceState']) {
+        const original = history[method];
+        history[method] = function (...args) {
+          const result = Reflect.apply(original, this, args);
+          invalidate();
+          return result;
+        };
+      }
+      view.addEventListener('popstate', invalidate);
+      view.addEventListener('hashchange', invalidate);
+    }
+  };
 
   const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
     const label = el.getRootNode().getElementById?.(id) || el.ownerDocument.getElementById(id);
@@ -151,6 +181,7 @@
   const roots = () => {
     const result = [document];
     const visit = (root) => {
+      if (root.nodeType === Node.DOCUMENT_NODE) watchNavigation(root);
       for (const element of root.querySelectorAll?.('*') || []) {
         if (element.shadowRoot) { result.push(element.shadowRoot); visit(element.shadowRoot); }
         if (element.tagName === 'IFRAME') {
@@ -428,7 +459,7 @@
         targetContextFingerprint(element, contextCache),
       ].join('\u001f');
     }).join('\u001e');
-    return `v4|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
+    return `v5|${navigationGeneration}|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
   };
   const observedTextOf = (rootList = roots()) => {
     const rendered = (element) => {
@@ -589,6 +620,7 @@
   const feedbackNodes = new Set();
   const captureTokens = new Map();
   let presentation = null;
+  let lastCursorPoint = null;
   const trackFeedback = (node) => {
     feedbackNodes.add(node);
     if (captureTokens.size) node.style.setProperty('visibility', 'hidden', 'important');
@@ -597,6 +629,7 @@
   const cancelPresentation = (id) => {
     if (!presentation || presentation.id !== id) return false;
     presentation.status = 'cancelled';
+    presentation.animation?.cancel();
     if (presentation.cursor) {
       presentation.cursor.remove();
       feedbackNodes.delete(presentation.cursor);
@@ -663,7 +696,8 @@
       { opacity: .88, transform: 'scale(.1538)' },
       { opacity: 0, transform: 'scale(1)' },
     ], { duration: 260, easing: 'ease-out' });
-    if (animation) animation.onfinish = () => pulse.remove(); else setTimeout(() => pulse.remove(), 260);
+    const remove = () => { pulse.remove(); feedbackNodes.delete(pulse); };
+    if (animation) animation.onfinish = remove; else setTimeout(remove, 260);
   };
   const hoverAt = (el, input, point) => {
     for (const type of ['pointerover', 'mouseover', 'pointermove', 'mousemove']) dispatchPointer(el, type, input, point);
@@ -714,6 +748,7 @@
   };
   runtime.invalidateForUserTakeover = () => {
     if (presentation) cancelPresentation(presentation.id);
+    lastCursorPoint = null;
     runtime.userEpoch += 1;
     runtime.refs = new Map();
   };
@@ -721,8 +756,9 @@
     const { el, end } = validateAction(input);
     if (input.pointerAppearance) runtime.setPointerAppearance(input.pointerAppearance);
     if (presentation) cancelPresentation(presentation.id);
-    presentation = { id: String(input.presentationId || ''), status: 'arrived' };
-    if (input.showCursor && ['move','hover','click','double_click','drag','scroll','set_checked'].includes(input.action)) {
+    const current = presentation = { id: String(input.presentationId || ''), status: 'arrived' };
+    let durationMs = 0;
+    if (input.showCursor && ['move','hover','click','double_click','drag','scroll','set_checked','select','type','press'].includes(input.action)) {
       const dragging = input.action === 'drag';
       const element = dragging ? end : el;
       const bounds = element && viewportBoundsOf(element);
@@ -733,16 +769,39 @@
         const cursor = document.createElement('div');
         cursor.dataset.nexaAgentCursor = '';
         cursor.setAttribute('aria-hidden', 'true');
-        cursor.style.cssText = 'all:initial;position:fixed;pointer-events:none;z-index:2147483647;width:16px;height:22px;clip-path:polygon(0 0,100% 62%,57% 65%,80% 95%,59% 100%,37% 69%,0 94%);';
+        cursor.style.cssText = 'all:initial;position:fixed;pointer-events:none;z-index:2147483647;width:20px;height:27px;filter:drop-shadow(0 1px 2px #0009);';
         cursor.style.setProperty('pointer-events', 'none', 'important');
         cursor.style.left = point.x + 'px';
         cursor.style.top = point.y + 'px';
-        cursor.style.backgroundColor = pointerAppearance.accent;
-        presentation.cursor = trackFeedback(cursor);
-        document.documentElement.appendChild(cursor);
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 20 27');
+        svg.style.cssText = 'display:block;width:100%;height:100%;pointer-events:none';
+        const tip = document.createElementNS(svg.namespaceURI, 'path');
+        tip.setAttribute('d', 'M1 1.5 18.5 15l-8 .8 3.8 8-3.8 1.7-3.6-8L1 23Z');
+        tip.setAttribute('fill', pointerAppearance.accent);
+        tip.setAttribute('stroke', 'white');
+        tip.setAttribute('stroke-linejoin', 'round');
+        tip.setAttribute('stroke-width', '1.5');
+        svg.appendChild(tip);
+        cursor.appendChild(svg);
+        current.cursor = trackFeedback(cursor);
+        const topLayer = element?.ownerDocument === document && element.closest('dialog[open], [popover]');
+        (topLayer || document.fullscreenElement || document.documentElement).appendChild(cursor);
+        const from = lastCursorPoint || { x: Math.max(0, point.x - 48), y: Math.max(0, point.y - 32) };
+        const dx = from.x - point.x, dy = from.y - point.y;
+        const reduced = pointerAppearance.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches;
+        lastCursorPoint = point;
+        if (!reduced && !document.hidden && cursor.animate && (dx || dy)) {
+          durationMs = Math.min(320, 140 + Math.hypot(dx, dy) * .18);
+          current.status = 'pending';
+          current.animation = cursor.animate([
+            { transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' },
+          ], { duration: durationMs, easing: 'cubic-bezier(.22,.68,.22,1)' });
+          current.animation.onfinish = () => { if (current.status === 'pending') current.status = 'arrived'; };
+        }
       }
     }
-    return { durationMs: 0, presentationId: presentation.id, action: input.action };
+    return { durationMs, presentationId: current.id, action: input.action };
   };
   const viewportPoint = (point) => {
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)
@@ -811,6 +870,12 @@
       throw new Error('Browser pointer target is covered by another element');
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
+    if (presentation?.cursor && presentation.id === input.presentationId) {
+      const visiblePoint = requestedPoint || { x: viewportBounds.x + viewportBounds.width / 2, y: viewportBounds.y + viewportBounds.height / 2 };
+      presentation.cursor.style.left = visiblePoint.x + 'px';
+      presentation.cursor.style.top = visiblePoint.y + 'px';
+      lastCursorPoint = visiblePoint;
+    }
     return {
       systemViewport: viewportGeometry(),
       bounds: prepared ? prepared.bounds : requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBounds,
@@ -1049,6 +1114,9 @@
     if (target) showOverlay(target.getBoundingClientRect(), `${roleOf(target)} ${textOf(target)}`);
   }, true);
   addEventListener('pointerdown', (event) => {
+    if (presentation?.cursor && event.isTrusted && window.__NEXA_TRUSTED_INPUT_GUARD__?.expects('pointerdown', event)) {
+      pulseAt(document.documentElement, { x: event.clientX, y: event.clientY });
+    }
     if (
       !runtime.synthetic
       && event.isTrusted
@@ -1139,6 +1207,7 @@
     takeArtifact: () => runtime.takeArtifact(),
     selectedText: () => runtime.selectedText(),
   });
+  watchNavigation(document);
   Object.defineProperty(window, '__NEXA_BROWSER_RUNTIME__', {
     value: bridge,
     configurable: false,

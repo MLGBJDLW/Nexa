@@ -672,6 +672,8 @@ export function AgentConfigForm({
         reasoningEnabled: normalizedReasoningEnabled,
         thinkingBudget: normalizedThinkingBudget,
         reasoningEffort: normalizedReasoningEffort,
+        serviceTier: config?.model === model.trim() && config.provider === provider && normalizeBaseUrl(config.baseUrl ?? '') === normalizeBaseUrl(baseUrl)
+          ? config.serviceTier : null,
         maxIterations,
         summarizationModel: summarizationModel?.trim() || null,
         summarizationProvider: summarizationProvider || null,
@@ -703,7 +705,7 @@ export function AgentConfigForm({
       };
     },
     [
-      config?.id,
+      config,
       name,
       provider,
       apiKey,
@@ -1075,7 +1077,7 @@ export function AgentConfigForm({
           <SettingsRow label={t("settings.streamIdleTimeoutMs")}>
             <Input type="number" aria-label={t("settings.streamIdleTimeoutMs")} value={streamIdleTimeoutMs ?? ""}
               onChange={(event) => { const value = event.target.value.trim(); setStreamIdleTimeoutMs(value ? Number.parseInt(value, 10) || null : null); }}
-              placeholder="300000" min={1000} max={3600000} step={1000} />
+              placeholder="300000" min={1000} step={1000} />
           </SettingsRow>
           <SettingsRow label={t("settings.connectTimeoutMs")}>
             <Input type="number" aria-label={t("settings.connectTimeoutMs")} value={connectTimeoutMs ?? ""}

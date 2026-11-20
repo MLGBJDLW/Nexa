@@ -86,3 +86,54 @@ These mechanisms follow the official [OpenRouter Models API](https://openrouter.
 [Anthropic model-list API](https://platform.claude.com/docs/en/api/models/list).
 See the [upstream research](MODEL_CATALOG_AND_TPS_REFERENCES.md) and
 [catalog audit](MODEL_CATALOG_AUDIT.md) for the dated implementation evidence.
+
+## November 20, 2026 verification
+
+The scheduled audit covered all 94 endpoint definitions. Six published a public
+inventory, 22 required credentials, 60 had no operation inventory and six used
+runtime discovery or an unsupported inventory operation. A second local pass
+read all five public OpenRouter inventories. Jina timed out locally, and its
+public inventory responded through an independent connection. These probes used
+model listings. They did not run paid inference.
+[Full endpoint audit](MODEL_CATALOG_EVIDENCE_2026_11_20.md) · [Jina model list](https://api.jina.ai/v1/models)
+
+At 08:51 UTC the OpenRouter inventory and per-model endpoint lists confirmed
+that Llama 3.2 3B was still served after its published deadline was withdrawn.
+Llama 3.2 1B and the free Inkling 2 Small route had both passed their deadlines
+and had zero endpoints. Kimi K2.7 Code and Llama 3.2 3B no longer advertised
+`min_p`. GLM 5.3 Flash advertised a 131,072-token maximum output.
+[OpenRouter models](https://openrouter.ai/api/v1/models) · [Llama 3B endpoints](https://openrouter.ai/api/v1/models/meta-llama/llama-3.2-3b-instruct/endpoints) · [Llama 1B endpoints](https://openrouter.ai/api/v1/models/meta-llama/llama-3.2-1b-instruct/endpoints) · [Inkling endpoints](https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-small:free/endpoints)
+
+Alibaba's Beijing and Singapore plan lists include Qwen4 Max and its preview
+alias. Google-managed Claude lists Mythos 5.2 with account-gated access and a
+Fast tier. A local authenticated Codex `model/list` returned ten visible models,
+all offering Fast and one offering Ultrafast. Other accounts can receive a
+different list, so the runtime reads each model's advertised service tiers.
+[Alibaba Beijing](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview) · [Alibaba Singapore](https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview) · [Google-managed Claude](https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed) · [Claude Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode) · [Codex app server](https://github.com/openai/codex/tree/main/codex-rs/app-server)
+
+The Google-managed Claude catalog includes 18 publisher model IDs. Its Messages
+adapter uses `rawPredict` and `streamRawPredict`, including the required
+`@YYYYMMDD` snapshots for Opus 4.5, Sonnet 4.5 and Haiku 4.5. The Sonnet 4.5
+entry uses its generally available 200,000-token input limit and carries Google's
+November 30 shutdown date for existing customers. The three Mythos models
+require account enablement. The archived Opus 4, Opus 4.1 and Sonnet 4 entries
+still appear as deprecated in Anthropic's historical table. Google's current
+publisher index omits them, so this release leaves them out of the picker
+fallback. Project discovery continues to reflect the signed-in account.
+[Publisher API IDs](https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed#api-model-ids) · [Google publisher index](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude) · [Sonnet 4.5 lifecycle](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-4-5)
+
+Google's US and EU multi-region API hostnames now resolve the same native
+publisher contract as the global and single-region endpoints. The configured
+project location must match the hostname's region. Model access and availability
+still depend on that project and location.
+[Google multi-region endpoints](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#multi-region-endpoints)
+
+The 09:19 UTC validation covered 94 endpoints and 1,526 model projections with
+zero static errors. OpenRouter returned 477 chat, 70 image, 38 embedding, 43
+decision and 35 video models. All newly listed IDs had catalog entries. Ten
+top-provider limits exceeded the conservative saved limits. The absent
+`cohere/north-mini-code:free` and `x-ai/grok-build-0.1` routes have no confirmed
+retirement date, and remain available for account discovery. Jina's direct
+connection on this machine still failed. The scheduled run reached its 30-model
+public inventory.
+[OpenRouter catalog](https://openrouter.ai/api/v1/models) · [Scheduled inventory evidence](MODEL_CATALOG_EVIDENCE_2026_11_20.md#coverage)

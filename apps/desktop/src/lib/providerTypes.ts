@@ -1,4 +1,5 @@
 import type { ModelDescriptor, ModelModality } from './modelCatalog';
+import type { ServiceTier } from '../features/models/modelChoices';
 
 export type ReasoningEffortLevel =
   | 'none'
@@ -34,6 +35,8 @@ export interface ReasoningCapability {
 export interface ProviderCapabilities {
   reasoning?: ReasoningCapability | null;
   vision?: boolean | null;
+  serviceTiers?: ServiceTier[];
+  serviceTiersUntil?: string;
 }
 
 export type ModelCatalogSource = 'official' | 'discovered' | 'curated';

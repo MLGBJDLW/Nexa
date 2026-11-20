@@ -1,4 +1,22 @@
 import {
+  AudioLines,
+  Camera,
+  Film,
+  Gamepad2,
+  Globe2,
+  Cpu,
+  Network,
+  NotebookPen,
+  ChartNoAxesCombined,
+  Music2,
+  Layers3,
+  Leaf,
+  Compass,
+  Microscope,
+  Coffee,
+  Orbit,
+  Wrench,
+  Languages,
   BookOpen,
   BriefcaseBusiness,
   Code2,
@@ -14,10 +32,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
+import { useTranslation, type TranslationKey } from '../i18n';
 
 export interface ProjectIconOption {
   id: string;
-  label: string;
+  labelKey: TranslationKey;
   icon: LucideIcon;
   tone: string;
 }
@@ -28,18 +47,36 @@ export interface ProjectColorOption {
 }
 
 export const PROJECT_ICON_OPTIONS: ProjectIconOption[] = [
-  { id: 'folder', label: 'General', icon: Folder, tone: 'text-sky-500 bg-sky-500/10' },
-  { id: 'book', label: 'Research', icon: BookOpen, tone: 'text-emerald-500 bg-emerald-500/10' },
-  { id: 'briefcase', label: 'Work', icon: BriefcaseBusiness, tone: 'text-amber-500 bg-amber-500/10' },
-  { id: 'code', label: 'Code', icon: Code2, tone: 'text-violet-500 bg-violet-500/10' },
-  { id: 'database', label: 'Knowledge', icon: Database, tone: 'text-cyan-500 bg-cyan-500/10' },
-  { id: 'rocket', label: 'Launch', icon: Rocket, tone: 'text-orange-500 bg-orange-500/10' },
-  { id: 'sparkles', label: 'Creative', icon: Sparkles, tone: 'text-fuchsia-500 bg-fuchsia-500/10' },
-  { id: 'palette', label: 'Design', icon: Palette, tone: 'text-rose-500 bg-rose-500/10' },
-  { id: 'flask', label: 'Experiment', icon: FlaskConical, tone: 'text-lime-500 bg-lime-500/10' },
-  { id: 'graduation', label: 'Learning', icon: GraduationCap, tone: 'text-blue-500 bg-blue-500/10' },
-  { id: 'shield', label: 'Security', icon: ShieldCheck, tone: 'text-teal-500 bg-teal-500/10' },
-  { id: 'idea', label: 'Ideas', icon: Lightbulb, tone: 'text-yellow-500 bg-yellow-500/10' },
+  { id: 'folder', labelKey: 'project.iconGeneral', icon: Folder, tone: 'text-sky-500 bg-sky-500/10' },
+  { id: 'book', labelKey: 'project.iconResearch', icon: BookOpen, tone: 'text-emerald-500 bg-emerald-500/10' },
+  { id: 'briefcase', labelKey: 'project.iconWork', icon: BriefcaseBusiness, tone: 'text-amber-500 bg-amber-500/10' },
+  { id: 'code', labelKey: 'project.iconCode', icon: Code2, tone: 'text-violet-500 bg-violet-500/10' },
+  { id: 'database', labelKey: 'project.iconKnowledge', icon: Database, tone: 'text-cyan-500 bg-cyan-500/10' },
+  { id: 'rocket', labelKey: 'project.iconLaunch', icon: Rocket, tone: 'text-orange-500 bg-orange-500/10' },
+  { id: 'sparkles', labelKey: 'project.iconCreative', icon: Sparkles, tone: 'text-fuchsia-500 bg-fuchsia-500/10' },
+  { id: 'palette', labelKey: 'project.iconDesign', icon: Palette, tone: 'text-rose-500 bg-rose-500/10' },
+  { id: 'flask', labelKey: 'project.iconExperiment', icon: FlaskConical, tone: 'text-lime-500 bg-lime-500/10' },
+  { id: 'graduation', labelKey: 'project.iconLearning', icon: GraduationCap, tone: 'text-blue-500 bg-blue-500/10' },
+  { id: 'shield', labelKey: 'project.iconSecurity', icon: ShieldCheck, tone: 'text-teal-500 bg-teal-500/10' },
+  { id: 'idea', labelKey: 'project.iconIdeas', icon: Lightbulb, tone: 'text-yellow-500 bg-yellow-500/10' },
+  { id: 'audio', labelKey: 'project.iconAudio', icon: AudioLines, tone: 'text-fuchsia-500 bg-fuchsia-500/10' },
+  { id: 'camera', labelKey: 'project.iconPhotography', icon: Camera, tone: 'text-rose-500 bg-rose-500/10' },
+  { id: 'film', labelKey: 'project.iconFilm', icon: Film, tone: 'text-violet-500 bg-violet-500/10' },
+  { id: 'gamepad', labelKey: 'project.iconGames', icon: Gamepad2, tone: 'text-purple-500 bg-purple-500/10' },
+  { id: 'globe', labelKey: 'project.iconWeb', icon: Globe2, tone: 'text-cyan-500 bg-cyan-500/10' },
+  { id: 'cpu', labelKey: 'project.iconHardware', icon: Cpu, tone: 'text-teal-500 bg-teal-500/10' },
+  { id: 'network', labelKey: 'project.iconInfrastructure', icon: Network, tone: 'text-sky-500 bg-sky-500/10' },
+  { id: 'notes', labelKey: 'project.iconWriting', icon: NotebookPen, tone: 'text-amber-500 bg-amber-500/10' },
+  { id: 'chart', labelKey: 'project.iconAnalytics', icon: ChartNoAxesCombined, tone: 'text-indigo-500 bg-indigo-500/10' },
+  { id: 'music', labelKey: 'project.iconMusic', icon: Music2, tone: 'text-pink-500 bg-pink-500/10' },
+  { id: 'layers', labelKey: 'project.iconArchitecture', icon: Layers3, tone: 'text-slate-500 bg-slate-500/10' },
+  { id: 'leaf', labelKey: 'project.iconEnvironment', icon: Leaf, tone: 'text-emerald-500 bg-emerald-500/10' },
+  { id: 'compass', labelKey: 'project.iconExploration', icon: Compass, tone: 'text-orange-500 bg-orange-500/10' },
+  { id: 'microscope', labelKey: 'project.iconScience', icon: Microscope, tone: 'text-lime-500 bg-lime-500/10' },
+  { id: 'coffee', labelKey: 'project.iconPersonal', icon: Coffee, tone: 'text-amber-500 bg-amber-500/10' },
+  { id: 'orbit', labelKey: 'project.iconSpace', icon: Orbit, tone: 'text-blue-500 bg-blue-500/10' },
+  { id: 'tools', labelKey: 'project.iconTools', icon: Wrench, tone: 'text-stone-500 bg-stone-500/10' },
+  { id: 'languages', labelKey: 'project.iconLanguages', icon: Languages, tone: 'text-cyan-500 bg-cyan-500/10' },
 ];
 
 export const PROJECT_COLOR_OPTIONS: ProjectColorOption[] = [
@@ -115,6 +152,7 @@ export function ProjectIcon({
   className?: string;
   size?: number;
 }) {
+  const { t } = useTranslation();
   const option = getProjectIconOption(icon);
   const Icon = option.icon;
   const customColor = normalizeHexColor(color);
@@ -132,7 +170,7 @@ export function ProjectIcon({
         customColor ? 'border' : option.tone
       } ${className}`}
       style={customStyle}
-      title={option.label}
+      title={t(option.labelKey)}
       aria-hidden="true"
     >
       <Icon size={size} strokeWidth={1.8} />

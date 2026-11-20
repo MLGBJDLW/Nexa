@@ -292,6 +292,7 @@ impl AgentExecutor {
                 |controls| controls.reasoning_effort.clone(),
             ),
             provider_type: self.config.provider_type,
+            service_tier: self.config.service_tier,
             routing_session_id: conversation_id
                 .and_then(crate::llm::prompt_cache::privacy_preserving_routing_session_id),
             parallel_tool_calls: true,
@@ -1299,6 +1300,19 @@ impl AgentExecutor {
             .clone()
             .filter(crate::llm::provider_turn::ProviderReplayPayload::is_present)
             .unwrap_or(captured_output_payload);
+        // DeepSeek can return an exact tool batch without reasoning, including
+        // after the adapter's same-route history repair. Continue the tool loop
+        // without requiring reasoning state the provider confirms never existed.
+        if accepted_route_snapshot.replay_policy == ReasoningReplayPolicy::OpaqueSignature
+            && iteration_thinking.trim().is_empty()
+            && provider_replay.as_ref().is_some_and(|replay| {
+                replay
+                    .attests_deepseek_calls_without_reasoning(&accepted_route_snapshot, &tool_calls)
+            })
+        {
+            accepted_route_snapshot.replay_policy = ReasoningReplayPolicy::NotRequired;
+            *reasoning_disabled_for_tool_loop = true;
+        }
         let effective_replay_policy = effective_sample_replay_policy(
             accepted_route_snapshot.replay_policy,
             &iteration_thinking,

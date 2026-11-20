@@ -82,6 +82,8 @@ struct AnthropicSystemBlock {
 struct AnthropicRequest {
     model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    speed: Option<crate::model_catalog::ServiceTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<Vec<AnthropicSystemBlock>>,
@@ -965,6 +967,7 @@ fn build_request_body(
 
     let mut body = AnthropicRequest {
         model: request.model.clone(),
+        speed: request.service_tier,
         max_tokens: effective_max_tokens,
         system,
         messages,
@@ -1619,10 +1622,20 @@ impl AnthropicProvider {
         } else if super::vertex::is_anthropic(&self.config) {
             request.bearer_auth(api_key)
         } else {
+            let beta = anthropic_beta_headers(&completion.model);
+            let beta = if self.config.service_tier(completion).is_some()
+                && matches!(
+                    completion.model.as_str(),
+                    "claude-opus-5" | "claude-opus-4-8"
+                ) {
+                std::borrow::Cow::Owned(format!("{beta},fast-mode-2026-02-01"))
+            } else {
+                std::borrow::Cow::Borrowed(beta)
+            };
             request
                 .header("x-api-key", api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("anthropic-beta", anthropic_beta_headers(&completion.model))
+                .header("anthropic-beta", beta.as_ref())
         }
     }
 
@@ -1648,6 +1661,7 @@ impl AnthropicProvider {
         request: &CompletionRequest,
     ) -> Result<CompletionRequest, CoreError> {
         let mut resolved = request.clone();
+        resolved.service_tier = self.config.service_tier(request);
         if resolved.max_tokens.is_none() {
             // The native API requires max_tokens; use the current catalog for
             // its exact route. Custom gateways retain their own default contract.
@@ -2109,9 +2123,61 @@ mod tests {
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         }
+    }
+
+    #[test]
+    fn fast_speed_uses_the_anthropic_messages_field_and_beta_when_required() {
+        use crate::model_catalog::ServiceTier;
+        let mut provider = AnthropicProvider::new(ProviderConfig {
+            provider_type: super::super::ProviderType::Anthropic,
+            base_url: None,
+            api_key: None,
+            org_id: None,
+            timeout_secs: None,
+            streaming: Default::default(),
+        })
+        .unwrap();
+        let mut request = request_with_messages(vec![], None);
+        request.service_tier = Some(ServiceTier::Fast);
+        for (model, supported, beta) in [
+            ("claude-opus-5-5", true, false),
+            ("claude-opus-5", true, true),
+            ("claude-sonnet-5-5", false, false),
+        ] {
+            request.model = model.into();
+            let resolved = provider.resolve_output_capacity(&request).unwrap();
+            let body =
+                serde_json::to_value(build_request_body(&resolved, None, vec![], true)).unwrap();
+            assert_eq!(body["speed"].as_str(), supported.then_some("fast"));
+            let authorized = provider
+                .authorize(
+                    reqwest::Client::new().post("https://api.anthropic.com/v1/messages"),
+                    "test",
+                    &request,
+                )
+                .build()
+                .unwrap();
+            assert_eq!(
+                authorized.headers()["anthropic-beta"]
+                    .to_str()
+                    .unwrap()
+                    .contains("fast-mode-2026-02-01"),
+                beta
+            );
+        }
+        provider.config.base_url = Some("https://private.example/v1".into());
+        request.model = "claude-opus-5-5".into();
+        assert_eq!(
+            provider
+                .resolve_output_capacity(&request)
+                .unwrap()
+                .service_tier,
+            None
+        );
     }
 
     #[test]

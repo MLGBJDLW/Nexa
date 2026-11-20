@@ -611,6 +611,7 @@ pub fn build_desktop_agent_turn_config(
         .catalog_limits(),
         reasoning_enabled: power_policy.reasoning_enabled,
         thinking_budget: power_policy.thinking_budget,
+        service_tier: db_config.service_tier,
         reasoning_effort: power_policy.reasoning_effort,
         provider_type: Some(provider_type),
         native_search_plan: nexa_core::llm::native_search::NativeSearchPlan::resolve_with_engine(

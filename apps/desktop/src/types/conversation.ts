@@ -552,6 +552,7 @@ export interface AgentConfig {
   reasoningEnabled: boolean | null;
   thinkingBudget: number | null;
   reasoningEffort: string | null;
+  serviceTier?: import('../features/models/modelChoices').ServiceTier | null;
   maxIterations: number | null;
   /** Optional cheaper model for summarization (e.g. "gpt-4o-mini"). */
   summarizationModel: string | null;
@@ -597,6 +598,7 @@ export interface SaveAgentConfigInput {
   reasoningEnabled: boolean | null;
   thinkingBudget: number | null;
   reasoningEffort: string | null;
+  serviceTier?: import('../features/models/modelChoices').ServiceTier | null;
   maxIterations: number | null;
   /** Optional cheaper model for summarization (e.g. "gpt-4o-mini"). */
   summarizationModel: string | null;

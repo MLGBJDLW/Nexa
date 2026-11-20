@@ -367,6 +367,7 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
       >
         <div
           aria-label={ariaLabel}
+          data-chat-message-id={msg.id}
           className={`relative text-sm leading-relaxed
             ${isUser
               ? goalMessage

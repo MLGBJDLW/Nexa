@@ -655,6 +655,7 @@ fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRe
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type: Some(provider_type_for_input(config)),
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     }
@@ -839,6 +840,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: None,
             model: "gpt-test".to_string(),
+            service_tier: None,
             temperature: Some(0.2),
             max_tokens: Some(1024),
             context_window: Some(128_000),

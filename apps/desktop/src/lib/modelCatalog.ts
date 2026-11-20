@@ -1,5 +1,6 @@
 // Public wire types derived from shared/model-catalog.schema.json. Keep changes
 // schema-first; scripts/model-catalog-audit.mjs verifies enum drift in CI.
+import type { ServiceTier } from '../features/models/modelChoices';
 export type ModelCatalogSource = 'official' | 'discovered' | 'curated';
 export type ModelLifecycle = 'active' | 'preview' | 'gated' | 'legacy' | 'deprecated' | 'removed';
 export type ModelAccess = 'public' | 'account_enablement' | 'application' | 'private_preview';
@@ -45,6 +46,8 @@ export interface NativeWebSearchCapability {
 }
 
 export interface ModelCapabilities {
+  serviceTiers?: ServiceTier[];
+  serviceTiersUntil?: string;
   reasoning?: ReasoningCapability | null;
   vision?: boolean;
   audioInput?: boolean;
@@ -120,6 +123,8 @@ export interface LegacyCatalogModel {
   outputModalities?: ModelModality[];
   modalities?: ModelModality[];
   capabilities?: {
+    serviceTiers?: ServiceTier[];
+    serviceTiersUntil?: string;
     reasoning?: ReasoningCapability | null;
     vision?: boolean | null;
     audioInput?: boolean;
@@ -222,6 +227,8 @@ export function projectModelDescriptor(
       ? model.outputModalities
       : defaultOutputModalities(context.surface),
     capabilities: {
+      serviceTiers: rawCapabilities.serviceTiers,
+      serviceTiersUntil: rawCapabilities.serviceTiersUntil,
       reasoning: rawCapabilities.reasoning ?? undefined,
       vision: rawCapabilities.vision ?? undefined,
       audioInput: context.surface === 'speech_to_text' || rawCapabilities.audioInput || undefined,

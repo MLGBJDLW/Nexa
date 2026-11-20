@@ -1,3 +1,4 @@
+import { UserMarkdown } from '../../components/chat/UserMessageText';
 import { memo, useMemo } from 'react';
 import { ArrowDown, CornerDownRight, CircleStop, Volume2 } from 'lucide-react';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
@@ -32,16 +33,16 @@ function RemoteChatMessage({ message, onMore, onSpeak, speaking, answerRef, load
         : <span key={attachment.index} className="rounded border border-border p-2 text-xs">{attachment.originalName}</span>,
     )}</div>;
   const partial = message.content.length < message.totalChars || Array.from(message.content).length < message.totalChars;
-  if (message.steering) return <article className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
+  if (message.steering) return <article data-message-id={message.id} className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
     <CornerDownRight size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true"/>
-    <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><p className="whitespace-pre-wrap break-words">{message.content}</p>{attachments}
+    <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><UserMarkdown text={message.content} />{attachments}
       {partial && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
     </div>
   </article>;
   return <article ref={answerRef} data-message-id={message.id} className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
     <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
     {attachments}
-    {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
+    {message.role === 'user' ? <UserMarkdown text={message.content} />
       : <StreamingMarkdown content={stripFollowupBlocks(message.content)} isStreaming={false} partial={partial} reduceMotion />}
     {partial && <button className={`${remoteButton} mt-3`} onClick={onMore}>
       <ArrowDown size={14} />{t('remote.moreText')}
@@ -59,6 +60,7 @@ interface PhoneTurn {
 }
 
 interface RemoteTranscriptProps {
+  focusMessageId?: string | null;
   messages: ChatMessage[]; timeline: RemoteTimelineItem[]; running: boolean; finalMessageId: string | null;
   runId: string | null; runUserId: string | null; more: (message: ChatMessage, channel?: 'content' | 'thinking') => void;
   speak?: (message: ChatMessage) => void; speakingId: string | null; answerRef?: (node: HTMLElement | null) => void;
@@ -91,7 +93,7 @@ const RemoteTranscriptTurn = memo(function RemoteTranscriptTurn({ turn, timeline
   </div>;
 });
 
-export const RemoteTranscript = memo(function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: RemoteTranscriptProps) {
+export const RemoteTranscript = memo(function RemoteTranscript({ messages, focusMessageId, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: RemoteTranscriptProps) {
   // Streaming updates only invalidate the live turn. Loaded history keeps its
   // grouping, pagination callbacks and rendered subtrees until history changes.
   const turns = useMemo(() => {
@@ -110,7 +112,7 @@ export const RemoteTranscript = memo(function RemoteTranscript({ messages, timel
         turn.visible.push(message);
         continue;
       }
-      const intermediate = message.intermediate && message.id !== finalMessageId;
+      const intermediate = message.intermediate && message.id !== finalMessageId && message.id !== focusMessageId;
       for (const channel of ['thinking', 'content'] as const) {
         const text = message[channel];
         if (!text || (channel === 'content' && !intermediate)) continue;
@@ -127,7 +129,7 @@ export const RemoteTranscript = memo(function RemoteTranscript({ messages, timel
       if (!intermediate && message.content) turn.visible.push(message);
     }
     return turns;
-  }, [messages, finalMessageId, more]);
+  }, [messages, focusMessageId, finalMessageId, more]);
 
   // Old peers do not send a user anchor. Attach their replay only to a
   // known final or the last open turn, never to an unrelated prior answer.

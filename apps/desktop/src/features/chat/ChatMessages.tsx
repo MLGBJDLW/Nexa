@@ -102,9 +102,10 @@ interface ChatMessagesProps {
   hasNewerMessages?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => Promise<void>;
-  onLoadLatestMessages?: () => Promise<void>;
+  onLoadLatestMessages?: () => void | Promise<void>;
   onLoadTurnDetails?: (anchorId: string) => Promise<void>;
   focusMessageId?: string | null;
+  focusNavigationKey?: string;
   streamText: string;
   streamRounds: StreamRoundEvent[];
   traceEvents: TraceEvent[];
@@ -1023,7 +1024,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
-        | { kind: 'reply'; id: string; text: string }
+        | Extract<TimelineSection, { kind: 'reply' }>
         | { kind: 'image'; id: string; section: Extract<TimelineSection, { kind: 'tool' }> }
         | {
             kind: 'answeredQuestion';
@@ -1050,7 +1051,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
-        if (section.kind === 'reply' && hasInlineChatPreview(section)) {
+        if (section.kind === 'reply' && (hasInlineChatPreview(section) || (section.messageId && section.messageId === props.focusMessageId))) {
           flushTrace();
           ordered.push(section);
           continue;
@@ -1115,7 +1116,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                 forceExpanded,
               )
             : item.kind === 'reply'
-              ? renderTraceReplyNode(item.id, item.text)
+              ? <div key={item.id} data-chat-message-id={item.messageId}>{renderTraceReplyNode(item.id, item.text)}</div>
               : item.kind === 'image' ? (
                 <Fragment key={item.id}>{renderTimelineSection({ ...item.section, trace: false }, parentRunActive)?.node}</Fragment>
               ) : item.kind === 'steering' ? (
@@ -1140,7 +1141,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, renderTraceReplyNode, t],
+    [props.focusMessageId, questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, renderTraceReplyNode, t],
   );
 
   const messageThinkingText = useMemo(() => {
@@ -1414,6 +1415,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           traceSections.push({
             kind: "reply",
             id: `trace-reply-${msg.id}`,
+            messageId: msg.id,
             text: msg.content,
           });
         }
@@ -1841,16 +1843,74 @@ export function ChatMessages(props: ChatMessagesProps) {
     scrollToContainerBottom(shouldReduceMotion ? "auto" : "smooth");
   }, [scrollToContainerBottom, shouldReduceMotion]);
 
-  const focusedMessage = useRef<string | null>(null);
+  const pendingLatest = useRef<string | null>(null);
+  function loadLatestMessages() {
+    if (!props.onLoadLatestMessages) return;
+    pendingLatest.current = props.conversationId ?? null;
+    void props.onLoadLatestMessages();
+  }
+  useLayoutEffect(() => {
+    if (props.focusMessageId) {
+      pendingLatest.current = props.conversationId ?? null;
+      return;
+    }
+    if (!pendingLatest.current || pendingLatest.current !== props.conversationId) {
+      pendingLatest.current = null;
+      return;
+    }
+    // Navigation may resolve while the old page is mounted or a loading view
+    // owns the scroll area. Seek only after the current tail has a scroll root.
+    if (loadingMsgs || props.hasNewerMessages || !scrollContainerRef.current) return;
+    pendingLatest.current = null;
+    shouldAutoFollowRef.current = true;
+    rowVirtualizer.scrollToEnd();
+    scrollToContainerBottom('auto');
+  }, [loadingMsgs, props.conversationId, props.focusMessageId, props.hasNewerMessages, rowVirtualizer, scrollToContainerBottom]);
+
+  const focusRow = useMemo(() => {
+    const index = props.focusMessageId ? messageIndexById.get(props.focusMessageId) : undefined;
+    if (index == null) return -1;
+    return renderableMessageIndexes.findIndex(rowIndex => {
+      const assistant = turnRenderMap.anchors.get(rowIndex)?.assistantIdx ?? rowIndex;
+      const group = messageTraceGroups.get(assistant);
+      return rowIndex === index || assistant === index || (group?.type === 'anchor' && group.memberIndexes?.includes(index));
+    });
+  }, [messageIndexById, messageTraceGroups, props.focusMessageId, renderableMessageIndexes, turnRenderMap.anchors]);
   useEffect(() => {
-    if (!props.focusMessageId || loadingMsgs || turnNavigationItems.length === 0) return;
-    const identity = `${props.conversationId}:${props.focusMessageId}`;
-    if (focusedMessage.current === identity) return;
-    focusedMessage.current = identity;
-    const owner = turns.find(turn => turn.assistantMessageId === props.focusMessageId);
-    const target = turnNavigationItems.find(item => item.userMessageId === (owner?.userMessageId ?? props.focusMessageId)) ?? turnNavigationItems[0];
-    scrollToTurn(target.id);
-  }, [loadingMsgs, props.conversationId, props.focusMessageId, scrollToTurn, turnNavigationItems, turns]);
+    const container = scrollContainerRef.current;
+    const id = props.focusMessageId;
+    if (!container || !id || loadingMsgs || focusRow < 0) return;
+    shouldAutoFollowRef.current = false;
+    const listeners = new AbortController();
+    const selector = `[data-chat-message-id="${CSS.escape(id)}"]`;
+    const align = () => {
+      const bubble = container.querySelector<HTMLElement>(selector);
+      if (!bubble) return;
+      const offset = bubble.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+      if (Math.abs(offset) > 1) rowVirtualizer.scrollToOffset(Math.max(0, container.scrollTop + offset));
+      return bubble;
+    };
+    // A remounted prompt can collapse or resize after its answer first appears.
+    // Preserve the selected bubble's position until the reader takes control.
+    const sizes = new ResizeObserver(align);
+    const mounts = new MutationObserver(reveal);
+    function reveal() {
+      const element = align()?.closest('[data-chat-virtual-row]');
+      if (!element) return false;
+      mounts.disconnect();
+      sizes.observe(element);
+      return true;
+    }
+    const release = () => { mounts.disconnect(); sizes.disconnect(); listeners.abort(); };
+    for (const event of ['pointerdown', 'wheel', 'keydown']) {
+      window.addEventListener(event, release, { capture: true, passive: true, signal: listeners.signal });
+    }
+    if (!reveal()) {
+      mounts.observe(container, { childList: true, subtree: true });
+      rowVirtualizer.scrollToIndex(focusRow, { align: 'start' });
+    }
+    return release;
+  }, [focusRow, loadingMsgs, props.conversationId, props.focusMessageId, props.focusNavigationKey, rowVirtualizer]);
 
   const renderDeferredActivity = (anchorId: string) => {
     const entry = detailEntries.get(anchorId);
@@ -2179,7 +2239,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     >
       <div ref={scrollContentRef} data-chat-follow-content="true" className="flow-root min-w-0">
       {props.hasOlderMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-older" disabled={props.loadingOlderMessages} onClick={() => void loadOlderMessages()} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-60">{props.loadingOlderMessages ? t('common.loading') : t('chat.loadOlderMessages')}</button></div>}
-      {props.hasNewerMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-latest" onClick={() => { void props.onLoadLatestMessages?.().then(scrollToBottom); }} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2">{t('chat.loadLatestMessages')}</button></div>}
+      {props.hasNewerMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-latest" onClick={loadLatestMessages} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2">{t('chat.loadLatestMessages')}</button></div>}
       <TurnNavigator
         items={turnNavigationItems}
         activeId={activeTurnNavigationId}

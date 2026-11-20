@@ -293,6 +293,7 @@ async fn run_vision(
             reasoning_enabled: Some(false),
             reasoning_effort: None,
             provider_type: Some(vision.provider_type),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: false,
         };

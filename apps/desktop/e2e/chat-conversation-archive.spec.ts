@@ -1,6 +1,17 @@
 import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 
+test('sidebar search opens a message hit and restores the history list', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  await page.getByRole('button', { name: 'Search all conversations', exact: true }).click();
+  const input = page.getByRole('searchbox', { name: 'Search all conversations' });
+  await expect(input).toBeFocused();
+  await input.fill('藏在正文');
+  await page.getByRole('button', { name: /Active conversation.*藏在正文/ }).click();
+  await expect(page).toHaveURL(/conv-active\?message=m-anchor/);
+  await expect(page.getByTestId('conversation-select-conv-active')).toBeVisible();
+});
+
 test('chat worktree keeps the draft and requires a snapshot decision before archive', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
   await page.evaluate(() => {
@@ -173,7 +184,7 @@ test('project file rules share a local command and inspector without changing th
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('nexa-locale', 'en');
+    localStorage.setItem('nexa-locale', new URLSearchParams(location.search).get('locale') ?? 'en');
     localStorage.setItem('active-project-id', 'project-legacy');
 
     const nowIso = new Date().toISOString();
@@ -285,6 +296,8 @@ test.beforeEach(async ({ page }) => {
           return 1047576;
         case 'get_wizard_state_cmd':
           return { completed: true, language: 'en', aiProvider: 'open_ai', sourceAdded: true };
+        case 'search_chat_history_cmd':
+          return { items: args?.query === '藏在正文' ? [{ id: 'conv-active', title: 'Active conversation', messageId: 'm-anchor', messageOrder: 1, snippet: '藏在正文里的句子' }] : [], next: null };
         case 'list_conversations_cmd':
           return clone(active);
         case 'create_conversation_cmd': {
@@ -555,6 +568,21 @@ test('archive feedback remains an overlay and never participates in the app layo
   expect(notificationLayout.right).toBeGreaterThanOrEqual(0);
   expect(notificationLayout.bottom).toBeGreaterThanOrEqual(0);
   expect(after).toEqual(before);
+});
+
+test('desktop project icons show their localized names in the picker and preview', async ({ page }) => {
+  await page.goto('/chat/conv-active?locale=fr');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Nouveau projet', exact: true }).click();
+  const editor = page.getByTestId('project-editor');
+  const preview = editor.getByRole('button', { name: 'Apparence', exact: true });
+  await preview.click();
+  const photography = editor.getByRole('button', { name: 'Photographie', exact: true });
+  await expect(photography).toHaveAttribute('title', 'Photographie');
+  await photography.click();
+  await expect(photography).toHaveAttribute('aria-pressed', 'true');
+  await expect(preview.getByTitle('Photographie', { exact: true })).toBeVisible();
 });
 
 test('project editor stays above the glass sidebar and covers the viewport', async ({ page }, testInfo) => {

@@ -1060,7 +1060,11 @@ pub fn list_capability_packages_cmd(
     app_handle: AppHandle,
     include_runtime_checks: Option<bool>,
 ) -> Result<Vec<nexa_core::plugins::CapabilityPackageView>, String> {
-    let config = state.db.load_app_config().map_err(|e| e.to_string())?;
+    let mut config = state.db.load_app_config().map_err(|e| e.to_string())?;
+    state
+        .db
+        .resolve_system_one_credential(&mut config.system_one)
+        .map_err(|e| e.to_string())?;
     let office_runtime = if include_runtime_checks.unwrap_or(false) {
         match app_handle.path().app_data_dir() {
             Ok(data_dir) => Some(nexa_core::office_runtime::check_office_runtime(&data_dir)),
@@ -1780,6 +1784,21 @@ pub async fn search_conversations_cmd(
         .await
         .map(|execution| execution.value)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn search_chat_history_cmd(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    archived: bool,
+    before: Option<[String; 2]>,
+) -> Result<nexa_core::conversation::HistorySearchPage, String> {
+    state
+        .db_executor
+        .read(move |db| db.search_chat_history(&query, archived, before.as_ref()))
+        .await
+        .map(|read| read.value)
+        .map_err(|e| e.to_string())
 }
 
 // ── Checkpoint Commands ─────────────────────────────────────────────────
