@@ -1523,12 +1523,8 @@ pub fn resolve_reasoning_profile(
             value.send_preserve_thinking = true;
             return value;
         }
-        let qwen4_token_plan = token_plan
-            && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview")
-            && find_provider_preset("qwen", base_url).is_some_and(|preset| {
-                preset.id == "qwen-token-plan-cn"
-                    || (preset.id == "qwen-token-plan-global" && model == "qwen4-max-preview")
-            });
+        let qwen4_token_plan =
+            token_plan && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview");
         if qwen4_token_plan
             || matches!(
                 model.as_str(),
@@ -2534,6 +2530,15 @@ mod tests {
             );
             assert_eq!(profile.wire_budget(Some(300_000), false), Some(262_144));
             assert!(profile.use_max_completion_tokens && profile.send_preserve_thinking);
+            if provider == ProviderType::Qwen {
+                let preview_alias = resolve_reasoning_profile(
+                    provider,
+                    Some(endpoint),
+                    ReasoningApiStyle::OpenAiChatCompletions,
+                    "qwen4.0-max-preview",
+                );
+                assert_eq!(preview_alias.default_effort, Some(ReasoningEffort::XHigh));
+            }
         }
     }
 
