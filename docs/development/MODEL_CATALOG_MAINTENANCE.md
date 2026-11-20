@@ -110,3 +110,20 @@ Fast tier. A local authenticated Codex `model/list` returned ten visible models,
 all offering Fast and one offering Ultrafast. Other accounts can receive a
 different list, so the runtime reads each model's advertised service tiers.
 [Alibaba Beijing](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview) · [Alibaba Singapore](https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview) · [Google-managed Claude](https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed) · [Claude Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode) · [Codex app server](https://github.com/openai/codex/tree/main/codex-rs/app-server)
+
+The Google-managed Claude catalog includes 18 publisher model IDs. Its Messages
+adapter uses `rawPredict` and `streamRawPredict`, including the required
+`@YYYYMMDD` snapshots for Opus 4.5, Sonnet 4.5 and Haiku 4.5. The Sonnet 4.5
+entry uses its generally available 200,000-token input limit and carries Google's
+November 30 shutdown date for existing customers. The three Mythos models
+require account enablement. The archived Opus 4, Opus 4.1 and Sonnet 4 entries
+still appear as deprecated in Anthropic's historical table. Google's current
+publisher index omits them, so this release leaves them out of the picker
+fallback. Project discovery continues to reflect the signed-in account.
+[Publisher API IDs](https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed#api-model-ids) · [Google publisher index](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude) · [Sonnet 4.5 lifecycle](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-4-5)
+
+Google's US and EU multi-region API hostnames now resolve the same native
+publisher contract as the global and single-region endpoints. The configured
+project location must match the hostname's region. Model access and availability
+still depend on that project and location.
+[Google multi-region endpoints](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#multi-region-endpoints)

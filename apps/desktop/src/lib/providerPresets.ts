@@ -131,9 +131,11 @@ function cloudPresetId(provider: string, baseUrl: string): string | null {
     if (url.protocol !== 'https:' || url.port || url.username || url.password || url.search || url.hash) return null;
     const path = url.pathname.replace(/\/+$/, '');
     if (provider === 'bedrock') return /^bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/.test(url.hostname) && !path ? 'bedrock' : null;
-    if (url.hostname !== 'aiplatform.googleapis.com' && !url.hostname.endsWith('-aiplatform.googleapis.com')) return null;
-    const match = path.match(/^\/v1\/projects\/[^/]+\/locations\/[^/]+\/publishers\/(google|anthropic)$/);
-    return match ? (match[1] === 'google' ? 'vertex' : 'vertex-anthropic') : null;
+    const multiRegion = /^aiplatform\.(us|eu)\.rep\.googleapis\.com$/.exec(url.hostname)?.[1];
+    if (!multiRegion && url.hostname !== 'aiplatform.googleapis.com' && !url.hostname.endsWith('-aiplatform.googleapis.com')) return null;
+    const match = path.match(/^\/v1\/projects\/[^/]+\/locations\/([^/]+)\/publishers\/(google|anthropic)$/);
+    if (!match || (multiRegion && multiRegion !== match[1])) return null;
+    return match[2] === 'google' ? 'vertex' : 'vertex-anthropic';
   } catch { return null; }
 }
 

@@ -223,11 +223,19 @@ pub(crate) fn is_vertex_endpoint(
         return false;
     };
     let host = url.host_str().unwrap_or_default();
-    if host != "aiplatform.googleapis.com" && !host.ends_with("-aiplatform.googleapis.com") {
+    let multi_region = match host {
+        "aiplatform.us.rep.googleapis.com" => Some("us"),
+        "aiplatform.eu.rep.googleapis.com" => Some("eu"),
+        _ => None,
+    };
+    if multi_region.is_none()
+        && host != "aiplatform.googleapis.com"
+        && !host.ends_with("-aiplatform.googleapis.com")
+    {
         return false;
     }
     let path = url.path().trim_end_matches('/');
-    if publisher == "google" && path == "/v1/publishers/google" {
+    if multi_region.is_none() && publisher == "google" && path == "/v1/publishers/google" {
         return true;
     }
     let parts: Vec<_> = path.split('/').collect();
@@ -239,6 +247,7 @@ pub(crate) fn is_vertex_endpoint(
         && !parts[5].is_empty()
         && parts[6] == "publishers"
         && parts[7] == publisher
+        && multi_region.is_none_or(|region| parts[5] == region)
 }
 
 pub(super) fn is_siliconflow_public_endpoint(

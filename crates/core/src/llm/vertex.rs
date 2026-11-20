@@ -149,6 +149,33 @@ mod tests {
         assert!(inference_url(project, "claude-opus-5-5", true)
             .unwrap()
             .ends_with("/models/claude-opus-5-5:streamRawPredict"));
+        for region in ["us", "eu"] {
+            let endpoint = format!("https://aiplatform.{region}.rep.googleapis.com/v1/projects/demo/locations/{region}/publishers/anthropic");
+            let google_endpoint = endpoint.replace("/publishers/anthropic", "/publishers/google");
+            assert!(super::super::provider_boundary::is_vertex_endpoint(
+                ProviderType::Vertex,
+                Some(&google_endpoint),
+                "google"
+            ));
+            assert_eq!(
+                crate::provider_catalog::model_service_tiers(
+                    "vertex",
+                    Some(&endpoint),
+                    "claude-mythos-5-2"
+                ),
+                &[crate::model_catalog::ServiceTier::Fast]
+            );
+            assert!(inference_url(&endpoint, "claude-haiku-4-5@20251001", false)
+                .unwrap()
+                .ends_with("/models/claude-haiku-4-5@20251001:rawPredict"));
+            let mismatched =
+                endpoint.replace(&format!("/locations/{region}/"), "/locations/global/");
+            assert!(!super::super::provider_boundary::is_vertex_endpoint(
+                ProviderType::Vertex,
+                Some(&mismatched),
+                "anthropic"
+            ));
+        }
         let body = anthropic_body(
             &serde_json::json!({"model":"claude-opus-5-5", "messages":[], "max_tokens":128}),
         )
