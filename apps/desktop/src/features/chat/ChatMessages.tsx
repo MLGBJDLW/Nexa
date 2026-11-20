@@ -1843,40 +1843,50 @@ export function ChatMessages(props: ChatMessagesProps) {
     scrollToContainerBottom(shouldReduceMotion ? "auto" : "smooth");
   }, [scrollToContainerBottom, shouldReduceMotion]);
 
-  const focusedMessage = useRef<string | null>(null);
-  useEffect(() => {
-    const id = props.focusMessageId;
-    if (!id) { focusedMessage.current = null; return; }
-    const container = scrollContainerRef.current;
-    const identity = JSON.stringify([props.conversationId, id, props.focusNavigationKey]);
-    if (!container || loadingMsgs || focusedMessage.current === identity) return;
-    const index = messageIndexById.get(id);
-    if (index == null) return;
-    const row = renderableMessageIndexes.findIndex(rowIndex => {
+  const focusRow = useMemo(() => {
+    const index = props.focusMessageId ? messageIndexById.get(props.focusMessageId) : undefined;
+    if (index == null) return -1;
+    return renderableMessageIndexes.findIndex(rowIndex => {
       const assistant = turnRenderMap.anchors.get(rowIndex)?.assistantIdx ?? rowIndex;
       const group = messageTraceGroups.get(assistant);
       return rowIndex === index || assistant === index || (group?.type === 'anchor' && group.memberIndexes?.includes(index));
     });
-    if (row < 0) return;
+  }, [messageIndexById, messageTraceGroups, props.focusMessageId, renderableMessageIndexes, turnRenderMap.anchors]);
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const id = props.focusMessageId;
+    if (!container || !id || loadingMsgs || focusRow < 0) return;
     shouldAutoFollowRef.current = false;
+    const listeners = new AbortController();
     const selector = `[data-chat-message-id="${CSS.escape(id)}"]`;
-    const reveal = () => {
+    const align = () => {
       const bubble = container.querySelector<HTMLElement>(selector);
-      if (!bubble) return false;
-      const top = bubble.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-      rowVirtualizer.scrollToOffset(Math.max(0, top - 16));
-      focusedMessage.current = identity;
-      return true;
+      if (!bubble) return;
+      const offset = bubble.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+      if (Math.abs(offset) > 1) rowVirtualizer.scrollToOffset(Math.max(0, container.scrollTop + offset));
+      return bubble;
     };
-    if (reveal()) return;
-    // A deep link can select an unmounted row or an answer inside its grouped turn.
-    // Complete navigation only when that exact message reaches the DOM.
-    const observer = new MutationObserver(() => { if (reveal()) observer.disconnect(); });
-    observer.observe(container, { childList: true, subtree: true });
-    rowVirtualizer.scrollToIndex(row, { align: 'start' });
-    return () => observer.disconnect();
-  }, [loadingMsgs, messageIndexById, messageTraceGroups, props.conversationId, props.focusMessageId, props.focusNavigationKey,
-    renderableMessageIndexes, rowVirtualizer, turnRenderMap.anchors]);
+    // A remounted prompt can collapse or resize after its answer first appears.
+    // Preserve the selected bubble's position until the reader takes control.
+    const sizes = new ResizeObserver(align);
+    const mounts = new MutationObserver(reveal);
+    function reveal() {
+      const element = align()?.closest('[data-chat-virtual-row]');
+      if (!element) return false;
+      mounts.disconnect();
+      sizes.observe(element);
+      return true;
+    }
+    const release = () => { mounts.disconnect(); sizes.disconnect(); listeners.abort(); };
+    for (const event of ['pointerdown', 'wheel', 'keydown']) {
+      window.addEventListener(event, release, { capture: true, passive: true, signal: listeners.signal });
+    }
+    if (!reveal()) {
+      mounts.observe(container, { childList: true, subtree: true });
+      rowVirtualizer.scrollToIndex(focusRow, { align: 'start' });
+    }
+    return release;
+  }, [focusRow, loadingMsgs, props.conversationId, props.focusMessageId, props.focusNavigationKey, rowVirtualizer]);
 
   const renderDeferredActivity = (anchorId: string) => {
     const entry = detailEntries.get(anchorId);
