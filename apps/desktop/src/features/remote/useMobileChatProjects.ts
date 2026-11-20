@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RemoteChatClient } from './remoteClient';
 
 export interface ChatProjectSnapshot {
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; icon?: string | null }[];
   memberships: Record<string, string>;
 }
 
 export interface ChatProjectStore {
   list(): Promise<ChatProjectSnapshot>;
   create(projectId: string, name: string): Promise<ChatProjectSnapshot>;
+  setIcon?(projectId: string, icon: string): Promise<ChatProjectSnapshot>;
   rename(projectId: string, name: string): Promise<ChatProjectSnapshot>;
   remove(projectId: string): Promise<ChatProjectSnapshot>;
   move(conversationId: string, projectId: string | null): Promise<ChatProjectSnapshot>;
@@ -101,6 +102,7 @@ export function useMobileChatProjects(
       await apply(() => store.create(id, name));
       select(id);
     },
+    setIcon: store.setIcon ? (id: string, icon: string) => apply(() => store.setIcon!(id, icon)) : undefined,
     rename: (id: string, name: string) => apply(() => store.rename(id, name)),
     remove: (id: string) => apply(() => store.remove(id)),
     move: (conversationId: string, projectId: string | null) => apply(() => store.move(conversationId, projectId)),

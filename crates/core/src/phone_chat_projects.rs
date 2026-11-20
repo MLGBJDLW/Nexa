@@ -7,18 +7,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{db::Database, error::CoreError};
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PhoneProjectAction {
     List,
     Create,
     Rename,
+    SetIcon { icon: String },
     Delete,
     Move,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PhoneChatProject {
+    pub icon: Option<String>,
     pub id: String,
     pub name: String,
 }
@@ -78,6 +80,9 @@ impl Database {
                 DELETE FROM phone_chat_project_members WHERE host='' AND conversation_id=OLD.id;
              END;",
         )?;
+        if !tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('phone_chat_projects') WHERE name='icon')", [], |row| row.get::<_, bool>(0))? {
+            tx.execute_batch("ALTER TABLE phone_chat_projects ADD COLUMN icon TEXT")?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -111,6 +116,21 @@ impl Database {
                      ON CONFLICT(host,id) DO NOTHING",
                     params![host, id, project_name(name)?],
                 )?;
+            }
+            PhoneProjectAction::SetIcon { icon } => {
+                if icon.is_empty()
+                    || icon.len() > 64
+                    || !icon.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                {
+                    return Err(CoreError::InvalidInput("Invalid project icon.".into()));
+                }
+                if tx.execute(
+                    "UPDATE phone_chat_projects SET icon=?3 WHERE host=?1 AND id=?2",
+                    params![host, identifier(project_id)?, icon],
+                )? == 0
+                {
+                    return Err(CoreError::NotFound("Project not found.".into()));
+                }
             }
             PhoneProjectAction::Rename => {
                 if tx.execute(
@@ -155,9 +175,10 @@ impl Database {
             }
         }
         let projects = tx
-            .prepare("SELECT id,name FROM phone_chat_projects WHERE host=?1 ORDER BY rowid")?
+            .prepare("SELECT id,name,icon FROM phone_chat_projects WHERE host=?1 ORDER BY rowid")?
             .query_map([host], |row| {
                 Ok(PhoneChatProject {
+                    icon: row.get(2)?,
                     id: row.get(0)?,
                     name: row.get(1)?,
                 })
@@ -238,6 +259,24 @@ mod tests {
             db.phone_chat_projects(host, Create, Some("project"), Some("Project"), None)
                 .unwrap();
         }
+        let updated = db
+            .phone_chat_projects(
+                None,
+                SetIcon {
+                    icon: "orbit".into(),
+                },
+                Some("project"),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(updated.projects[0].icon.as_deref(), Some("orbit"));
+        assert!(db
+            .phone_chat_projects(Some("paired"), List, None, None, None)
+            .unwrap()
+            .projects[0]
+            .icon
+            .is_none());
         for chat in ["a", "older", "b"] {
             db.phone_chat_projects(None, Move, Some("project"), None, Some(chat))
                 .unwrap();
