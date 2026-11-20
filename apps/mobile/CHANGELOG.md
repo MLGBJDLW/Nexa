@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.16...nexa-mobile-v0.4.0) (2026-11-20)
+
+### Features
+
+- Expand the sidebar search button to find conversations by title or message text. Open an older reply directly, including conversations in other project folders or on a paired desktop. Archive results open read-only and can be restored explicitly.
+- See Markdown while composing and in sent messages. Choose Fast or Ultrafast in the reasoning controls when your provider and account offer it.
+- Give each phone project folder its own icon. Tap the current icon to choose among 30 styles.
+- Expand storage categories to see locations, sizes and cleanup guidance, and control agent access to the measured report for the current app session. [Search, storage and model controls](https://github.com/MLGBJDLW/Nexa/pull/587)
+
+### Bug Fixes
+
+- Preserve valid DeepSeek tool turns, route Qwen4 Max on the supported Alibaba Token Plan endpoints, and keep paid speed choices tied to their original account and model.
+- Keep a completed conversation idle while reading an older search result. Sending a message or returning to the bottom resumes the live transcript.
+
 ## [0.3.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.15...nexa-mobile-v0.3.16) (2026-11-19)
 
 ### Features
