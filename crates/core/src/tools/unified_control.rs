@@ -110,6 +110,60 @@ fn browser_value(value: Value) -> Value {
     }
 }
 
+/// A flattened provider schema exposes window x/y alongside browser point.
+/// Normalize an unambiguous pair before both public and adapter validation.
+pub(super) fn normalize_browser_coordinates(
+    args: &mut Value,
+    schema: &Value,
+) -> Result<(), String> {
+    let Some(body) = args.as_object_mut() else {
+        return Ok(());
+    };
+    for (x, y, point, alternate, reference) in [
+        ("x", "y", "point", "point", "target_ref"),
+        ("to_x", "to_y", "end_point", "endPoint", "end_ref"),
+    ] {
+        if !body.contains_key(x) && !body.contains_key(y) {
+            continue;
+        }
+        let properties = &schema["properties"];
+        let field = if properties.get(point).is_some() {
+            point
+        } else {
+            alternate
+        };
+        if properties.get(field).is_none() {
+            return Err("This browser host accepts observed DOM targets. Observe the tab and use its target_ref for input.".into());
+        }
+        if body.contains_key(field)
+            || body.contains_key(reference)
+            || body.contains_key(&super::snake_to_camel_case(reference))
+        {
+            return Err(format!(
+                "Specify a single browser target using {field}, {reference}, or the pair {x}/{y}."
+            ));
+        }
+        if !matches!(
+            body.get("action").and_then(Value::as_str),
+            Some("move" | "hover" | "click" | "double_click" | "drag" | "scroll")
+        ) || (x == "to_x" && body["action"] != "drag")
+        {
+            return Err("Coordinates apply to browser pointer actions. Destination coordinates apply only to drag.".into());
+        }
+        let coordinate = |key: &str| {
+            body.get(key)
+                .and_then(Value::as_f64)
+                .is_some_and(|value| value.is_finite() && value >= 0.)
+        };
+        if !coordinate(x) || !coordinate(y) {
+            return Err(format!("Supply both {x} and {y} as nonnegative viewport CSS pixel numbers from the current observation."));
+        }
+        let coordinates = json!({"x":body.remove(x), "y":body.remove(y)});
+        body.insert(field.to_owned(), coordinates);
+    }
+    Ok(())
+}
+
 /// Route a public request without granting authority or retrying another host.
 /// Legacy backend calls are deliberately left untouched for replay compatibility.
 pub fn route_call(name: &str, args: &Value) -> Result<Option<RoutedControlCall>, String> {
@@ -487,7 +541,7 @@ pub(crate) fn definition(backends: &[ToolDefinition]) -> Option<ToolDefinition> 
     }
     let mut description = String::from("Observe and operate the explicitly selected surface. ");
     if kinds.contains("browser") {
-        description.push_str("Browser pages use target.kind=browser with session_id/tab_id and fresh DOM target_ref evidence. Recover tabs with list_sessions/list_tabs; lifecycle and navigation actions remain in the schema. ");
+        description.push_str("Browser pages use target.kind=browser with session_id/tab_id and fresh DOM target_ref evidence. When point is available, use point={x,y} in observed viewport CSS pixels for pointer input and end_point={x,y} for a drag destination. Recover tabs with list_sessions/list_tabs. ");
     }
     if kinds.contains("desktop") {
         description.push_str("On Windows, target.kind=desktop with action=observe requests one read-only screenshot across all active monitors. Select and observe an individual window before input. ");

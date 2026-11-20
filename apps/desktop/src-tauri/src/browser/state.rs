@@ -2604,7 +2604,7 @@ impl BrowserState {
         let action_input = serde_json::to_string(&serde_json::json!({
             "action": request.action,
             "presentationId": progress.operation_id(),
-            "showCursor": request.delivery == BrowserInputDelivery::Webview,
+            "showCursor": request.delivery != BrowserInputDelivery::Foreground,
             "pointerAppearance": nexa_core::agent_pointer::browser_appearance(),
             "callId": request.call_id,
             "targetRef": expected.as_ref().map(|element| &element.element_ref),

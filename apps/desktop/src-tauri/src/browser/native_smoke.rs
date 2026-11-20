@@ -80,7 +80,7 @@ fn run_html_pointer_fixture(foreground: bool) {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
     std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
-      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;const cursor=document.querySelector('[data-nexa-agent-cursor]');window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey,cursorVisible:!!cursor&&getComputedStyle(cursor).visibility==='visible'};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
       <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
       <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
       <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
@@ -172,11 +172,20 @@ fn run_html_pointer_fixture(foreground: bool) {
                         return Err("Unfocused default input did not pause".into());
                     }
                 }
-                let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click",
-                    serde_json::json!({"action":"click","delivery":if foreground {"foreground"} else {"background"},"target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await
+                let mut click = serde_json::json!({"action":"click","delivery":if foreground {"foreground"} else {"background"},"target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id});
+                if foreground {
+                    click["target_ref"] = serde_json::json!(target.element_ref);
+                } else {
+                    click["x"] = serde_json::json!(target.bounds.x + target.bounds.width / 2.);
+                    click["y"] = serde_json::json!(target.bounds.y + target.bounds.height / 2.);
+                }
+                let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click", click).await
                     .map_err(|error| format!("Public native click: {error}"))?;
                 if !after.text.contains("clicked once") || after.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
+                }
+                if state.eval_action(&session.id,tab_id,"window.fixtureClick.cursorVisible").await?.as_bool() != Some(!foreground) {
+                    return Err("The tab cursor did not match the WebView or system delivery mode at click time".into());
                 }
                 let expected_route = if foreground { "system_pointer" } else { "webview_input" };
                 if interaction.as_ref().and_then(|i| i["pointerDelivery"].as_str()) != Some(expected_route) {

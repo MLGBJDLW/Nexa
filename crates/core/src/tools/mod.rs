@@ -2160,6 +2160,16 @@ fn normalize_tool_arguments(
         ));
     }
     normalize_tool_argument_value(&mut value, schema);
+    if tool_name == "browser_session"
+        || (tool_name == unified_control::TOOL_NAME
+            && value
+                .pointer("/target/kind")
+                .and_then(serde_json::Value::as_str)
+                == Some("browser"))
+    {
+        unified_control::normalize_browser_coordinates(&mut value, schema)
+            .map_err(|message| ("invalid_browser_coordinates", message))?;
+    }
     if tool_name == "manage_skill" {
         manage_skill_tool::omit_inactive_install_defaults(&mut value);
     }
@@ -2908,6 +2918,63 @@ mod tests {
         assert_eq!(value["prompt"], "A legacy enhanced prompt");
         assert_eq!(value["prompt_extend"], true);
         assert!(value.get("promptExtend").is_none());
+    }
+
+    #[test]
+    fn browser_coordinates_route_to_the_observed_surface_only() {
+        let mut browser = browser_session_tool::browser_session_parameters_schema();
+        let point = serde_json::json!({"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"],"additionalProperties":false});
+        browser["properties"]["point"] = point.clone();
+        browser["properties"]["endPoint"] = point;
+        browser["properties"]["action"]["enum"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("drag"));
+        let public = unified_control::definition(&[crate::llm::ToolDefinition {
+            name: "browser_session".into(),
+            description: String::new(),
+            parameters: browser.clone(),
+        }])
+        .unwrap()
+        .parameters;
+        let args = r#"{"action":"drag","target":{"kind":"browser","session_id":"s","tab_id":"t"},"observation_id":"obs","x":4.5,"y":17,"to_x":18,"to_y":32}"#;
+        let public_args = normalize_tool_arguments("computer_use", args, &public).unwrap();
+        let routed = unified_control::route_call("computer_use", &public_args)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            routed.arguments["point"],
+            serde_json::json!({"x":4.5,"y":17})
+        );
+        assert_eq!(
+            routed.arguments["endPoint"],
+            serde_json::json!({"x":18,"y":32})
+        );
+        assert_eq!(routed.arguments["observationId"], "obs");
+        let valid = r#"{"action":"click","sessionId":"s","x":4.5,"y":17}"#;
+        assert_eq!(
+            normalize_tool_arguments("browser_session", valid, &browser).unwrap()["point"],
+            routed.arguments["point"]
+        );
+        for invalid in [
+            r#"{"action":"click","sessionId":"s","x":3}"#,
+            r#"{"action":"click","sessionId":"s","point":{"x":4,"y":5},"x":4,"y":5}"#,
+            r#"{"action":"click","sessionId":"s","targetRef":"e_1","x":4,"y":5}"#,
+        ] {
+            assert_eq!(
+                normalize_tool_arguments("browser_session", invalid, &browser)
+                    .unwrap_err()
+                    .0,
+                "invalid_browser_coordinates"
+            );
+        }
+        let portable = browser_session_tool::browser_session_parameters_schema();
+        assert!(
+            normalize_tool_arguments("browser_session", valid, &portable)
+                .unwrap_err()
+                .1
+                .contains("target_ref")
+        );
     }
 
     #[test]

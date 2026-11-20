@@ -128,6 +128,29 @@ test('Tab cursor yields to nested capture scopes and is removed on cancellation'
   expect((await page.screenshot()).equals(baseline)).toBe(true);
 });
 
+test('WebView shows the agent travelling to the next target before committing input', async ({ page }) => {
+  await page.setContent('<button>First</button><button style="margin-left:550px">Second</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  const observation = await observe(page);
+  const first = { ...actionInput(observation, 'move', observation.elements[0].ref), presentationId: 'one', showCursor: true };
+  const second = { ...actionInput(observation, 'click', observation.elements[1].ref), presentationId: 'two', showCursor: true };
+  await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(input), first);
+  const cursor = page.locator('[data-nexa-agent-cursor]');
+  await expect(cursor).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('one').status)).toBe('arrived');
+  const start = (await cursor.boundingBox())!;
+  const progress = await page.evaluate(input => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.cancelPresentation('one');
+    return bridge.previewAction(input);
+  }, second);
+  expect(progress.durationMs).toBeGreaterThan(100);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('two').status)).toBe('arrived');
+  expect((await cursor.boundingBox())!.x - start.x).toBeGreaterThan(500);
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.invalidateForUserTakeover());
+  await expect(cursor).toHaveCount(0);
+});
+
 test('Agent browser interaction commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
     <!doctype html>
@@ -653,11 +676,12 @@ test('set_checked rejects disabled controls, radio clearing and stale checked st
 });
 
 test('set_checked preparation uses guarded trusted clicks and skips matching state', async ({ page }) => {
-  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted">');
+  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted;window.sawPulse=!!document.querySelector(\'[data-nexa-agent-click]\')">');
   await page.addScriptTag({ content: runtimeSource });
   await page.addScriptTag({ content: takeoverSource });
   const snapshot = await observe(page);
-  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true };
+  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true, presentationId: 'checked-click', showCursor: true };
+  await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(input), input);
   const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
   const binding = await targetBinding(page, 'input');
   const x = prepared.bounds.x + prepared.bounds.width / 2;
@@ -665,6 +689,7 @@ test('set_checked preparation uses guarded trusted clicks and skips matching sta
   expect(await page.evaluate(({ binding, x, y }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
     'playwright-takeover-token', 'checked-click', { pointerDown: 1, keyDown: 0, input: 1 }, { kind: 'pointer', x, y, button: 'left', ...binding }), { binding, x, y })).toBe(true);
   await page.mouse.click(x, y);
+  expect(await page.evaluate(() => (window as unknown as { sawPulse: boolean }).sawPulse)).toBe(true);
   expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'checked-click'))).toBe(true);
   await expect(page.locator('input')).toBeChecked();
   expect(await page.evaluate(() => (window as Window & { trusted: boolean }).trusted)).toBe(true);
