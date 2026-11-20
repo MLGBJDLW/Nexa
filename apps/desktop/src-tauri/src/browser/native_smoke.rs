@@ -82,6 +82,7 @@ fn run_html_pointer_fixture(foreground: bool) {
     std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
       <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;const cursor=document.querySelector('[data-nexa-agent-cursor]');window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey,cursorVisible:!!cursor&&getComputedStyle(cursor).visibility==='visible'};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
       <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
+      <button onclick="window.defaultWebviewClicks=(window.defaultWebviewClicks||0)+1;const cursor=document.querySelector('[data-nexa-agent-cursor]');window.defaultWebviewFeedback=!!cursor&amp;&amp;getComputedStyle(cursor).visibility==='visible'&amp;&amp;event.isTrusted">WebView action</button>
       <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
       <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
       <div id=scrollbox style="position:absolute;left:350px;top:150px;width:200px;height:140px;overflow:auto"><div style="height:1500px">Nested content</div></div>
@@ -202,6 +203,14 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let center=(target.bounds.x+target.bounds.width/2., target.bounds.y+target.bounds.height/2.);
                     if (point.0-center.0).abs()>1. || (point.1-center.1).abs()>1. {
                         return Err(format!("Received click at {point:?}, expected button center {center:?}"));
+                    }
+                    state.verify_fixture_cursor(&session.id,tab_id,&after.viewport,center).await?;
+                    let next = after.elements.iter().find(|el| el.name == "WebView action").ok_or("Missing default WebView target")?;
+                    let (_, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "default-webview-click",
+                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":after.observation_id,"x":next.bounds.x+next.bounds.width/2.,"y":next.bounds.y+next.bounds.height/2.})).await?;
+                    if receipt.is_none_or(|r| r["pointerDelivery"] != "webview_input")
+                        || state.eval_action(&session.id,tab_id,"window.defaultWebviewClicks===1 && window.defaultWebviewFeedback").await? != true {
+                        return Err("Default WebView coordinate input did not display its tab cursor and deliver exactly one trusted click".into());
                     }
                     state.verify_fixture_cursor(&session.id,tab_id,&after.viewport,center).await?;
                 }
