@@ -149,7 +149,7 @@ const listItemVariants = {
   visible: (i: number) => ({
     opacity: 1,
     x: 0,
-    transition: { delay: i * 0.03, duration: 0.2, ease: [0.16, 1, 0.3, 1] as const },
+    transition: { delay: Math.min(i, 5) * 0.03, duration: 0.2, ease: [0.16, 1, 0.3, 1] as const },
   }),
   exit: { opacity: 0, x: -12, transition: { duration: 0.15 } },
 };
@@ -232,7 +232,7 @@ function ConversationItem({
     <motion.div
       custom={index}
       variants={listItemVariants}
-      initial="hidden"
+      initial={index < 6 ? "hidden" : false}
       animate="visible"
       exit="exit"
       data-running={isRunning ? 'true' : 'false'}

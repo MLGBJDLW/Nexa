@@ -694,7 +694,7 @@ impl ProviderStreamingConfig {
         std::time::Duration::from_millis(
             self.stream_idle_timeout_ms
                 .unwrap_or(DEFAULT_STREAM_IDLE_TIMEOUT.as_millis() as u64)
-                .clamp(1_000, 3_600_000),
+                .max(1_000),
         )
     }
 
@@ -1894,13 +1894,13 @@ mod tests {
         assert_eq!(config.connect_timeout(), std::time::Duration::from_secs(10));
 
         let overridden = ProviderStreamingConfig {
-            stream_idle_timeout_ms: Some(420_000),
+            stream_idle_timeout_ms: Some(7_200_000),
             connect_timeout_ms: Some(25_000),
             stream_max_retries: Some(3),
         };
         assert_eq!(
             overridden.stream_idle_timeout(),
-            std::time::Duration::from_secs(420)
+            std::time::Duration::from_secs(7_200)
         );
         assert_eq!(
             overridden.connect_timeout(),

@@ -1219,23 +1219,23 @@ pub(crate) fn validate_agent_config_numeric_overrides(
     // Zero intentionally disables the corresponding outer timeout.
     validate_nonnegative_u32_override("toolTimeoutSecs", input.tool_timeout_secs)?;
     validate_nonnegative_u32_override("agentTimeoutSecs", input.agent_timeout_secs)?;
-    for (field, value, maximum) in [
-        (
-            "providerStreaming.streamIdleTimeoutMs",
-            input.provider_streaming.stream_idle_timeout_ms,
-            3_600_000_u64,
-        ),
-        (
-            "providerStreaming.connectTimeoutMs",
-            input.provider_streaming.connect_timeout_ms,
-            300_000_u64,
-        ),
-    ] {
-        if value.is_some_and(|value| !(1_000..=maximum).contains(&value)) {
-            return Err(CoreError::InvalidInput(format!(
-                "{field} must be between 1000 and {maximum} when set"
-            )));
+    if let Some(ms) = input.provider_streaming.stream_idle_timeout_ms {
+        if ms < 1_000
+            || std::time::Instant::now()
+                .checked_add(std::time::Duration::from_millis(ms))
+                .is_none()
+        {
+            return Err(CoreError::InvalidInput("providerStreaming.streamIdleTimeoutMs must be a representable duration of at least 1000 ms".into()));
         }
+    }
+    if input
+        .provider_streaming
+        .connect_timeout_ms
+        .is_some_and(|ms| !(1_000..=300_000).contains(&ms))
+    {
+        return Err(CoreError::InvalidInput(
+            "providerStreaming.connectTimeoutMs must be between 1000 and 300000 when set".into(),
+        ));
     }
     if input
         .provider_streaming
@@ -6156,7 +6156,7 @@ mod tests {
         input.provider = "custom".into();
         input.model = "private-model".into();
         input.provider_streaming = crate::llm::ProviderStreamingConfig {
-            stream_idle_timeout_ms: Some(420_000),
+            stream_idle_timeout_ms: Some(7_200_000),
             connect_timeout_ms: Some(25_000),
             stream_max_retries: Some(3),
         };
