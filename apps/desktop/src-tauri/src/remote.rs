@@ -569,11 +569,9 @@ impl RemoteHost for DesktopHost {
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
-            SearchChats { query, before } => {
-                let db = state.db.clone();
-                tokio::task::spawn_blocking(move || db.search_chat_history(&query, false, before.as_ref()))
-                    .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string()).and_then(value)
-            }
+            SearchChats { query, before } => state.db_executor
+                .read(move |db| db.search_chat_history(&query, false, before.as_ref()))
+                .await.map_err(|e| e.to_string()).and_then(|result| value(result.value)),
             Conversation { conversation_id, before_order } => state.db_executor
                 .read(move |db| db.remote_messages(&conversation_id, before_order))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),

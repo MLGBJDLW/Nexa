@@ -83,8 +83,7 @@ impl Database {
             WHERE h.message_row IS NOT NULL OR instr(nexa_lower(s.title),:query) > 0
             ORDER BY s.updated_at DESC,s.id DESC LIMIT 33"
         );
-        let reader = self.read_only_lane()?;
-        let conn = reader.conn();
+        let conn = self.conn();
         let mut stmt = conn.prepare_cached(&sql)?;
         let (date, id) = before
             .map(|[date, id]| (Some(date), Some(id)))

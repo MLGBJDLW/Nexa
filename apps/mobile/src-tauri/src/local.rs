@@ -131,6 +131,7 @@ pub struct LocalRuntime {
     scheduler: Mutex<()>,
     pub(crate) arm_lock: Mutex<()>,
     pub db: Database,
+    pub db_executor: DatabaseExecutor,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,
     // Admission spans idempotent persistence and spawning. One phone task at a
@@ -148,10 +149,8 @@ impl LocalRuntime {
         std::fs::create_dir_all(&workspace_dir).map_err(err)?;
         let db = Database::new(directory.join("nexa-mobile.db")).map_err(err)?;
         db.initialize_phone_chat_projects().map_err(err)?;
-        let outboxes = AgentRunEventOutboxes::new(
-            DatabaseExecutor::new(db.clone(), 64).map_err(err)?,
-            Arc::new(Delivery),
-        );
+        let db_executor = DatabaseExecutor::new(db.clone(), 64).map_err(err)?;
+        let outboxes = AgentRunEventOutboxes::new(db_executor.clone(), Arc::new(Delivery));
         // Never replay a possibly completed phone action after process death.
         outboxes
             .recover_after_restart_with_checkpoints()
@@ -159,6 +158,7 @@ impl LocalRuntime {
             .map_err(err)?;
         db.reconcile_interrupted_schedule_runs().map_err(err)?;
         Ok(Arc::new(Self {
+            db_executor,
             db,
             workspace: Workspace::validate(&[workspace_dir.to_string_lossy().into_owned()])
                 .map_err(err)?,
