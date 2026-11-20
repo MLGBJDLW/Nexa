@@ -19,7 +19,7 @@ export class LocalClient implements RemoteChatClient {
   readonly exportFile = (path: string) => invoke('mobile_files', { action: 'share', relativePath: path });
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
-  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-steering-v1', 'chat-schedules-v1'] } };
+  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-archive-search-v1', 'chat-steering-v1', 'chat-schedules-v1'] } };
   state: RemoteConnection = { phase: 'connected', endpoint: null };
   private listeners = new Set<(event: RemoteEnvelope) => void>();
   private unlisteners: UnlistenFn[] = [];

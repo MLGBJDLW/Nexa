@@ -3,7 +3,7 @@ import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from '..
 import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useGenerationMetrics } from '../../lib/useGenerationMetrics';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
+import { ListChecks, Trash2, ArrowLeft, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileSchedules } from './MobileSchedules';
 import { CalendarClock } from 'lucide-react';
@@ -112,12 +112,15 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [cursor, setCursor] = useState<string | null>(null);
   const { projectView, drawerConversations, selectChatFolder } = useMobileChatProjects(mobile?.projectStore, client, drawerOpen, conversations, cursor);
   const pendingProjectMove = useRef<{ conversationId: string; projectId: string } | null>(null);
-  const [conversationId, setConversationId] = useState(
+  const [archivedHit, setArchivedHit] = useState<HistoryHit | null>(null);
+  const [activeConversationId, setConversationId] = useState(
     () =>
       localStorage.getItem(
         `nexa.remote.chat.${client.paired.manifest.serverId}`,
       ) || "",
   );
+  const conversationId = archivedHit?.id ?? activeConversationId;
+  const archivePreview = !!archivedHit;
   const selectedConversation = useRef(conversationId);
   const serverId = client.paired.manifest.serverId;
   const [openedChat, setOpenedChat] = useState<{ id: string; chat?: Conversation } | null>(null);
@@ -165,11 +168,15 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     void client.nativeSpeech?.stop().catch(() => {});
   }, [client, conversationId]);
   const [selectedHit, setSelectedHit] = useState<HistoryHit | null>(null);
-  const searchAnchor = selectedHit?.messageOrder != null ? selectedHit : null;
+  const viewedHit = archivedHit ?? selectedHit;
+  const searchAnchor = viewedHit?.messageOrder != null ? viewedHit : null;
   const hitToReveal = useRef<HistoryHit | null>(null);
   const findHistory = useCallback((query: string, before: HistoryPage['next']) =>
     client.rpc<HistoryPage>('chat.search', { query, before }), [client]);
+  const findArchivedHistory = useCallback((query: string, before: HistoryPage['next']) =>
+    client.rpc<HistoryPage>('chat.search', { query, before, archived: true }), [client]);
   const selectConversation = (id: string, hit?: HistoryHit) => {
+    setArchivedHit(null);
     setSelectedHit(hit ?? null);
     selectedConversation.current = id;
     setConversationId(id);
@@ -214,7 +221,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [timelineRunId, setTimelineRunId] = useState<string | null>(null);
   const [runUserId, setRunUserId] = useState<string | null>(null);
   const [finalMessageId, setFinalMessageId] = useState<string | null>(null);
-  const markReplyRead = mobile?.onReplyRead;
+  const markReplyRead = archivePreview ? undefined : mobile?.onReplyRead;
   // Replay may reparent the canonical answer under a timeline after the
   // final ID is known. Observe the currently mounted article in either layout.
   const [renderedReply, setRenderedReply] = useState<HTMLElement | null>(null);
@@ -416,8 +423,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     setGeneration(undefined); setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
     setProgress(''); setRunning(false); setMessages([]); setPendingSteers([]); setDismissedFollowup('');
     setApprovals([]); setInteractions([]); setBeforeOrder(null);
-    if (!conversationId) return;
-    localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
+    if (!conversationId) { setSyncingHistory(false); return; }
+    if (!archivePreview) localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
     const valid = () => !stopped && scope.current === generation && selectedConversation.current === conversationId;
     const publish = () => {
       if (paint) return;
@@ -463,6 +470,16 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       if (finalId && result.messages.some(message => message.id === finalId)) setFinalMessageId(finalId);
       else if (status === 'completed') readNeeded = true;
     };
+    if (archivePreview) {
+      const readArchived = () => {
+        setSyncingHistory(true);
+        void read().catch(reason => { if (valid()) errorText(reason); })
+          .finally(() => { if (valid()) setSyncingHistory(false); });
+      };
+      refreshRef.current = readArchived;
+      readArchived();
+      return () => { stopped = true; };
+    }
     const questions = async () => {
       const expectedRun = runId;
       const [nextApprovals, nextInteractions] = await Promise.all([
@@ -657,7 +674,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);
     };
-  }, [client, conversationId, list, searchAnchor]);
+  }, [archivePreview, client, conversationId, list, searchAnchor]);
   async function create() {
     if (sendLock.current) return;
     pendingProjectMove.current = null;
@@ -679,7 +696,14 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     if (managing) return;
     listGeneration.current++; archiveGeneration.current++;
     setRestoringId(id); setManaging(true); setError('');
-    try { await client.rpc('chat.restore', { conversationId: id }); await Promise.all([list(), listArchived()]); }
+    try {
+      await client.rpc('chat.restore', { conversationId: id });
+      if (archivedHit?.id === id && selectedConversation.current === id) {
+        selectChatFolder(id);
+        selectConversation(id, archivedHit);
+      }
+      await Promise.all([list(), listArchived()]);
+    }
     catch (error) { setRestoringId(null); errorText(error); }
     finally { setManaging(false); }
   }
@@ -979,6 +1003,53 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         followOutput.current = hit.messageOrder == null;
         setDrawerOpen(false);
       }}>{history}</ConversationHistorySearch> : history;
+  function openArchivedHit(hit: HistoryHit) {
+    selectedConversation.current = hit.id;
+    followOutput.current = hit.messageOrder == null;
+    setError(''); setArchivedHit(hit); setDrawerOpen(false);
+  }
+  const archiveList = drawerOpen && archivesOpen && <>
+    <nav className="mobile-history mobile-archive-history"><AnimatePresence initial={false} custom={restoringId}>{archived.map(item => {
+      const title = item.title || t('remote.newChat');
+      return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
+        restoring={restoringId === item.id && managing} preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
+        onRestore={() => void restoreConversation(item.id)}
+        onDelete={client.archivedDeletionAvailable ? () => { setRestoringId(null); setManageTarget({ item, action: 'delete' }); } : undefined}>
+        <button className="min-w-0 flex-1 truncate text-start" disabled={managing}
+          onClick={() => openArchivedHit({ id: item.id, title, messageId: null, messageOrder: null, snippet: null })}>{title}</button>
+      </MobileConversationRow>;
+    })}</AnimatePresence></nav>
+    {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
+  </>;
+  const transcript = <>
+    {searchAnchor && <button type="button" className={remoteButton} onClick={() => {
+      followOutput.current = true;
+      const latest = { ...searchAnchor, messageOrder: null, messageId: null };
+      if (archivePreview) setArchivedHit(latest); else setSelectedHit(latest);
+    }}>{t('chat.scrollToBottom')}</button>}
+    {beforeOrder !== null && <button className={remoteButton} onClick={() => void older()}>{t('remote.older')}</button>}
+    <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
+      <RemoteTranscript messages={messages} focusMessageId={searchAnchor?.messageId} timeline={searchAnchor || archivePreview ? [] : timeline}
+        running={!archivePreview && !searchAnchor && running} finalMessageId={searchAnchor || archivePreview ? null : finalMessageId}
+        runUserId={searchAnchor || archivePreview ? null : runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
+        more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
+    </div>
+  </>;
+  if (archivedHit && mobile) return <main className="native-chat" data-testid="remote-chat">
+    <header className="native-chat-header">
+      <button className="mobile-icon-button" aria-label={t('chat.backToConversations')} onClick={() => {
+        selectedConversation.current = activeConversationId;
+        setArchivedHit(null); setError(''); setDrawerOpen(true);
+      }}><ArrowLeft size={20} /></button>
+      <div className="native-chat-heading truncate">{archivedHit.title || t('chat.archivedConversations')}</div>
+      <button className={`${remoteButton} shrink-0`} disabled={managing} onClick={() => void restoreConversation(archivedHit.id)}>{t('chat.restoreConversation')}</button>
+    </header>
+    <div ref={contentScroll} className="native-chat-content">
+      {error && <p role="alert" className="mobile-error">{error} <button onClick={() => { setError(''); refreshRef.current(); }}>{t('common.retry')}</button></p>}
+      {opened ? transcript : syncingHistory && <Loader2 className="mx-auto animate-spin text-accent" />}
+    </div>
+    <p className="native-chat-caption">{t('chat.restoreToContinue')}</p>
+  </main>;
   return (
     <main
       className={mobile ? "native-chat" : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"}
@@ -996,17 +1067,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
               <button className="mobile-icon-button" disabled={managing} aria-label={t('chat.deleteAll')} title={t('chat.deleteAll')} onClick={() => void prepareDeleteArchived()}><Trash2 size={17}/></button>}
           </div>
           {archivesOpen && <>{error && <p role="alert" className="mobile-error">{error}</p>}
-            <nav className="mobile-history mobile-archive-history"><AnimatePresence initial={false} custom={restoringId}>{archived.map(item => {
-              const title = item.title || t('remote.newChat');
-              return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
-                restoring={restoringId === item.id && managing}
-                preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
-                onRestore={() => void restoreConversation(item.id)}
-                onDelete={client.archivedDeletionAvailable ? () => { setRestoringId(null); setManageTarget({ item, action: 'delete' }); } : undefined}>
-                <span className="min-w-0 flex-1 truncate">{title}</span>
-              </MobileConversationRow>;
-            })}</AnimatePresence></nav>
-            {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
+            {client.paired.manifest.capabilities?.includes('chat-archive-search-v1') ?
+              <ConversationHistorySearch archived find={findArchivedHistory} onPick={openArchivedHit}>{archiveList}</ConversationHistorySearch> : archiveList}
           </>}
         </>}
         {client.paired.manifest.capabilities?.includes('chat-schedules-v1') && <button className="mobile-drawer-new" onClick={() => { setDrawerOpen(false); setSchedulesOpen(true); }}><CalendarClock size={17}/>{t('chat.scheduledTasks')}</button>}
@@ -1031,18 +1093,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
         </p>
       )}
       {loading && <Loader2 className="mx-auto animate-spin text-accent" />}
-      {searchAnchor && <button type="button" className={remoteButton} onClick={() => {
-        followOutput.current = true; setSelectedHit({ ...searchAnchor, messageOrder: null, messageId: null });
-      }}>{t('chat.scrollToBottom')}</button>}
-      {beforeOrder !== null && (
-        <button className={remoteButton} onClick={() => void older()}>
-          {t("remote.older")}
-        </button>
-      )}
-      <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
-        <RemoteTranscript messages={messages} focusMessageId={searchAnchor?.messageId} timeline={searchAnchor ? [] : timeline} running={!searchAnchor && running} finalMessageId={searchAnchor ? null : finalMessageId} runUserId={searchAnchor ? null : runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
-          more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
-      </div>
+      {transcript}
       {runStatus && (
         <div role="status" data-testid="remote-run-status" className="remote-run-status">
           {running && <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}

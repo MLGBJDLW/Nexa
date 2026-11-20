@@ -1256,6 +1256,18 @@ test('phone sidebar opens an older body match without paging through the interve
   await phone.locator('.native-chat-header button').first().click();
   await expect(phone.getByRole('button', { name:'Reports', exact:true })).toHaveAttribute('aria-pressed', 'true');
   await expect(phone.getByRole('navigation', { name:'Reports' }).getByText('Previous work')).toBeVisible();
+  await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.seedArchives());
+  await phone.getByRole('button', {name:'Archived conversations', exact:true}).click();
+  await phone.getByRole('button', {name:'Search archived conversations'}).click();
+  await phone.getByRole('searchbox', {name:'Search archived conversations'}).fill('decision');
+  await phone.getByRole('button', {name:/Archived e.*decision/}).click();
+  await expect(phone.locator('[data-message-id="archived-note"]')).toContainText('A previous decision.');
+  await expect(phone.getByLabel('Message', {exact:true})).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions
+    .filter((item:any) => item.params.conversationId === 'e').map((item:any) => item.method))).toEqual(['chat.read']);
+  await phone.getByRole('button', {name:'Restore', exact:true}).click();
+  await expect(phone.getByLabel('Message', {exact:true})).toBeVisible();
+  await expect(phone.locator('[data-message-id="archived-note"]')).toContainText('A previous decision.');
 });
 
 test('paired web search opens title and intermediate message hits outside the first history page', async ({ page }) => {

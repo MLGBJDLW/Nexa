@@ -197,11 +197,12 @@ async fn mobile_local(
             .map_err(|e| e.to_string()),
         "search" => {
             let query = string("query")?;
+            let archived = input["archived"].as_bool().unwrap_or(false);
             let before: Option<[String; 2]> =
                 serde_json::from_value(input["before"].clone()).map_err(|e| e.to_string())?;
             state
                 .db_executor
-                .read(move |db| db.search_chat_history(&query, false, before.as_ref()))
+                .read(move |db| db.search_chat_history(&query, archived, before.as_ref()))
                 .await
                 .map(|read| json!(read.value))
                 .map_err(|e| e.to_string())

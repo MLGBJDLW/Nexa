@@ -93,6 +93,8 @@ pub enum RemoteCommand {
     SearchChats {
         query: String,
         before: Option<[String; 2]>,
+        #[serde(default)]
+        archived: bool,
     },
     #[serde(rename = "chat.read")]
     Conversation {
