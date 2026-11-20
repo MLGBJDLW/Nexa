@@ -238,6 +238,7 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
       {PROJECT_ICON_OPTIONS.map((option) => {
         const selected = option.id === value;
         const Icon = option.icon;
+        const label = t(option.labelKey);
         return (
           <button
             key={option.id}
@@ -249,8 +250,8 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface-1 text-text-tertiary hover:bg-surface-3 hover:text-text-primary'
             }`}
-            title={option.label}
-            aria-label={option.label}
+            title={label}
+            aria-label={label}
           >
             <Icon size={14} />
           </button>

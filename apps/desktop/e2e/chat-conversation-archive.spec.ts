@@ -184,7 +184,7 @@ test('project file rules share a local command and inspector without changing th
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('nexa-locale', 'en');
+    localStorage.setItem('nexa-locale', new URLSearchParams(location.search).get('locale') ?? 'en');
     localStorage.setItem('active-project-id', 'project-legacy');
 
     const nowIso = new Date().toISOString();
@@ -568,6 +568,21 @@ test('archive feedback remains an overlay and never participates in the app layo
   expect(notificationLayout.right).toBeGreaterThanOrEqual(0);
   expect(notificationLayout.bottom).toBeGreaterThanOrEqual(0);
   expect(after).toEqual(before);
+});
+
+test('desktop project icons show their localized names in the picker and preview', async ({ page }) => {
+  await page.goto('/chat/conv-active?locale=fr');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Nouveau projet', exact: true }).click();
+  const editor = page.getByTestId('project-editor');
+  const preview = editor.getByRole('button', { name: 'Apparence', exact: true });
+  await preview.click();
+  const photography = editor.getByRole('button', { name: 'Photographie', exact: true });
+  await expect(photography).toHaveAttribute('title', 'Photographie');
+  await photography.click();
+  await expect(photography).toHaveAttribute('aria-pressed', 'true');
+  await expect(preview.getByTitle('Photographie', { exact: true })).toBeVisible();
 });
 
 test('project editor stays above the glass sidebar and covers the viewport', async ({ page }, testInfo) => {

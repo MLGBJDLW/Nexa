@@ -6,12 +6,12 @@ import type { NativeSpeechProgress, RemoteChatClient, RemoteEnvelope } from '../
 import { phoneChatProjects } from '../../../mobile/src/phoneChatProjects';
 import '../../../mobile/src/mobile.css';
 export function renderMobileContinuity() {
-  localStorage.setItem('nexa-locale', 'en');
+  const params = new URLSearchParams(location.search);
+  localStorage.setItem('nexa-locale', params.get('locale') ?? 'en');
   localStorage.removeItem('nexa.remote.chat.mobile-fixture');
   const actions: {method:string;params:any}[] = [];
   const listeners = new Set<(event:RemoteEnvelope)=>void>();
   let chats = [{id:'old',title:'Previous work',model:'model'}];
-  const params = new URLSearchParams(location.search);
   const projectsFixture = params.has('projects');
   const hostId = params.get('host');
   if (projectsFixture) {

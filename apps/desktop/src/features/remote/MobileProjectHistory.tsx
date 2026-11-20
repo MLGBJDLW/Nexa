@@ -204,11 +204,14 @@ export function MobileProjectHistory({ projects, conversations, activeId, archiv
           <button className="mobile-primary" disabled={busy} onClick={() => void save(() => projects.remove(editor.project.id))}>{t('common.delete')}</button></div>
       </>}
       {editor?.kind === 'appearance' && projects.setIcon && <div className="grid grid-cols-5 gap-1">
-        {PROJECT_ICON_OPTIONS.map(option => <button key={option.id} type="button" className="mobile-icon-button"
-          title={option.label} aria-label={option.label} aria-pressed={option.id === (editor.project.icon || 'folder')}
-          disabled={busy} onClick={() => void save(() => projects.setIcon!(editor.project.id, option.id))}>
-          <ProjectIcon icon={option.id} size={20} className="h-8 w-8"/>
-        </button>)}
+        {PROJECT_ICON_OPTIONS.map(option => {
+          const label = t(option.labelKey);
+          return <button key={option.id} type="button" className="mobile-icon-button"
+            title={label} aria-label={label} aria-pressed={option.id === (editor.project.icon || 'folder')}
+            disabled={busy} onClick={() => void save(() => projects.setIcon!(editor.project.id, option.id))}>
+            <ProjectIcon icon={option.id} size={20} className="h-8 w-8"/>
+          </button>;
+        })}
       </div>}
       {editor?.kind === 'move' && <div className="mobile-project-options">
         {projects.projects.map(project => <button key={project.id} disabled={busy || projects.memberships[editor.chat.id] === project.id}
