@@ -86,3 +86,27 @@ These mechanisms follow the official [OpenRouter Models API](https://openrouter.
 [Anthropic model-list API](https://platform.claude.com/docs/en/api/models/list).
 See the [upstream research](MODEL_CATALOG_AND_TPS_REFERENCES.md) and
 [catalog audit](MODEL_CATALOG_AUDIT.md) for the dated implementation evidence.
+
+## November 20, 2026 verification
+
+The scheduled audit covered all 94 endpoint definitions. Six published a public
+inventory, 22 required credentials, 60 had no operation inventory and six used
+runtime discovery or an unsupported inventory operation. A second local pass
+read all five public OpenRouter inventories. Jina timed out locally, and its
+public inventory responded through an independent connection. These probes used
+model listings. They did not run paid inference.
+[Full endpoint audit](MODEL_CATALOG_EVIDENCE_2026_11_20.md) · [Jina model list](https://api.jina.ai/v1/models)
+
+At 08:51 UTC the OpenRouter inventory and per-model endpoint lists confirmed
+that Llama 3.2 3B was still served after its published deadline was withdrawn.
+Llama 3.2 1B and the free Inkling 2 Small route had both passed their deadlines
+and had zero endpoints. Kimi K2.7 Code and Llama 3.2 3B no longer advertised
+`min_p`. GLM 5.3 Flash advertised a 131,072-token maximum output.
+[OpenRouter models](https://openrouter.ai/api/v1/models) · [Llama 3B endpoints](https://openrouter.ai/api/v1/models/meta-llama/llama-3.2-3b-instruct/endpoints) · [Llama 1B endpoints](https://openrouter.ai/api/v1/models/meta-llama/llama-3.2-1b-instruct/endpoints) · [Inkling endpoints](https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-small:free/endpoints)
+
+Alibaba's Beijing and Singapore plan lists include Qwen4 Max and its preview
+alias. Google-managed Claude lists Mythos 5.2 with account-gated access and a
+Fast tier. A local authenticated Codex `model/list` returned ten visible models,
+all offering Fast and one offering Ultrafast. Other accounts can receive a
+different list, so the runtime reads each model's advertised service tiers.
+[Alibaba Beijing](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview) · [Alibaba Singapore](https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview) · [Google-managed Claude](https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed) · [Claude Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode) · [Codex app server](https://github.com/openai/codex/tree/main/codex-rs/app-server)

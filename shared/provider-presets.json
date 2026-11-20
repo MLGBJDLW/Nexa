@@ -2360,10 +2360,10 @@
         "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-20",
         "inputModalities": [
           "text",
           "image"
@@ -5547,7 +5547,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-20",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -5560,7 +5560,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943717,
+        "maxOutputTokens": 131072,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -5966,7 +5966,6 @@
           "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
@@ -5983,7 +5982,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/moonshotai/kimi-k2.7-code",
         "maxOutputTokens": 235929
       },
@@ -18234,10 +18233,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 54000,
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-20",
         "recommended": false
       },
@@ -18272,7 +18271,6 @@
           "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "repetition_penalty",
           "seed",
@@ -18284,11 +18282,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 72000,
-        "status": "deprecated",
-        "deprecationDate": "2026-11-20",
+        "status": "active",
         "recommended": false
       },
       {
@@ -25894,6 +25891,47 @@
           "us",
           "eu"
         ]
+      },
+      {
+        "id": "claude-mythos-5-2",
+        "name": "Claude Mythos 5.2",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.claude.com/docs/en/build-with-claude/claude-models-on-google-cloud/google-managed",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       }
     ]
   },

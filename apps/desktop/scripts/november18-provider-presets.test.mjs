@@ -30,10 +30,16 @@ test('GPT6.2 native exact IDs stay always-reasoning Responses routes, not router
     assert.ok(!m.supportedParameters.includes('temperature'));
   }
 });
-test('future aggregator expirations stay deprecated and endpoint-scoped', () => {
-  for (const [id, date] of [['thinkingmachines/inkling-2-small:free', '2026-11-19'], ['mistralai/mistral-medium-3-5', '2027-01-31']]) {
+test('aggregator availability follows current endpoint evidence and announced retirement dates', () => {
+  for (const [id, date, status] of [
+    ['thinkingmachines/inkling-2-small:free', '2026-11-19', 'removed'],
+    ['meta-llama/llama-3.2-1b-instruct', '2026-11-20', 'removed'],
+    ['meta-llama/llama-3.2-3b-instruct', undefined, 'active'],
+    ['mistralai/mistral-medium-3-5', '2027-01-31', 'deprecated'],
+  ]) {
     const m = provider('openrouter').models.find(m => m.id === id);
-    assert.equal(m.status, 'deprecated'); assert.equal(m.deprecationDate, date);
+    assert.equal(m.status, status);
+    assert.equal(m.deprecationDate, date);
   }
   for (const id of ['liquid/d1.1']) {
     const m = read('system-one-provider-presets').find(p => p.id === 'openrouter').models.find(m => m.id === id);
