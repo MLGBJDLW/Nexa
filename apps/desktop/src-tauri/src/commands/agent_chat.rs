@@ -1103,6 +1103,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 Some(resolution) => {
                     let primary_native_vision_allowed = resolution.supports_native_images();
                     let fallback_native_vision_allowed = resolution.fallbacks_support_native_images();
+                    effective_db_config.service_tier = resolution.selected_service_tier(&db_config);
                     effective_db_config.provider = resolution.provider_id;
                     effective_db_config.provider_endpoint_id = Some(resolution.endpoint_id);
                     effective_db_config.base_url = resolution.provider_config.base_url.clone();

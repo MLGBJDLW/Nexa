@@ -326,6 +326,38 @@ pub struct RuntimeCapabilityResolution {
 }
 
 impl RuntimeCapabilityResolution {
+    /// A conversation's paid speed applies only to the selected model on its original connection.
+    pub fn selected_service_tier(
+        &self,
+        selected: &crate::conversation::AgentConfig,
+    ) -> Option<crate::model_catalog::ServiceTier> {
+        let tier = selected.service_tier?;
+        let default_url = crate::provider_catalog::find_provider_preset(&selected.provider, None)
+            .map(|preset| preset.base_url.as_str());
+        let endpoint = |url: Option<&str>| {
+            crate::model_catalog::normalize_endpoint_url(
+                url.filter(|url| !url.trim().is_empty()).or(default_url),
+            )
+        };
+        (self.snapshot.fallback_index == 0
+            && self.provider_id == selected.provider
+            && self.model_id == selected.model
+            && selected
+                .provider_endpoint_id
+                .as_ref()
+                .is_none_or(|id| id == &self.endpoint_id)
+            && endpoint(self.provider_config.base_url.as_deref())
+                == endpoint(selected.base_url.as_deref())
+            && self
+                .snapshot
+                .credential_ref
+                .as_deref()
+                .and_then(|id| id.strip_prefix("legacy-agent-config:"))
+                == Some(selected.id.as_str())
+            && self.provider_config.api_key.as_deref() == Some(selected.api_key.as_str()))
+        .then_some(tier)
+    }
+
     /// An automatic retry must never send pixels to a text-only fallback.
     pub fn supports_native_images(&self) -> bool {
         self.snapshot.native_image_input && self.fallbacks_support_native_images()
