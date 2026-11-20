@@ -776,6 +776,7 @@ test('provider-managed reasoning lets a stale native effort return to default', 
 
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {
 test(`${provider} model and native reasoning selection reach the chat request`, async ({ page }) => {
+  if (provider === 'openai_codex') await page.addInitScript(() => localStorage.setItem('e2e-model-peer-chat', '1'));
   await page.goto('/chat/conv-model-switch');
   const picker = page.getByTestId('agent-model-picker-trigger');
   await openProviderModels(page, configId);
@@ -814,6 +815,18 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
     agentConfigId: configId, modelSelection: { serviceTier: provider === 'openai_codex' ? 'ultrafast' : null },
   });
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string,unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider, model: 'gpt-native', reasoningEffort: 'ultra' });
+  if (provider === 'openai_codex') {
+    await page.getByRole('button', { name: /^Other model chat/ }).click();
+    await expect(picker).toContainText('tiny-context');
+    await openProviderModels(page, configId);
+    await page.getByTestId(`agent-model-option-${configId}-gpt-native`).click();
+    await expect(picker).toHaveAttribute('title', /openai_codex \/ gpt-native$/);
+    await page.getByTestId('chat-input-textarea').fill('Use the same model in this chat.');
+    await page.getByTestId('chat-send').click();
+    await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs)).toMatchObject({
+      conversationId: 'peer', agentConfigId: configId, modelSelection: { model: 'gpt-native', serviceTier: null },
+    });
+  }
 });
 }
 
