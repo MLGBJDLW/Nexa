@@ -73,7 +73,11 @@ impl Database {
                 SELECT m.conversation_id, max(m.rowid) AS message_row
                 FROM {source} JOIN scope s ON s.id = m.conversation_id
                 WHERE {predicate} AND m.role IN ('user','assistant')
-                  AND coalesce(m.display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext')
+                  AND coalesce(m.display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext','questionResponse')
+                  AND (m.display_reasoning_candidate = 0 OR CASE WHEN json_valid(m.tool_calls_json) THEN json_array_length(m.tool_calls_json) ELSE 0 END > 0
+                    OR coalesce((SELECT t.display_trace_flags FROM conversation_turns t
+                        WHERE t.conversation_id=m.conversation_id AND t.assistant_message_id=m.id ORDER BY t.created_at DESC,t.id DESC LIMIT 1),
+                        m.display_legacy_trace_flags,0) <> 1)
                 GROUP BY m.conversation_id
             )
             SELECT s.id,coalesce(s.title,''),s.updated_at,m.id,m.sort_order,
@@ -139,7 +143,29 @@ mod tests {
                 ('m3','matched','user','我们需要查找这段历史，保留 100%_ 的原文',3),
                 ('m4','child','user','hidden needle',1),('m5','old','assistant','archived needle',1),
                 ('m6','title','tool','invisible tool content',1);
+            INSERT INTO messages(id,conversation_id,role,content,sort_order,artifacts_json) VALUES
+                ('control','matched','user','private 控制内容',4,'{\"kind\":\"questionResponse\"}'),
+                ('steer','matched','user','visible steering 正文',5,'{\"kind\":\"steering\"}');
+            INSERT INTO messages(id,conversation_id,role,content,thinking,sort_order) VALUES
+                ('reason','matched','assistant','private 旧思考','private 旧思考',6);
+            INSERT INTO conversation_turns(id,conversation_id,user_message_id,assistant_message_id,status,trace_json) VALUES
+                ('turn','matched','m1','reason','completed','{\"kind\":\"turnTrace\",\"items\":[{\"kind\":\"thinking\",\"text\":\"private 旧思考\"}]}');
         ").unwrap();
+        for query in ["private", "旧思考", "控制内容"] {
+            assert!(db
+                .search_chat_history(query, false, None)
+                .unwrap()
+                .items
+                .is_empty());
+        }
+        assert_eq!(
+            db.search_chat_history("steering", false, None)
+                .unwrap()
+                .items[0]
+                .message_id
+                .as_deref(),
+            Some("steer")
+        );
         let hits = db.search_chat_history("need", false, None).unwrap().items;
         assert_eq!(hits.len(), 2);
         let body = hits.iter().find(|h| h.id == "matched").unwrap();
