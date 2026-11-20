@@ -38,7 +38,7 @@
         "status": "active",
         "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -66,7 +66,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -88,7 +92,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18T07:38:10Z",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -116,7 +120,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -173,7 +181,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-09-30",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -201,7 +209,11 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "nativeWebSearch": {
           "dialect": "openAiResponses",
@@ -248,10 +260,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-10-28",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
         "inputModalities": [
           "text",
@@ -295,10 +310,14 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast",
+            "ultrafast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-07"
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-6-sol",
@@ -334,10 +353,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6-sol",
         "inputModalities": [
           "text",
@@ -383,10 +405,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6-luna",
         "inputModalities": [
           "text",
@@ -426,8 +451,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.6-terra",
@@ -457,8 +486,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.6-luna",
@@ -488,8 +521,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.5",
@@ -507,8 +544,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.5-pro",
@@ -560,8 +601,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.4-pro",
@@ -613,8 +658,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.4-nano",
@@ -681,8 +730,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "gpt-5.2-pro",
@@ -761,7 +814,7 @@
         "recommended": false,
         "deprecationDate": "2027-04-01",
         "replacementModelId": "gpt-6-sol",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
         "contextTokens": 400000,
         "maxOutputTokens": 128000,
@@ -787,7 +840,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -801,7 +857,7 @@
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-6.1-sol",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations",
         "contextTokens": 400000,
         "maxOutputTokens": 128000,
@@ -827,7 +883,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -845,13 +904,16 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-5.6-terra",
-        "lastVerifiedAt": "2026-10-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
@@ -885,8 +947,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4.1-mini",
@@ -895,8 +962,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4.1-nano",
@@ -920,8 +992,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "gpt-4o-mini",
@@ -930,8 +1007,13 @@
         "recommended": false,
         "deprecationDate": "2027-01-14",
         "replacementModelId": "gpt-6-luna",
-        "lastVerifiedAt": "2026-11-05",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations",
+        "capabilities": {
+          "serviceTiers": [
+            "fast"
+          ]
+        }
       },
       {
         "id": "o3-pro",
@@ -1013,13 +1095,16 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
         "replacementModelId": "gpt-5.6-sol",
-        "lastVerifiedAt": "2026-10-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
@@ -24169,10 +24254,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
         "inputModalities": [
           "text",
@@ -24217,10 +24305,13 @@
               "enabled": false
             },
             "mode": "always"
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-11",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/fable-5-2/overview"
       },
       {
@@ -24320,7 +24411,7 @@
         "status": "gated",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-11",
+        "lastVerifiedAt": "2026-11-20",
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -24348,7 +24439,10 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         }
       },
       {
@@ -24423,10 +24517,13 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://platform.claude.com/docs/en/models/opus-5/overview",
         "inputModalities": [
           "text",
@@ -24599,8 +24696,12 @@
             "thinkingBudget": {
               "enabled": false
             }
-          }
-        }
+          },
+          "serviceTiers": [
+            "fast"
+          ]
+        },
+        "lastVerifiedAt": "2026-11-20"
       },
       {
         "id": "claude-opus-4-7",
@@ -25770,10 +25871,13 @@
             },
             "mode": "always"
           },
-          "vision": true
+          "vision": true,
+          "serviceTiers": [
+            "fast"
+          ]
         },
         "status": "active",
-        "lastVerifiedAt": "2026-11-13",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-2",
         "access": "account_enablement",
         "inputModalities": [

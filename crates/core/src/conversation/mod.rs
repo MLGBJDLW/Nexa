@@ -688,6 +688,9 @@ pub struct AgentConfig {
     pub is_default: bool,
     pub reasoning_enabled: Option<bool>,
     pub thinking_budget: Option<i64>,
+    /// Selected per conversation in model_selection_json. Connections carry no paid speed default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     pub reasoning_effort: Option<String>,
     pub max_iterations: Option<i64>,
     /// Optional cheaper model for summarization (e.g. "gpt-4o-mini").
@@ -5179,6 +5182,7 @@ fn agent_config_on_connection(
                 reasoning_enabled: row.get(10)?,
                 thinking_budget: row.get(11)?,
                 reasoning_effort: row.get(12)?,
+                service_tier: None,
                 created_at: row.get(13)?,
                 updated_at: row.get(14)?,
                 max_iterations: row.get(15)?,
@@ -5436,6 +5440,7 @@ impl Database {
                 reasoning_enabled: row.get(10)?,
                 thinking_budget: row.get(11)?,
                 reasoning_effort: row.get(12)?,
+                service_tier: None,
                 created_at: row.get(13)?,
                 updated_at: row.get(14)?,
                 max_iterations: row.get(15)?,
@@ -5537,6 +5542,7 @@ impl Database {
                     reasoning_enabled: row.get(10)?,
                     thinking_budget: row.get(11)?,
                     reasoning_effort: row.get(12)?,
+                service_tier: None,
                     created_at: row.get(13)?,
                     updated_at: row.get(14)?,
                     max_iterations: row.get(15)?,
@@ -5855,6 +5861,7 @@ pub async fn generate_title_with_usage(
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type,
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     };
@@ -6686,6 +6693,7 @@ mod tests {
         };
 
         let selection = TurnModelSelection {
+            service_tier: None,
             model: "gpt-5".into(),
             reasoning_effort: Some("high".into()),
             reasoning_enabled: Some(true),

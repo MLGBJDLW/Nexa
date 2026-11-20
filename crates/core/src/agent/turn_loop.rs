@@ -479,6 +479,7 @@ impl AgentExecutor {
             tools: Some(tools.to_vec()),
             provider_type: self.config.provider_type,
             reasoning_enabled: self.config.reasoning_enabled,
+            service_tier: self.config.service_tier,
             reasoning_effort: self.config.reasoning_effort.clone(),
             thinking_budget: self.config.thinking_budget,
             ..Default::default()

@@ -125,6 +125,8 @@ pub struct CodexAccountSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct CopilotModelSummary {
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) service_tiers: Vec<nexa_core::model_catalog::ServiceTier>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(super) context_tiers: Vec<nexa_core::context_policy::NativeContextTier>,
     pub(crate) id: String,
     pub(super) name: String,
@@ -194,6 +196,7 @@ pub(crate) fn copilot_model_available(model: &github_copilot_sdk::rpc::Model) ->
 
 fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelSummary {
     CopilotModelSummary {
+        service_tiers: Vec::new(),
         context_tiers: copilot_context_tiers(&model),
         context_window: model
             .capabilities
@@ -1251,6 +1254,9 @@ pub(crate) async fn native_subscription_models(
                     }
                     models.push(CopilotModelSummary {
                         supports_reasoning_effort: None,
+                        service_tiers: crate::agent_runtime::codex::service_tiers(item)
+                            .map(|(tier, _)| tier)
+                            .collect(),
                         context_tiers: Vec::new(),
                         context_window: item
                             .get("contextWindow")

@@ -68,6 +68,7 @@ pub(super) fn resolve_subagent_route(
         }
         provider_config = crate::desktop_agent_session::desktop_provider_config(&selected);
         config.provider_type = Some(provider_config.provider_type);
+        config.service_tier = selected.service_tier;
         config.model = Some(selected.model);
         config.temperature = selected.temperature.map(|value| value as f32);
         config.max_tokens = None;
@@ -110,6 +111,7 @@ pub(super) fn resolve_subagent_route(
             config.reasoning_enabled = None;
             config.reasoning_effort = None;
             config.thinking_budget = None;
+            config.service_tier = None;
             config.native_search_plan = Default::default();
             config.catalog_limits_authoritative = None;
         }

@@ -655,6 +655,7 @@ fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRe
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type: Some(provider_type_for_input(config)),
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     }

@@ -210,6 +210,8 @@ pub struct CompletionRequest {
     /// documented default instead of inventing a cross-provider fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     /// Provider-specific reasoning effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -246,6 +248,7 @@ impl Default for CompletionRequest {
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         }
@@ -725,6 +728,22 @@ pub struct ProviderConfig {
     pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub streaming: ProviderStreamingConfig,
+}
+
+impl ProviderConfig {
+    fn service_tier(
+        &self,
+        request: &CompletionRequest,
+    ) -> Option<crate::model_catalog::ServiceTier> {
+        request.service_tier.filter(|tier| {
+            crate::provider_catalog::model_service_tiers(
+                crate::provider_registry::canonical_provider_key(self.provider_type),
+                self.base_url.as_deref(),
+                &request.model,
+            )
+            .contains(tier)
+        })
+    }
 }
 
 pub(crate) fn configured_request_timeout(timeout_secs: u64) -> Option<std::time::Duration> {

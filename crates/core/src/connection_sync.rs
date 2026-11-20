@@ -30,6 +30,9 @@ pub struct SharedModelConnection {
     pub context_window: Option<i64>,
     pub reasoning_enabled: Option<bool>,
     pub thinking_budget: Option<i64>,
+    /// Applied on the per-turn copy. Connection exchange does not carry conversation preferences.
+    #[serde(skip)]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub provider_streaming: ProviderStreamingConfig,
@@ -110,6 +113,7 @@ impl SharedModelConnection {
             context_window: config.context_window,
             reasoning_enabled: config.reasoning_enabled,
             thinking_budget: config.thinking_budget,
+            service_tier: None,
             reasoning_effort: config.reasoning_effort.clone(),
             provider_streaming: config.provider_streaming,
             is_default: config.is_default,

@@ -3294,6 +3294,7 @@ mod tests {
             reasoning_enabled: Some(true),
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -3319,6 +3320,7 @@ mod tests {
             reasoning_enabled: Some(true),
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -3345,6 +3347,7 @@ mod tests {
             reasoning_enabled: Some(true),
             reasoning_effort: None,
             provider_type: Some(ProviderType::Google),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -3444,6 +3447,7 @@ mod tests {
             reasoning_enabled: Some(true),
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -3503,6 +3507,7 @@ mod tests {
                     reasoning_enabled: Some(true),
                     reasoning_effort,
                     provider_type: None,
+                    service_tier: None,
                     routing_session_id: None,
                     parallel_tool_calls: true,
                 };
@@ -3533,6 +3538,7 @@ mod tests {
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };

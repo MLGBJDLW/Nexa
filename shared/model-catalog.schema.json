@@ -106,6 +106,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "serviceTiers": { "type": "array", "uniqueItems": true, "items": { "enum": ["fast", "ultrafast"] } },
         "reasoning": { "$ref": "#/$defs/reasoning" },
         "vision": { "type": "boolean" },
         "audioInput": { "type": "boolean" },

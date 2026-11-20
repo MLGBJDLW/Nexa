@@ -332,6 +332,11 @@ fn capabilities(
         .unwrap_or_else(|| bool_value("structuredOutput"));
     let realtime = api_style.to_ascii_lowercase().contains("realtime");
     ModelCapabilities {
+        service_tiers: raw
+            .get("serviceTiers")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default(),
         reasoning,
         vision: bool_value("vision"),
         audio_input: surface == CatalogSurface::SpeechToText || bool_value("audioInput"),

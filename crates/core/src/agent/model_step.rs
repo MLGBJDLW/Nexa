@@ -292,6 +292,7 @@ impl AgentExecutor {
                 |controls| controls.reasoning_effort.clone(),
             ),
             provider_type: self.config.provider_type,
+            service_tier: self.config.service_tier,
             routing_session_id: conversation_id
                 .and_then(crate::llm::prompt_cache::privacy_preserving_routing_session_id),
             parallel_tool_calls: true,

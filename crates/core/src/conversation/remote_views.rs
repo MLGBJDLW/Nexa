@@ -288,6 +288,7 @@ mod tests {
     fn remote_pages_preserve_unicode_and_skip_large_runtime_payloads() {
         let db = Database::open_memory().unwrap();
         let selection = super::super::TurnModelSelection {
+            service_tier: None,
             model: "fixture".into(),
             reasoning_enabled: Some(true),
             reasoning_effort: Some("high".into()),

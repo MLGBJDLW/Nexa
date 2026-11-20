@@ -50,6 +50,8 @@ struct OaiRequest {
     model: String,
     messages: Vec<OaiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<crate::model_catalog::ServiceTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_cache_key: Option<String>,
@@ -1146,6 +1148,7 @@ fn build_request_body_with_config(
     OaiRequest {
         model: request.model.clone(),
         messages,
+        service_tier: config.and_then(|config| config.service_tier(request)),
         session_id: (cache_profile.routing_session_affinity)
             .then(|| request.routing_session_id.clone())
             .flatten(),
@@ -3237,6 +3240,9 @@ impl OpenAiProvider {
                 self.config.base_url.as_deref(),
             )
         {
+            if let Some(tier) = self.config.service_tier(request) {
+                body["service_tier"] = tier.as_str().into();
+            }
             // Responses otherwise promotes optional properties to required when it
             // can normalize the schema. Our action tools rely on field omission.
             for tool in body
@@ -6018,6 +6024,7 @@ mod tests {
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: None,
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         }
@@ -6383,6 +6390,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -7010,6 +7018,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::OpenAi),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8192,6 +8201,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::Max),
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8215,6 +8225,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8251,6 +8262,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8297,6 +8309,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8342,6 +8355,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8376,6 +8390,7 @@ data: [DONE]
             reasoning_enabled: Some(false),
             reasoning_effort: None,
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8399,6 +8414,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::OpenAi),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8468,6 +8484,7 @@ data: [DONE]
             reasoning_enabled: Some(false),
             reasoning_effort: None,
             provider_type: Some(provider_type),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8553,6 +8570,7 @@ data: [DONE]
             reasoning_enabled: Some(true),
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(provider_type),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8623,6 +8641,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::OpenAi),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8657,6 +8676,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::OpenRouter),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8683,6 +8703,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::OpenRouter),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8750,6 +8771,7 @@ data: [DONE]
                 reasoning_enabled: Some(true),
                 reasoning_effort: Some(ReasoningEffort::Low),
                 provider_type: Some(ProviderType::OpenRouter),
+                service_tier: None,
                 routing_session_id: None,
                 parallel_tool_calls: true,
             };
@@ -8776,6 +8798,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::OpenRouter),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8826,6 +8849,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8870,6 +8894,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8896,6 +8921,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(provider_type),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8931,6 +8957,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: Some(ReasoningEffort::High),
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -8979,6 +9006,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9025,6 +9053,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9061,6 +9090,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::AlibabaModelStudio),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9122,6 +9152,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9157,6 +9188,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::DeepSeek),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9301,6 +9333,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::OpenAi),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9338,6 +9371,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Custom),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9358,6 +9392,7 @@ data: [DONE]
                 super::CacheBoundaryHint::PolicyEnd,
             )],
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
             ..CompletionRequest::default()
@@ -9423,6 +9458,7 @@ data: [DONE]
             model: "anthropic/claude-sonnet-4.6".to_string(),
             messages: vec![Message::text(Role::User, "hello")],
             provider_type: Some(ProviderType::OpenRouter),
+            service_tier: None,
             routing_session_id: Some("nexa-deadbeef".to_string()),
             parallel_tool_calls: true,
             ..CompletionRequest::default()
@@ -9553,6 +9589,7 @@ data: [DONE]
             reasoning_enabled: None,
             reasoning_effort: None,
             provider_type: Some(ProviderType::Qwen),
+            service_tier: None,
             routing_session_id: None,
             parallel_tool_calls: true,
         };
@@ -9768,6 +9805,52 @@ data: [DONE]
         )
         .unwrap();
         assert_eq!(event.content, Some(web["page"].to_string()));
+    }
+
+    #[test]
+    fn paid_service_tiers_are_serialized_only_for_the_selected_endpoint_and_model() {
+        use crate::model_catalog::ServiceTier;
+        let mut config = endpoint_config(ProviderType::OpenAi, "https://api.openai.com/v1");
+        let mut request = endpoint_reasoning_request("gpt-6.2-sol");
+        for (model, tier, expected) in [
+            ("gpt-6.2-sol", None, None),
+            (
+                "gpt-6.2-sol",
+                Some(ServiceTier::Ultrafast),
+                Some("ultrafast"),
+            ),
+            ("gpt-5.6-sol", Some(ServiceTier::Fast), Some("fast")),
+            ("gpt-5.6-sol", Some(ServiceTier::Ultrafast), None),
+        ] {
+            request.model = model.into();
+            request.service_tier = tier;
+            let provider = OpenAiProvider::new(config.clone()).unwrap();
+            let responses = provider
+                .responses_body(
+                    &request,
+                    super::super::native_search::NativeSearchDialect::OpenAiResponses,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(responses["service_tier"].as_str(), expected);
+            let chat = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(chat["service_tier"].as_str(), expected);
+        }
+        config.base_url = Some("https://private.example/v1".into());
+        request.service_tier = Some(ServiceTier::Fast);
+        assert!(serde_json::to_value(build_request_body_with_config(
+            &request,
+            false,
+            Some(&config)
+        ))
+        .unwrap()
+        .get("service_tier")
+        .is_none());
     }
 
     #[test]

@@ -558,6 +558,28 @@ fn rejects_namespace_spec(frame: &Value) -> bool {
     }
 }
 
+/// Preserve the exact request ID from the account catalog (older Codex calls Fast "priority").
+pub(crate) fn service_tiers(
+    model: &Value,
+) -> impl Iterator<Item = (nexa_core::model_catalog::ServiceTier, &str)> {
+    use nexa_core::model_catalog::ServiceTier;
+    let tiers = model["serviceTiers"]
+        .as_array()
+        .or_else(|| model["additionalSpeedTiers"].as_array());
+    tiers.into_iter().flatten().filter_map(|entry| {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| entry.as_str())?;
+        let tier = match id {
+            "priority" | "fast" => ServiceTier::Fast,
+            "ultrafast" => ServiceTier::Ultrafast,
+            _ => return None,
+        };
+        Some((tier, id))
+    })
+}
+
 pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let cancellation = request.cancellation.clone();
     let model_id = request
@@ -597,6 +619,19 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 ));
             }
         }
+        let tier = request
+            .config
+            .service_tier
+            .map(|selected| {
+                service_tiers(&model)
+                    .find_map(|(tier, id)| (tier == selected).then_some(id))
+                    .ok_or_else(|| {
+                        protocol_error(
+                            "The selected speed is unavailable for this Codex model and account",
+                        )
+                    })
+            })
+            .transpose()?;
         let cwd = match request.dependencies.tools.workspace() {
             Some(workspace) => workspace
                 .cwd()
@@ -632,7 +667,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .await?;
         // turn/start may already launch tool callbacks when its reply is lost.
         // Keep it outside connection replay and use the durable checkpoint.
-        let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(&turn.prompt,&turn.images),"effort":effort,"environments":[],"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
+        let mut params = json!({"threadId":thread_id,"input":user_input(&turn.prompt,&turn.images),"effort":effort,"environments":[],"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}});
+        if let Some(tier) = tier {
+            params["serviceTier"] = tier.into();
+        }
+        let response = wire.request("turn/start", params).await?;
         let turn_id = response
             .pointer("/turn/id")
             .and_then(Value::as_str)
@@ -1014,6 +1053,28 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn account_service_tiers_preserve_codex_request_ids() {
+        use nexa_core::model_catalog::ServiceTier;
+        assert_eq!(
+            service_tiers(
+                &json!({"serviceTiers":[{"id":"default"},{"id":"priority"},{"id":"ultrafast"}]})
+            )
+            .collect::<Vec<_>>(),
+            vec![
+                (ServiceTier::Fast, "priority"),
+                (ServiceTier::Ultrafast, "ultrafast")
+            ]
+        );
+        assert_eq!(
+            service_tiers(&json!({"additionalSpeedTiers":["fast"]})).collect::<Vec<_>>(),
+            vec![(ServiceTier::Fast, "fast")]
+        );
+        assert_eq!(
+            service_tiers(&json!({"serviceTiers":[],"additionalSpeedTiers":["fast"]})).count(),
+            0
+        );
+    }
     #[test]
     fn attachment_only_input_omits_empty_text() {
         let images = vec![("image/png".into(), "fixture".into())];

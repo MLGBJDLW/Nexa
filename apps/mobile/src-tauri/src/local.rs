@@ -360,7 +360,7 @@ impl LocalRuntime {
             tool_call_id: None,
             tool_calls: Vec::new(),
             artifacts: Some(
-                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode,"allowedTools":options.allowed_tools}}),
+                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":TurnModelSelection::from(&saved),"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode,"allowedTools":options.allowed_tools}}),
             ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -511,6 +511,7 @@ impl LocalRuntime {
             thinking_budget: saved
                 .thinking_budget
                 .and_then(|value| value.try_into().ok()),
+            service_tier: saved.service_tier,
             reasoning_effort: saved
                 .reasoning_effort
                 .as_deref()

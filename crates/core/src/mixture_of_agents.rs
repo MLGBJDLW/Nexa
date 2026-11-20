@@ -425,6 +425,7 @@ impl MoaProvider {
                 model: advisor.slot.model.clone(),
                 messages: advisor_view.clone(),
                 provider_type: crate::provider_registry::provider_type_from_key(&advisor.slot.provider),
+                service_tier: None,
                 routing_session_id: request.routing_session_id.clone(),
                 parallel_tool_calls: false,
                 max_tokens: self.preset.reference_max_tokens,

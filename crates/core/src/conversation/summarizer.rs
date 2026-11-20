@@ -289,6 +289,7 @@ pub async fn summarize_evicted_messages_with_controls(
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type,
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     };

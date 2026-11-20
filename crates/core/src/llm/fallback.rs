@@ -88,6 +88,9 @@ impl AutomaticFallbackProvider {
 
     fn request_for_route(&self, request: &CompletionRequest, position: usize) -> CompletionRequest {
         let mut request = request.clone();
+        if position != 0 {
+            request.service_tier = None;
+        }
         request.model = self.routes[position].model.clone();
         request.provider_type = Some(self.routes[position].provider_type);
         let route = &self.routes[position];

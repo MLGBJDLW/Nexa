@@ -24,6 +24,7 @@ fn request() -> CompletionRequest {
         reasoning_enabled: None,
         reasoning_effort: None,
         provider_type: Some(ProviderType::Anthropic),
+        service_tier: None,
         routing_session_id: None,
         parallel_tool_calls: true,
     }

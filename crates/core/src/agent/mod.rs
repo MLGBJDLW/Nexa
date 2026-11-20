@@ -350,6 +350,8 @@ pub struct AgentConfig {
     pub reasoning_enabled: Option<bool>,
     /// Thinking budget in tokens (Anthropic, Gemini).
     pub thinking_budget: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<crate::model_catalog::ServiceTier>,
     /// Reasoning effort level (OpenAI o-series).
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Provider type hint — passed through to CompletionRequest.
@@ -531,6 +533,7 @@ impl Default for AgentConfig {
             reasoning_enabled: Some(true),
             thinking_budget: None,
             reasoning_effort: None,
+            service_tier: None,
             provider_type: None,
             native_search_plan: crate::llm::native_search::NativeSearchPlan::default(),
             request_kind: AgentRequestKind::MainAgentStep,

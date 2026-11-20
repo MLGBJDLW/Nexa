@@ -40,7 +40,7 @@ fn request(
         model: model.into(),
         messages: vec![Message::text(Role::System, COMPILE_SYSTEM_PROMPT), Message::text(Role::User, format!("Compile section {} of {total}. This is one bounded section; do not infer contents of other sections.\n\n{text}", index + 1))],
         max_tokens: None, temperature: Some(0.2), tools: None, stop: None, thinking_budget: None,
-        reasoning_enabled: None, reasoning_effort: None, provider_type, routing_session_id: None, parallel_tool_calls: true,
+        reasoning_enabled: None, reasoning_effort: None, provider_type, service_tier: None, routing_session_id: None, parallel_tool_calls: true,
     }
 }
 
