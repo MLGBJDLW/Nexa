@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.20.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workspace:** Draft Markdown renders automatically. The manual draft preview command has been removed.
+
+### Features
+
+* **workspace:** search conversation history and improve agent controls across devices ([#587](https://github.com/MLGBJDLW/Nexa/issues/587)) ([9394d45](https://github.com/MLGBJDLW/Nexa/commit/9394d45fc0fe5816641ecad5284c7ad3057495b2))
+
+
+### Bug Fixes
+
+* **catalog:** reconcile withdrawn deadlines and scoped November 20 routes ([#585](https://github.com/MLGBJDLW/Nexa/issues/585)) ([626886c](https://github.com/MLGBJDLW/Nexa/commit/626886c67d028b5c73164a4ade3f7c4cda406f9e))
+
 ## [0.19.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.17...nexa-monorepo-v0.19.18) (2026-11-19)
 
 ### Features
