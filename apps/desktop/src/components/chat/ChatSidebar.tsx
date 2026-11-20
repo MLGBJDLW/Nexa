@@ -656,7 +656,7 @@ function ChatSidebarComponent({
       setShowArchived(true);
     } else if (wasViewingArchivedConversationRef.current) {
       setShowArchived(false);
-      }
+    }
     wasViewingArchivedConversationRef.current = Boolean(activeId && activeConversationArchived);
   }, [activeConversationArchived, activeId]);
 
@@ -723,7 +723,7 @@ function ChatSidebarComponent({
             type="button"
             onClick={() => {
               setShowArchived(false);
-                      }}
+            }}
             className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
             aria-label={t('chat.backToConversations')}
           >

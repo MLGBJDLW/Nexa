@@ -162,6 +162,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
           value = { connectionId: params.connectionId, discoverySucceeded: true, error: null, models: [
             { id: 'qwen-vl', name: 'Qwen VL', vision: true, reasoning: null },
             { id: 'qwen-plus', name: 'Qwen Plus', vision: true, reasoning: { mode:'optional', effortLevels:['low', 'high'] } },
+            { id: 'priority-chat', name: 'Priority chat', serviceTiers: ['fast'], vision: true, reasoning: { mode:'optional', effortLevels:['low', 'high'] } },
           ] };
           break;
         case "connections.list":
@@ -865,16 +866,22 @@ test("remote Chat and Live choose provider models independently of saved desktop
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   const chats = page.getByLabel('Conversation', { exact:true });
   await selectControl(chats, 'chat-1');
-  await selectControl(page.getByLabel('Model connection', { exact:true }), 'qwen-plus');
+  await expect(page.getByTestId('service-tiers')).toHaveCount(0);
+  await selectControl(page.getByLabel('Model connection', { exact:true }), 'priority-chat');
+  await page.getByRole('button', { name: 'Fast', exact: true }).click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+  await expect(page.locator('.nexa-intensity')).toHaveAttribute('data-service-tier', 'fast');
+  await page.getByRole('button', { name: 'List', exact: true }).click();
   await selectControl(page.getByLabel('Model connection · Reasoning Effort', { exact:true }), 'high');
   await selectControl(chats, 'chat-2');
   await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen VL');
   await selectControl(chats, 'chat-1');
   await page.reload();
-  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Qwen Plus');
+  await expect(page.getByLabel('Model connection', { exact:true })).toContainText('Priority chat');
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByLabel('Message', { exact:true }).fill('Use the newly selected model');
   await page.getByRole('button', { name:'Send', exact:true }).click();
-  await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'qwen-plus', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null });
+  await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'priority-chat', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null, serviceTier:'fast' });
   await page.getByRole('button', { name:'Live', exact:true }).click();
   await selectControl(page.getByLabel('Observation model', { exact:true }), 'qwen-plus');
   await selectControl(page.getByLabel('Summary model', { exact:true }), 'qwen-vl');
@@ -1219,6 +1226,19 @@ test("an old chat launch cannot clear the new conversation draft", async ({
   ).toHaveCount(0);
 });
 
+
+test('phone sidebar opens an older body match without paging through the intervening chat', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
+  const phone = page.locator('.mobile-app');
+  await phone.locator('.native-chat-header button').first().click();
+  await phone.getByRole('button', { name: 'Search conversations' }).click();
+  await phone.getByRole('searchbox').fill('旧记录');
+  await phone.getByRole('button', { name: /Previous work.*旧记录/ }).click();
+  await expect(phone.locator('[data-message-id="historical"]')).toContainText('旧记录的正文');
+  await phone.getByRole('button', { name: 'Scroll to bottom' }).click();
+  await expect(phone.locator('[data-message-id="historical"]')).toHaveCount(0);
+});
 
 test('native phone reuses blank drafts, streams before completion, and manages conversations', async ({ page }, testInfo) => {
   await page.goto('/');

@@ -31,18 +31,31 @@ impl Database {
     ) -> Result<HistorySearchPage, CoreError> {
         let query = query.trim();
         if query.is_empty() {
-            return Ok(HistorySearchPage { items: vec![], next: None });
+            return Ok(HistorySearchPage {
+                items: vec![],
+                next: None,
+            });
         }
-        let indexed = query.chars().all(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace())
+        let indexed = query
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace())
             && query.split_whitespace().count() <= 32;
         let (source, predicate, terms) = if indexed {
             (
                 "fts_messages JOIN messages m ON m.id = fts_messages.message_id",
                 "fts_messages MATCH :terms",
-                query.split_whitespace().map(|word| format!("\"{word}\"*")).collect::<Vec<_>>().join(" "),
+                query
+                    .split_whitespace()
+                    .map(|word| format!("\"{word}\"*"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             )
         } else {
-            ("messages m", "instr(lower(m.content), lower(:terms)) > 0", query.to_owned())
+            (
+                "messages m",
+                "instr(lower(m.content), lower(:terms)) > 0",
+                query.to_owned(),
+            )
         };
         let sql = format!(
             "WITH scope AS (
@@ -66,8 +79,14 @@ impl Database {
         let reader = self.read_only_lane()?;
         let conn = reader.conn();
         let mut stmt = conn.prepare_cached(&sql)?;
-        let (date, id) = before.map(|[date, id]| (Some(date), Some(id))).unwrap_or_default();
-        let needle = if indexed { query.split_whitespace().next().unwrap_or(query) } else { query };
+        let (date, id) = before
+            .map(|[date, id]| (Some(date), Some(id)))
+            .unwrap_or_default();
+        let needle = if indexed {
+            query.split_whitespace().next().unwrap_or(query)
+        } else {
+            query
+        };
         let mut rows = stmt.query(named_params! {
             ":archived": archived, ":date": date, ":id": id,
             ":terms": terms, ":query": query, ":needle": needle,
@@ -77,13 +96,18 @@ impl Database {
         let mut next = None;
         while let Some(row) = rows.next()? {
             if items.len() == 32 {
-                next = items.last().map(|hit: &HistoryHit| [last_date, hit.id.clone()]);
+                next = items
+                    .last()
+                    .map(|hit: &HistoryHit| [last_date, hit.id.clone()]);
                 break;
             }
             last_date = row.get(2)?;
             items.push(HistoryHit {
-                id: row.get(0)?, title: row.get(1)?, message_id: row.get(3)?,
-                message_order: row.get(4)?, snippet: row.get(5)?,
+                id: row.get(0)?,
+                title: row.get(1)?,
+                message_id: row.get(3)?,
+                message_order: row.get(4)?,
+                snippet: row.get(5)?,
             });
         }
         Ok(HistorySearchPage { items, next })
@@ -114,18 +138,38 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let body = hits.iter().find(|h| h.id == "matched").unwrap();
         assert_eq!(body.message_id.as_deref(), Some("m2"));
-        assert!(hits.iter().find(|h| h.id == "title").unwrap().message_id.is_none());
+        assert!(hits
+            .iter()
+            .find(|h| h.id == "title")
+            .unwrap()
+            .message_id
+            .is_none());
         for query in ["这段历史", "100%_"] {
-            assert_eq!(db.search_chat_history(query, false, None).unwrap().items[0].message_order, Some(3));
+            assert_eq!(
+                db.search_chat_history(query, false, None).unwrap().items[0].message_order,
+                Some(3)
+            );
         }
-        assert!(db.search_chat_history("invisible", false, None).unwrap().items.is_empty());
-        assert_eq!(db.search_chat_history("needle", true, None).unwrap().items[0].id, "old");
+        assert!(db
+            .search_chat_history("invisible", false, None)
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(
+            db.search_chat_history("needle", true, None).unwrap().items[0].id,
+            "old"
+        );
         db.conn().execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<36)
             INSERT INTO conversations(id,title,provider,model) SELECT printf('page%03d',i),'paginate','local','test' FROM n").unwrap();
         let first = db.search_chat_history("paginate", false, None).unwrap();
-        let second = db.search_chat_history("paginate", false, first.next.as_ref()).unwrap();
-        assert_eq!((first.items.len(),second.items.len()), (32,4));
+        let second = db
+            .search_chat_history("paginate", false, first.next.as_ref())
+            .unwrap();
+        assert_eq!((first.items.len(), second.items.len()), (32, 4));
         assert!(second.next.is_none());
-        assert!(first.items.iter().all(|a| second.items.iter().all(|b| a.id != b.id)));
+        assert!(first
+            .items
+            .iter()
+            .all(|a| second.items.iter().all(|b| a.id != b.id)));
     }
 }

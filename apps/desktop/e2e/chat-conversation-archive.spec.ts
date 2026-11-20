@@ -1,6 +1,17 @@
 import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 
+test('sidebar search opens a message hit and restores the history list', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  await page.getByRole('button', { name: 'Search conversations', exact: true }).click();
+  const input = page.getByRole('searchbox', { name: 'Search conversations' });
+  await expect(input).toBeFocused();
+  await input.fill('藏在正文');
+  await page.getByRole('button', { name: /Active conversation.*藏在正文/ }).click();
+  await expect(page).toHaveURL(/conv-active\?message=m-anchor/);
+  await expect(page.getByTestId('conversation-select-conv-active')).toBeVisible();
+});
+
 test('chat worktree keeps the draft and requires a snapshot decision before archive', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
   await page.evaluate(() => {
@@ -285,6 +296,8 @@ test.beforeEach(async ({ page }) => {
           return 1047576;
         case 'get_wizard_state_cmd':
           return { completed: true, language: 'en', aiProvider: 'open_ai', sourceAdded: true };
+        case 'search_chat_history_cmd':
+          return { items: args?.query === '藏在正文' ? [{ id: 'conv-active', title: 'Active conversation', messageId: 'm-anchor', messageOrder: 1, snippet: '藏在正文里的句子' }] : [], next: null };
         case 'list_conversations_cmd':
           return clone(active);
         case 'create_conversation_cmd': {

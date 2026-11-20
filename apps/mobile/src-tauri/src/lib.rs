@@ -198,9 +198,15 @@ async fn mobile_local(
         "search" => {
             let db = state.db.clone();
             let query = string("query")?;
-            let before: Option<[String; 2]> = serde_json::from_value(input["before"].clone()).map_err(|e| e.to_string())?;
-            tokio::task::spawn_blocking(move || db.search_chat_history(&query, false, before.as_ref()))
-                .await.map_err(|e| e.to_string())?.map(|page| json!(page)).map_err(|e| e.to_string())
+            let before: Option<[String; 2]> =
+                serde_json::from_value(input["before"].clone()).map_err(|e| e.to_string())?;
+            tokio::task::spawn_blocking(move || {
+                db.search_chat_history(&query, false, before.as_ref())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|page| json!(page))
+            .map_err(|e| e.to_string())
         }
         "archived" => state
             .db

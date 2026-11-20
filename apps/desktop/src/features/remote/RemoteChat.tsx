@@ -272,8 +272,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     onCancel: () => { heldControls.current?.cancel(); heldControls.current = null; },
   });
   useLayoutEffect(() => {
-    if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
-  }, [mobile, messages, timeline]);
+    if (mobile && !searchAnchor && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
+  }, [mobile, messages, timeline, searchAnchor]);
   useLayoutEffect(() => {
     if (!searchAnchor?.messageId || scrolledHit.current === searchAnchor || drawerOpen) return;
     const target = contentScroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchAnchor.messageId)}"]`);
@@ -807,6 +807,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       }
       if (pendingSend.current === request) pendingSend.current = null;
       if (selectedConversation.current === id) {
+        setSearchAnchor(null); followOutput.current = true;
         setDraft((current) => (current === request.message ? "" : current));
         setAttachments(current => current === request.attachments ? [] : current);
         setRunning(true);

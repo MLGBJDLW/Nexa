@@ -123,13 +123,15 @@ export function renderMobileContinuity() {
   };
   let schedules: {id:string;definitionRevision:number;enabled:boolean;name:string}[] = [];
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1','chat-schedules-v1']}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-search-v1','chat-steering-v1','chat-schedules-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
     async rpc(method:string,params:any={}) {
       actions.push({method,params});
       if (method==='connections.list') return [{id:'connection',name:'Provider',model:'model',isDefault:true}];
+      if (method==='chat.search') return {items:params.query==='旧记录' ? [{id:'old',title:'Previous work',messageId:'historical',messageOrder:7,snippet:'旧记录的正文'}] : [],next:null};
+      if (method==='chat.read' && params.beforeOrder===8) return {messages:[{id:'historical',role:'user',content:'旧记录的正文',totalChars:6,sortOrder:7}],beforeOrder:null};
       if (method==='chat.list') {
         if (!projectsFixture || !new URLSearchParams(location.search).has('paged')) return {items:chats,nextCursor:null};
         const start = params.before ? chats.findIndex(item => item.id === params.before) + 1 : 0;

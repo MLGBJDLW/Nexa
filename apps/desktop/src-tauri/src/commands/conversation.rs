@@ -1795,7 +1795,9 @@ pub async fn search_chat_history_cmd(
 ) -> Result<nexa_core::conversation::HistorySearchPage, String> {
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || db.search_chat_history(&query, archived, before.as_ref()))
-        .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 // ── Checkpoint Commands ─────────────────────────────────────────────────
