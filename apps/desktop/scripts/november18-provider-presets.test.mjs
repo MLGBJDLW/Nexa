@@ -35,7 +35,7 @@ test('future aggregator expirations stay deprecated and endpoint-scoped', () => 
     const m = provider('openrouter').models.find(m => m.id === id);
     assert.equal(m.status, 'deprecated'); assert.equal(m.deprecationDate, date);
   }
-  for (const id of ['liquid/d1-ultra', 'liquid/d1.1']) {
+  for (const id of ['liquid/d1.1']) {
     const m = read('system-one-provider-presets').find(p => p.id === 'openrouter').models.find(m => m.id === id);
     assert.equal(m.status, 'deprecated'); assert.equal(m.deprecationDate, '2026-11-24');
   }

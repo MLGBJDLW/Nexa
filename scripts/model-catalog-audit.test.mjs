@@ -191,3 +191,14 @@ process.stdout.write('model catalog audit fixtures passed\n');
 
 assert.deepEqual(normalizeCatalogModel('video', { modelId: 'MiniMax-H3', displayName: 'MiniMax H3', releaseStatus: 'ga', selectable: true }), { modelId: 'MiniMax-H3', displayName: 'MiniMax H3', releaseStatus: 'ga', selectable: true, id: 'MiniMax-H3', name: 'MiniMax H3', status: 'active' });
 assert.equal(normalizeCatalogModel('video', { modelId: 'gated', displayName: 'Gated', releaseStatus: 'unverified' }).status, 'gated');
+
+// A withdrawn deadline is explicit evidence, unlike missing metadata; it is
+// not by itself permission to reactivate a retired model.
+const datedEndpoint = { ...endpoint, models: [{ ...endpoint.models[0], lifecycle: 'deprecated', deprecationDate: '2026-11-20' }] };
+const withdrawn = compareEndpointModels(datedEndpoint, [{ id: 'model-a', expiration_date: null }]);
+assert.deepEqual(withdrawn.expirationChanged, [{ id: 'model-a', curated: '2026-11-20', discovered: null }]);
+assert.deepEqual(withdrawn.lifecycleChanged, []);
+for (const metadata of [{}, { expiration_date: undefined }, { expiration_date: '' }, { expiration_date: 0 }]) {
+  assert.deepEqual(compareEndpointModels(datedEndpoint, [{ id: 'model-a', ...metadata }]).expirationChanged, []);
+}
+assert.deepEqual(compareEndpointModels(endpoint, [{ id: 'model-a', expiration_date: null }]).expirationChanged, []);
