@@ -3,6 +3,21 @@
 @import "@fontsource-variable/inter";
 @import "./components/ui/overlay/overlayTokens.css";
 
+/* The two linked arcs linger at the crest and gather speed through the drop. */
+@theme {
+  --animate-spin: nexa-linked-orbit 1.35s linear infinite;
+}
+@keyframes nexa-linked-orbit {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.56,.03,.95,.55); }
+  56% { transform: rotate(120deg); animation-timing-function: cubic-bezier(.15,.54,.38,1); }
+  100% { transform: rotate(360deg); }
+}
+svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) {
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.3' stroke-linecap='round'%3E%3Cpath d='M9.4 14.6a4.4 4.4 0 0 0 6.2 0l3-3a4.4 4.4 0 0 0-6.2-6.2l-1.5 1.5'/%3E%3Cpath opacity='.62' d='M14.6 9.4a4.4 4.4 0 0 0-6.2 0l-3 3a4.4 4.4 0 0 0 6.2 6.2l1.5-1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+@media (prefers-reduced-motion: reduce) { .animate-spin { animation: none; } }
+
 .nexa-logo-mark {
   display: block;
   flex: none;

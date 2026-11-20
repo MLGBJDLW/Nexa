@@ -11,14 +11,13 @@
 .update-activity-layer > svg { display: block; width: 100%; height: 100%; }
 .update-activity-orbit, .update-activity-arrow, .update-activity-package { will-change: transform, opacity; }
 .update-activity--compact { width: 18px; height: 18px; }
-.update-activity-orbit { animation: update-orbit 1.8s cubic-bezier(.4,0,.2,1) infinite; }
+.update-activity-orbit { animation: nexa-linked-orbit 1.8s linear infinite; }
 .update-activity-arrow { animation: update-arrival 1.8s cubic-bezier(.2,0,0,1) infinite; }
 .update-activity[data-phase='checking'] .update-activity-arrow { animation-duration: 2.4s; }
 .update-activity-progress { transition: stroke-dasharray 450ms cubic-bezier(.2,0,0,1); }
 .update-activity-package { animation: update-package 1.4s ease-in-out infinite; }
 .update-activity[data-phase='ready'] { color: var(--color-success, currentColor); }
 .update-activity-check { animation: update-ready 380ms cubic-bezier(.2,0,0,1) both; }
-@keyframes update-orbit { 0% { transform: rotate(0deg); } 60% { transform: rotate(250deg); } 100% { transform: rotate(360deg); } }
 @keyframes update-arrival {
   0% { transform: translateY(-5px); opacity: 0; }
   20%, 35% { transform: translateY(0); opacity: 1; }
