@@ -10,15 +10,50 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The report stores only the largest named allocations in each category.
+const DETAIL_LIMIT: usize = 12;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageDetail {
+    pub path: PathBuf,
+    pub table: Option<String>,
+    pub bytes: u64,
+    pub cleanup: &'static str,
+}
+
+fn keep_largest(entries: &mut Vec<StorageDetail>, item: StorageDetail) {
+    if item.bytes == 0 {
+        return;
+    }
+    let index = entries.partition_point(|existing| {
+        existing.bytes > item.bytes
+            || (existing.bytes == item.bytes
+                && (&existing.path, &existing.table) <= (&item.path, &item.table))
+    });
+    if index < DETAIL_LIMIT {
+        entries.insert(index, item);
+        entries.truncate(DETAIL_LIMIT);
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SharedStorageReport {
+    allowed: bool,
+    latest: Option<StorageUsage>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageCategory {
+    pub details: Vec<StorageDetail>,
     pub id: String,
     pub bytes: u64,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageUsage {
+    pub agent_access: bool,
     pub total_bytes: u64,
     pub categories: Vec<StorageCategory>,
     pub partial: bool,
@@ -55,6 +90,40 @@ fn table_category(table: &str) -> &'static str {
 }
 
 impl Database {
+    /// Hosts supply their own roots. The agent can only see the last report the user measured.
+    pub fn remember_storage_report(&self, mut report: StorageUsage) -> StorageUsage {
+        let mut state = self
+            .shared_storage_report
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        report.agent_access = state.allowed;
+        state.latest = Some(report.clone());
+        report
+    }
+
+    pub fn set_storage_report_access(&self, allowed: bool) {
+        let mut state = self
+            .shared_storage_report
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.allowed = allowed;
+        if let Some(report) = &mut state.latest {
+            report.agent_access = allowed;
+        }
+    }
+
+    pub fn shared_storage_report(&self) -> Option<StorageUsage> {
+        let state = self
+            .shared_storage_report
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if state.allowed {
+            state.latest.clone()
+        } else {
+            None
+        }
+    }
+
     /// Storage accounting walks every database btree. Keep that work off the
     /// connection used by interactive reads and writes, including mobile hosts.
     /// Call this on a blocking worker, not the shared UI database executor.
@@ -69,6 +138,8 @@ impl Database {
             "SELECT COUNT(*) FILTER (WHERE archived_at IS NULL), COUNT(*) FILTER (WHERE archived_at IS NOT NULL)
              FROM conversations WHERE parent_conversation_id IS NULL", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
         let mut sizes = BTreeMap::<String, u64>::new();
+        let mut details = BTreeMap::<String, Vec<StorageDetail>>::new();
+        let db_path = self.db_path();
         // Aggregate mode emits one row per btree, so the schema join and grouping
         // do not process one row per database page. SQLite still visits pages;
         // the dedicated connection is what isolates that I/O from UI queries.
@@ -82,7 +153,23 @@ impl Database {
                 Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
             })? {
                 let (table, bytes) = row?;
-                *sizes.entry(table_category(&table).into()).or_default() += bytes;
+                let category = table_category(&table);
+                *sizes.entry(category.into()).or_default() += bytes;
+                if let Some(path) = db_path {
+                    keep_largest(
+                        details.entry(category.into()).or_default(),
+                        StorageDetail {
+                            path: path.to_owned(),
+                            table: Some(table),
+                            bytes,
+                            cleanup: match category {
+                                "chats" => "chats",
+                                "knowledge" => "knowledge",
+                                _ => "database",
+                            },
+                        },
+                    );
+                }
             }
         }
         let allocated = database
@@ -103,9 +190,35 @@ impl Database {
         sizes.insert("wal".into(), database.wal_bytes.unwrap_or(0));
         let categories = sizes
             .into_iter()
-            .map(|(id, bytes)| StorageCategory { id, bytes })
+            .map(|(id, bytes)| {
+                let mut entries = details.remove(&id).unwrap_or_default();
+                if entries.is_empty() {
+                    if let Some(path) = db_path {
+                        let location = if id == "wal" {
+                            PathBuf::from(format!("{}-wal", path.display()))
+                        } else {
+                            path.to_owned()
+                        };
+                        keep_largest(
+                            &mut entries,
+                            StorageDetail {
+                                path: location,
+                                table: None,
+                                bytes,
+                                cleanup: "database",
+                            },
+                        );
+                    }
+                }
+                StorageCategory {
+                    id,
+                    bytes,
+                    details: entries,
+                }
+            })
             .collect::<Vec<_>>();
         Ok(StorageUsage {
+            agent_access: false,
             total_bytes: categories.iter().map(|item| item.bytes).sum(),
             categories,
             partial: false,
@@ -146,6 +259,7 @@ pub fn add_files(
         .collect::<Vec<_>>();
     let mut visited = HashSet::new();
     let mut sizes = BTreeMap::<String, u64>::new();
+    let mut details = BTreeMap::<String, Vec<StorageDetail>>::new();
     let db_files = database_path.map(|path| {
         [
             path.to_path_buf(),
@@ -200,7 +314,30 @@ pub fn add_files(
         } else if metadata.is_file()
             && !db_files.as_ref().is_some_and(|files| files.contains(&path))
         {
-            *sizes.entry(category.to_string()).or_default() += metadata.len();
+            let (group, cleanup) = match category {
+                "cache" => ("runtime", "cache"),
+                "logs" => ("runtime", "logs"),
+                "models" => ("models", "models"),
+                "extensions" => ("extensions", "extensions"),
+                _ => (category, "managed"),
+            };
+            *sizes.entry(group.to_owned()).or_default() += metadata.len();
+            let entries = details.entry(group.to_owned()).or_default();
+            if entries.len() < DETAIL_LIMIT
+                || entries
+                    .last()
+                    .is_some_and(|last| last.bytes <= metadata.len())
+            {
+                keep_largest(
+                    entries,
+                    StorageDetail {
+                        path,
+                        table: None,
+                        bytes: metadata.len(),
+                        cleanup,
+                    },
+                );
+            }
         }
     }
     for (id, bytes) in sizes {
@@ -211,8 +348,15 @@ pub fn add_files(
             .find(|category| category.id == id)
         {
             category.bytes += bytes;
+            for entry in details.remove(&id).unwrap_or_default() {
+                keep_largest(&mut category.details, entry);
+            }
         } else {
-            usage.categories.push(StorageCategory { id, bytes });
+            usage.categories.push(StorageCategory {
+                details: details.remove(&id).unwrap_or_default(),
+                id,
+                bytes,
+            });
         }
     }
 }
@@ -273,5 +417,22 @@ mod tests {
             256
         );
         assert!(!usage.partial);
+        let entry = &usage
+            .categories
+            .iter()
+            .find(|category| category.id == "models")
+            .unwrap()
+            .details[0];
+        assert!(entry.path.ends_with("model.bin"));
+        assert_eq!((entry.bytes, entry.cleanup), (256, "models"));
+        db.remember_storage_report(usage);
+        assert!(db.shared_storage_report().is_none());
+        db.set_storage_report_access(true);
+        assert_eq!(
+            db.shared_storage_report().unwrap().total_bytes,
+            previous + 384
+        );
+        db.set_storage_report_access(false);
+        assert!(db.shared_storage_report().is_none());
     }
 }

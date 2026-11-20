@@ -3490,23 +3490,34 @@ test('desktop model storage exposes measured usage and refreshes it', async ({ p
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
     (window as any).storageFixtureSize = 1;
-    host.invoke = (command: string, args: unknown) => {
+    let allowed = false;
+    host.invoke = (command: string, args: any) => {
+      if (command === 'set_storage_report_access_cmd') { allowed = args.allowed; return Promise.resolve(); }
       if (command !== 'get_storage_usage_cmd') return original(command, args);
       const scans = (window as any).storageFixtureSize;
       return Promise.resolve({ totalBytes: scans * 1024 * 1024, partial: false,
-        categories: [{ id: 'models', bytes: scans * 1024 * 1024 }],
+        agentAccess: allowed, categories: [{ id: 'models', bytes: scans * 1024 * 1024,
+          details: [{ path: '/data/models/sample.bin', table: null, bytes: scans * 1024 * 1024, cleanup: 'models' }] }],
         activeConversations: 3, archivedConversations: 1,
         database: { allocatedBytes: 0, reusableBytes: 0, mainFileBytes: 0, walBytes: 0 } });
     };
   });
   await page.goto('/settings');
-  await page.getByRole('tab', { name: 'Models & Embedding', exact: true }).click();
+  await page.getByRole('tab', { name: 'Data & Privacy', exact: true }).click();
   const usage = page.getByTestId('storage-usage');
   await expect(usage.getByRole('img', { name: 'Storage by category' })).toBeVisible();
   await expect(usage).toContainText('1.0 MiB');
   await page.evaluate(() => { (window as any).storageFixtureSize = 2; });
   await usage.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(usage).toContainText('2.0 MiB');
+  await usage.locator('summary').click();
+  await expect(usage.getByText('/data/models/sample.bin')).toBeVisible();
+  const access = usage.getByRole('checkbox');
+  await access.check();
+  await expect(access).toBeChecked();
+  await access.uncheck();
+  await expect(access).not.toBeChecked();
+
   await expect(usage.getByRole('button', { name: 'Manage conversations', exact: true })).toBeVisible();
 });
 

@@ -1,4 +1,13 @@
 {
+  "storageCleanupChats": "通过“管理对话”删除不需要的记录。",
+  "storageCleanupKnowledge": "在知识库中移除来源可释放对应索引。",
+  "storageCleanupModels": "可在本地模型设置中移除不用的下载。",
+  "storageCleanupCache": "可重建的缓存。退出 Nexa 后可以清理。",
+  "storageCleanupLogs": "退出 Nexa 后可删除旧日志。",
+  "storageCleanupDatabase": "由 SQLite 管理，请保留此文件。",
+  "storageCleanupExtensions": "可在扩展管理中卸载不再使用的扩展。",
+  "storageCleanupManaged": "应用管理的数据。移除前请核实用途。",
+  "storageAgentAccess": "允许智能体读取这份含路径的存储报告，直到退出 Nexa。",
   "cursorPlanUsageHint": "使用 The X Subscription 时，可选择套餐内的 Grok 或 Composer 模型。在 grok.com/dashboard 核对 CLI 登录账号和本周额度。支持第三方模型的套餐会从预付余额中扣费。",
   "cursorApiKey": "Cursor API Key（可选）",
   "cursorApiKeyHelp": "输入账户控制台生成的 Cursor API Key，或留空使用 Cursor CLI 登录。检测连接后加载当前账户可用模型。Grok API Key 请配置到 xAI 供应商，两种密钥不能混用。",

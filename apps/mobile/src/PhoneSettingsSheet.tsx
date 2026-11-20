@@ -14,6 +14,7 @@ import { StorageUsageCard } from '../../desktop/src/components/settings/StorageU
 import type { StorageService } from '../../desktop/src/lib/api';
 
 const phoneStorage: StorageService = {
+  setReportAccess: allowed => invoke('mobile_storage', { action: 'access', allowed }),
   usage: () => invoke('mobile_storage', { action: 'usage' }),
   page: (scope, cursor) => invoke('mobile_storage', { action: 'page', scope, cursor }),
   archive: ids => invoke('mobile_storage', { action: 'archive', ids }),

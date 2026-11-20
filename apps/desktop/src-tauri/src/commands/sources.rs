@@ -440,6 +440,11 @@ pub async fn get_database_storage_stats_cmd(
 }
 
 #[tauri::command]
+pub fn set_storage_report_access_cmd(state: tauri::State<'_, AppState>, allowed: bool) {
+    state.db.set_storage_report_access(allowed);
+}
+
+#[tauri::command]
 pub async fn get_storage_usage_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::storage_usage::StorageUsage, String> {
@@ -474,12 +479,19 @@ pub async fn get_storage_usage_cmd(
         if let Some(root) = database_path.as_ref().and_then(|path| path.parent()) {
             roots.push((root.to_path_buf(), "files"));
             for folder in ["cache", "logs", "browser-profiles", "runtime"] {
-                roots.push((root.join(folder), "runtime"));
+                roots.push((
+                    root.join(folder),
+                    match folder {
+                        "cache" => "cache",
+                        "logs" => "logs",
+                        _ => "runtime",
+                    },
+                ));
             }
             roots.push((root.join("models"), "models"));
         }
         nexa_core::storage_usage::add_files(&mut usage, &roots, database_path.as_deref());
-        Ok(usage)
+        Ok(db.remember_storage_report(usage))
     })
     .await
     .map_err(|error| error.to_string())?

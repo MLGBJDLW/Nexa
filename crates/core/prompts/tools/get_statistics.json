@@ -1,12 +1,16 @@
 {
   "name": "get_statistics",
-  "description": "Get knowledge base statistics including total sources, documents, chunks, storage size, and last indexed time. Use to understand the current state and health of the knowledge base.",
+  "description": "Get knowledge base statistics including total sources, documents, chunks, storage size, and last indexed time. Use to understand the current state and health of the knowledge base. Can also read the installation storage report shared by the user in Data & Privacy.",
   "parameters": {
     "type": "object",
     "properties": {
       "source_id": {
         "type": "string",
         "description": "Optional source ID to filter statistics to a specific source."
+      },
+      "storage_report": {
+        "type": "boolean",
+        "description": "Read the most recent user-authorized storage report with measured paths, sizes and cleanup policies. Available only in an unscoped chat."
       }
     },
     "required": []

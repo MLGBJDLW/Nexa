@@ -521,6 +521,7 @@ async fn mobile_storage(
     app: AppHandle,
     runtime: State<'_, RuntimeSlot>,
     action: String,
+    allowed: Option<bool>,
     scope: Option<String>,
     cursor: Option<nexa_core::conversation::ConversationStorageCursor>,
     ids: Option<Vec<String>>,
@@ -537,15 +538,19 @@ async fn mobile_storage(
     let changed_ids = ids.clone().unwrap_or_default();
     let operation = action.clone();
     let result = tokio::task::spawn_blocking(move || match action.as_str() {
+        "access" => {
+            db.set_storage_report_access(allowed.ok_or("Missing storage access choice.")?);
+            Ok(Value::Null)
+        }
         "locations" => Ok(json!({ "data": directory, "cache": cache })),
         "usage" => {
             let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
             nexa_core::storage_usage::add_files(
                 &mut usage,
-                &[(directory, "files"), (cache, "runtime")],
+                &[(directory, "files"), (cache, "cache")],
                 db.db_path(),
             );
-            Ok(json!(usage))
+            Ok(json!(db.remember_storage_report(usage)))
         }
         "page" => db
             .conversation_storage_page(scope.as_deref().unwrap_or("active"), cursor.as_ref())

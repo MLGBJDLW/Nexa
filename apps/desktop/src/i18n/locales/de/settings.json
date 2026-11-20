@@ -1,4 +1,13 @@
 {
+  "storageCleanupChats": "Unter „Chats verwalten“ lassen sich Gespräche löschen.",
+  "storageCleanupKnowledge": "In den Wissenseinstellungen die Quelle entfernen, um ihren Index freizugeben.",
+  "storageCleanupModels": "Ungenutzte Downloads unter „Lokale Modelle“ entfernen.",
+  "storageCleanupCache": "Dieser Cache wird neu erstellt. Nach dem Beenden von Nexa lässt er sich leeren.",
+  "storageCleanupLogs": "Alte Protokolle lassen sich nach dem Beenden von Nexa entfernen.",
+  "storageCleanupDatabase": "SQLite verwaltet diese Datei. Auf dem Datenträger behalten.",
+  "storageCleanupExtensions": "Ungenutzte Erweiterungen in den Erweiterungseinstellungen deinstallieren.",
+  "storageCleanupManaged": "Von der App verwaltete Daten. Vor dem Entfernen den Verwendungszweck prüfen.",
+  "storageAgentAccess": "Agenten dürfen diesen Speicherbericht mit Pfaden lesen, bis Nexa beendet wird.",
   "cursorPlanUsageHint": "Wähle mit The X Subscription ein enthaltenes Grok- oder Composer-Modell. Prüfe das CLI-Konto und das Wochenkontingent auf grok.com/dashboard. Modelle anderer Anbieter verbrauchen bei berechtigten Tarifen Prepaid-Guthaben.",
   "cursorApiKey": "Cursor-API-Schlüssel (optional)",
   "cursorApiKeyHelp": "Verwenden Sie einen Cursor-API-Schlüssel aus Ihrem Konto oder lassen Sie das Feld leer, um die Anmeldung der Cursor CLI zu nutzen. Prüfen Sie die Verbindung, um die für Ihr Konto verfügbaren Modelle zu laden. Grok-API-Schlüssel gehören zum Anbieter xAI.",

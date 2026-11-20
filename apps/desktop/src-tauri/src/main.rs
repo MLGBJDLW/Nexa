@@ -858,6 +858,7 @@ fn main() {
             commands::get_index_stats,
             commands::get_database_storage_stats_cmd,
             commands::get_storage_usage_cmd,
+            commands::set_storage_report_access_cmd,
             commands::get_conversation_storage_page_cmd,
             commands::archive_conversations_batch_cmd,
             commands::rebuild_index,

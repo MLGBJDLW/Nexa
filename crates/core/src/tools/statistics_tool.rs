@@ -21,6 +21,8 @@ const DEF_JSON: &str = include_str!("../../prompts/tools/get_statistics.json");
 #[derive(Deserialize)]
 struct GetStatisticsArgs {
     source_id: Option<String>,
+    #[serde(default)]
+    storage_report: bool,
 }
 
 /// Tool that returns knowledge base statistics.
@@ -56,8 +58,27 @@ impl Tool for GetStatisticsTool {
             ..
         } = context;
         let args: GetStatisticsArgs =
-            serde_json::from_str(arguments).unwrap_or(GetStatisticsArgs { source_id: None });
+            serde_json::from_str(arguments).unwrap_or(GetStatisticsArgs {
+                source_id: None,
+                storage_report: false,
+            });
 
+        if args.storage_report {
+            if args.source_id.is_some() || scope_is_active(source_scope) {
+                return Err(CoreError::InvalidInput(
+                    "Storage reports are installation-wide and require an unscoped chat.".into(),
+                ));
+            }
+            let report = db.shared_storage_report().ok_or_else(|| CoreError::InvalidInput(
+                "Open Data & Privacy, measure storage and allow agent access to the report for this session.".into()))?;
+            return Ok(ToolResult {
+                call_id: call_id.into(),
+                content: serde_json::to_string(&report)
+                    .map_err(|e| CoreError::Internal(e.to_string()))?,
+                is_error: false,
+                artifacts: None,
+            });
+        }
         let db = db.clone();
         let call_id = call_id.to_string();
         let source_scope = source_scope.to_vec();
