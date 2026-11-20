@@ -32,7 +32,7 @@ export type TimelineSection =
   | { kind: 'status'; id: string; text: string; tone?: TraceTone; code?: string }
   | { kind: 'steering'; id: string; text: string }
   | { kind: 'tool'; id: string; toolCall: ToolCallEvent; trace: boolean }
-  | { kind: 'reply'; id: string; text: string };
+  | { kind: 'reply'; id: string; text: string; messageId?: string };
 
 export type LiveTraceTimelineItem =
   | {

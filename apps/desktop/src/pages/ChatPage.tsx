@@ -508,6 +508,7 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const focusMessageId = useMemo(() => new URLSearchParams(location.search).get('message'), [location.search]);
   const { activeProjectId, setProject } = useActiveProject();
 
   const onConversationCreated = useCallback(
@@ -556,7 +557,7 @@ export function ChatPage() {
   const chat = useChatSession({
     historyFork,
     conversationId,
-    anchorMessageId: new URLSearchParams(location.search).get('message'),
+    anchorMessageId: focusMessageId,
     onConversationCreated,
     systemPrompt: ((location.state as { systemPrompt?: string } | null)?.systemPrompt ?? '').trim(),
     initialSourceIds,
@@ -1949,9 +1950,14 @@ export function ChatPage() {
               hasNewerMessages={chat.hasNewerMessages}
               loadingOlderMessages={chat.loadingOlderMessages}
               onLoadOlderMessages={chat.loadOlderMessages}
-              onLoadLatestMessages={chat.loadLatestMessages}
+              onLoadLatestMessages={focusMessageId ? async () => {
+                const query = new URLSearchParams(location.search);
+                query.delete('message');
+                navigate({ pathname: location.pathname, search: query.toString() }, { replace: true, state: location.state });
+              } : chat.loadLatestMessages}
               onLoadTurnDetails={chat.loadTurnDetails}
-              focusMessageId={new URLSearchParams(location.search).get('message')}
+              focusMessageId={focusMessageId}
+              focusNavigationKey={location.key}
               streamText={chat.streamText}
               streamRounds={chat.streamRounds}
               traceEvents={chat.traceEvents}

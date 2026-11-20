@@ -105,6 +105,7 @@ interface ChatMessagesProps {
   onLoadLatestMessages?: () => Promise<void>;
   onLoadTurnDetails?: (anchorId: string) => Promise<void>;
   focusMessageId?: string | null;
+  focusNavigationKey?: string;
   streamText: string;
   streamRounds: StreamRoundEvent[];
   traceEvents: TraceEvent[];
@@ -1023,7 +1024,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
-        | { kind: 'reply'; id: string; text: string }
+        | Extract<TimelineSection, { kind: 'reply' }>
         | { kind: 'image'; id: string; section: Extract<TimelineSection, { kind: 'tool' }> }
         | {
             kind: 'answeredQuestion';
@@ -1050,7 +1051,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
-        if (section.kind === 'reply' && hasInlineChatPreview(section)) {
+        if (section.kind === 'reply' && (hasInlineChatPreview(section) || (section.messageId && section.messageId === props.focusMessageId))) {
           flushTrace();
           ordered.push(section);
           continue;
@@ -1115,7 +1116,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                 forceExpanded,
               )
             : item.kind === 'reply'
-              ? renderTraceReplyNode(item.id, item.text)
+              ? <div key={item.id} data-chat-message-id={item.messageId}>{renderTraceReplyNode(item.id, item.text)}</div>
               : item.kind === 'image' ? (
                 <Fragment key={item.id}>{renderTimelineSection({ ...item.section, trace: false }, parentRunActive)?.node}</Fragment>
               ) : item.kind === 'steering' ? (
@@ -1140,7 +1141,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, renderTraceReplyNode, t],
+    [props.focusMessageId, questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, renderTraceReplyNode, t],
   );
 
   const messageThinkingText = useMemo(() => {
@@ -1414,6 +1415,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           traceSections.push({
             kind: "reply",
             id: `trace-reply-${msg.id}`,
+            messageId: msg.id,
             text: msg.content,
           });
         }
@@ -1843,14 +1845,38 @@ export function ChatMessages(props: ChatMessagesProps) {
 
   const focusedMessage = useRef<string | null>(null);
   useEffect(() => {
-    if (!props.focusMessageId || loadingMsgs || turnNavigationItems.length === 0) return;
-    const identity = `${props.conversationId}:${props.focusMessageId}`;
-    if (focusedMessage.current === identity) return;
-    focusedMessage.current = identity;
-    const owner = turns.find(turn => turn.assistantMessageId === props.focusMessageId);
-    const target = turnNavigationItems.find(item => item.userMessageId === (owner?.userMessageId ?? props.focusMessageId)) ?? turnNavigationItems[0];
-    scrollToTurn(target.id);
-  }, [loadingMsgs, props.conversationId, props.focusMessageId, scrollToTurn, turnNavigationItems, turns]);
+    const id = props.focusMessageId;
+    if (!id) { focusedMessage.current = null; return; }
+    const container = scrollContainerRef.current;
+    const identity = JSON.stringify([props.conversationId, id, props.focusNavigationKey]);
+    if (!container || loadingMsgs || focusedMessage.current === identity) return;
+    const index = messageIndexById.get(id);
+    if (index == null) return;
+    const row = renderableMessageIndexes.findIndex(rowIndex => {
+      const assistant = turnRenderMap.anchors.get(rowIndex)?.assistantIdx ?? rowIndex;
+      const group = messageTraceGroups.get(assistant);
+      return rowIndex === index || assistant === index || (group?.type === 'anchor' && group.memberIndexes?.includes(index));
+    });
+    if (row < 0) return;
+    shouldAutoFollowRef.current = false;
+    const selector = `[data-chat-message-id="${CSS.escape(id)}"]`;
+    const reveal = () => {
+      const bubble = container.querySelector<HTMLElement>(selector);
+      if (!bubble) return false;
+      const top = bubble.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+      rowVirtualizer.scrollToOffset(Math.max(0, top - 16));
+      focusedMessage.current = identity;
+      return true;
+    };
+    if (reveal()) return;
+    // A deep link can select an unmounted row or an answer inside its grouped turn.
+    // Complete navigation only when that exact message reaches the DOM.
+    const observer = new MutationObserver(() => { if (reveal()) observer.disconnect(); });
+    observer.observe(container, { childList: true, subtree: true });
+    rowVirtualizer.scrollToIndex(row, { align: 'start' });
+    return () => observer.disconnect();
+  }, [loadingMsgs, messageIndexById, messageTraceGroups, props.conversationId, props.focusMessageId, props.focusNavigationKey,
+    renderableMessageIndexes, rowVirtualizer, turnRenderMap.anchors]);
 
   const renderDeferredActivity = (anchorId: string) => {
     const entry = detailEntries.get(anchorId);

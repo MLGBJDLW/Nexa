@@ -633,7 +633,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setCustomSystemPrompt(systemPromptCacheRef.current[activeId] ?? '');
     setUsageSnapshot(null);
 
-    if (isStreaming && timeline.get(activeId).messages.length > 0 && !externalAnchorMessageId) {
+    const currentTimeline = timeline.get(activeId);
+    if (isStreaming && currentTimeline.messages.length > 0 && !currentTimeline.hasMoreAfter && !externalAnchorMessageId) {
       setLoadingMsgs(false);
       return;
     }

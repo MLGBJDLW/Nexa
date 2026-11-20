@@ -174,7 +174,18 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
         case "chat.list":
           value = { items: conversations, nextCursor: null };
           break;
+        case "chat.search":
+          value = { items: [{ id: 'past', title: 'Previous review',
+            ...(params.query === 'handover' ? { messageId:'early', messageOrder:5, snippet:'handover finding' }
+              : { messageId:null, messageOrder:null, snippet:null }) }], next: null };
+          break;
         case "chat.read":
+          if (params.conversationId === 'past') {
+            const older = params.beforeOrder === 6;
+            value = { messages: [{ id: older ? 'early' : 'latest', role:'assistant', intermediate:older,
+              content: older ? 'The handover finding' : 'Recent update', sortOrder: older ? 5 : 100 }], beforeOrder:null };
+            break;
+          }
           if (historyEnabled && params.beforeOrder != null) {
             await new Promise<void>((resolve) => historyReplies.push(resolve));
             value = {
@@ -407,6 +418,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, 
       socket?.send(JSON.stringify({event:'voice:event',payload:{sessionId:voiceId,sequence:++voiceSequence,kind:'interim',text}}));
     },
     preferences: (value: any) => { preferences = value; },
+    enableSearch: () => Object.assign(manifest, { capabilities: ['chat-search-v1'] }),
     counts: () => ({
       pairCount,
       audio,
@@ -1228,8 +1240,11 @@ test("an old chat launch cannot clear the new conversation draft", async ({
 
 
 test('phone sidebar opens an older body match without paging through the intervening chat', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
+  await page.goto('/?projects');
+  await page.evaluate(async () => {
+    localStorage.setItem('fixture.chatProjects.phone', JSON.stringify({ projects: [{ id:'reports', name:'Reports' }], memberships:{ old:'reports' } }));
+    const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity();
+  });
   const phone = page.locator('.mobile-app');
   await phone.locator('.native-chat-header button').first().click();
   await phone.getByRole('button', { name: 'Search all conversations' }).click();
@@ -1238,6 +1253,28 @@ test('phone sidebar opens an older body match without paging through the interve
   await expect(phone.locator('[data-message-id="historical"]')).toContainText('旧记录的正文');
   await phone.getByRole('button', { name: 'Scroll to bottom' }).click();
   await expect(phone.locator('[data-message-id="historical"]')).toHaveCount(0);
+  await phone.locator('.native-chat-header button').first().click();
+  await expect(phone.getByRole('button', { name:'Reports', exact:true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(phone.getByRole('navigation', { name:'Reports' }).getByText('Previous work')).toBeVisible();
+});
+
+test('paired web search opens title and intermediate message hits outside the first history page', async ({ page }) => {
+  const app = await fixture(page);
+  app.enableSearch();
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  const search = async (query: string) => {
+    await page.getByRole('button', { name:'Search all conversations' }).click();
+    await page.getByRole('searchbox').fill(query);
+    await page.getByRole('button', { name:/Previous review/ }).click();
+  };
+  await search('Previous review');
+  await expect(page.locator('[data-message-id="latest"]')).toHaveText(/Recent update/);
+  await expect(page.getByLabel('Conversation', {exact:true})).toHaveValue('past');
+  await expect(page.getByRole('option', {name:'Previous review'})).toBeAttached();
+  await search('handover');
+  await expect(page.locator('[data-message-id="early"]')).toBeInViewport();
+  await page.getByRole('button', {name:'Scroll to bottom'}).click();
+  await expect(page.locator('[data-message-id="latest"]')).toHaveText(/Recent update/);
 });
 
 test('native phone reuses blank drafts, streams before completion, and manages conversations', async ({ page }, testInfo) => {

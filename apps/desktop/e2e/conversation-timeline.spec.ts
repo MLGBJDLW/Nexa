@@ -33,12 +33,23 @@ test.beforeEach(async ({ page }) => {
         case 'list_agent_configs_cmd':return [config];
         case 'get_model_context_window':return 100000;
         case 'list_conversations_cmd':return [conversation];
+        case 'search_chat_history_cmd':return {items:[{id:'history',title:'Paged history',messageId:'a50',messageOrder:502,snippet:'Answer 50.'}],next:null};
         case 'get_conversation_timeline_page_cmd': {
           requests.push(args);
           const start = args.anchorMessageId ? Number(String(args.anchorMessageId).slice(1)) : args.after ? Number(args.after.messageId.slice(1)) : args.before ? Math.max(1,Number(args.before.messageId.slice(1))-20) : 9981;
           const end = Math.min(10000,args.before ? Number(args.before.messageId.slice(1))-1 : start+19);
           const numbers=Array.from({length:end-start+1},(_,index)=>start+index);
-          return {conversation,messages:numbers.flatMap(number=>[message(number,'user'),message(number,'assistant')]),turns:numbers.map(turn),entries:numbers.map(number=>({anchor:cursor(number),turnId:`t${number}`,hasDetails:true,detailRevision:'1'})),taskRuns:[],range:{from:cursor(start),before:end<10000?cursor(end+1):null},oldestCursor:cursor(start),newestCursor:cursor(end),hasMoreBefore:start>1,hasMoreAfter:end<10000};
+          const messages = numbers.flatMap(number => {
+            const user = message(number, 'user'), answer = message(number, 'assistant');
+            if (number >= 50 && number <= 52) {
+              user.content += '\n\nField notes from the review.'.repeat(65);
+              answer.content += '\n\nDetailed findings from the review.'.repeat(65);
+            }
+            if (number === 51) return [user, { ...user, id:'s51', content:'Steering correction', artifacts:{kind:'steering'}, sortOrder:511 }, answer];
+            if (number === 52 && args.anchorMessageId === 'i52') return [user, { ...answer, id:'i52', content:'Intermediate finding', sortOrder:521 }, answer];
+            return [user, answer];
+          });
+          return {conversation,messages,turns:numbers.map(turn),entries:numbers.map(number=>({anchor:cursor(number),turnId:`t${number}`,hasDetails:true,detailRevision:'1'})),taskRuns:[],range:{from:cursor(start),before:end<10000?cursor(end+1):null},oldestCursor:cursor(start),newestCursor:cursor(end),hasMoreBefore:start>1,hasMoreAfter:end<10000};
         }
         case 'get_conversation_timeline_details_cmd': {
           detailRequests.push(args.anchorMessageId);
@@ -76,11 +87,24 @@ test('10k history opens a bounded tail and prepending retains the visible turn',
 });
 
 test('deep links read the target page and return to the latest tail',async({page})=>{
-  await page.goto('/chat/history?message=a50');
-  await expect(page.locator('[data-timeline-key="turn-t50"]').getByText('Request 50',{exact:true})).toBeVisible();
+  for (const [id, text] of [['s51', 'Steering correction'], ['i52', 'Intermediate finding'], ['a50', 'Answer 50.']]) {
+    await page.goto('/chat/history?message=' + id);
+    const bubble = page.locator(`[data-chat-message-id="${id}"]`);
+    await expect(bubble).toContainText(text);
+    await expect.poll(() => bubble.evaluate(element => {
+      const scroller = element.closest('[data-chat-scroll-root]')!;
+      return Math.abs(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
+    })).toBeLessThan(45);
+  }
+  await page.locator('[data-chat-scroll-root]').evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.getByRole('button', {name:'Search all conversations'}).click();
+  await page.getByRole('searchbox').fill('Answer 50');
+  await page.getByRole('button', {name:/Paged history.*Answer 50/}).click();
+  await expect(page.locator('[data-chat-message-id="a50"] p').first()).toBeInViewport();
   await expect(page.getByTestId('chat-load-latest')).toBeVisible();
   expect(await page.evaluate(()=>(window as any).__TIMELINE_TEST__.requests[0].anchorMessageId)).toBe('a50');
   await page.getByTestId('chat-load-latest').click();
+  await expect(page).toHaveURL(/\/chat\/history$/);
   await expect(page.locator('[data-timeline-key="turn-t10000"]').getByText('Request 10000',{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>(window as any).__TIMELINE_TEST__.legacyReads)).toEqual([]);
 });

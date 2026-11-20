@@ -30,6 +30,7 @@ export function useMobileChatProjects(
   const [readingHistory, setReadingHistory] = useState(false);
   const [older, setOlder] = useState<ChatSummary[]>([]);
   const queue = useRef(Promise.resolve());
+  const pendingFolderForChat = useRef<string | null>(null);
 
   // A focus refresh and a drop can overlap. Apply snapshots in operation order
   // so an older read cannot put a moved chat back in its previous folder.
@@ -38,7 +39,10 @@ export function useMobileChatProjects(
       try {
         const next = await operation();
         setSnapshot(next);
-        select(current => next.projects.some(project => project.id === current) ? current : null);
+        const chatId = pendingFolderForChat.current;
+        pendingFolderForChat.current = null;
+        if (chatId) select(next.memberships[chatId] ?? null);
+        else select(current => next.projects.some(project => project.id === current) ? current : null);
         setError('');
       } catch (failure) {
         setError(String(failure));
@@ -108,5 +112,10 @@ export function useMobileChatProjects(
     move: (conversationId: string, projectId: string | null) => apply(() => store.move(conversationId, projectId)),
   };
   const drawerConversations = store && !snapshot ? [] : selectedId ? [...conversations, ...older] : conversations;
-  return { projectView, drawerConversations };
+  function selectChatFolder(chatId: string) {
+    if (!store) return;
+    if (snapshot) select(snapshot.memberships[chatId] ?? null);
+    else pendingFolderForChat.current = chatId;
+  }
+  return { projectView, drawerConversations, selectChatFolder };
 }

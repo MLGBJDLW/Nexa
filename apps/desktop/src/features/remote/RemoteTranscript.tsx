@@ -60,6 +60,7 @@ interface PhoneTurn {
 }
 
 interface RemoteTranscriptProps {
+  focusMessageId?: string | null;
   messages: ChatMessage[]; timeline: RemoteTimelineItem[]; running: boolean; finalMessageId: string | null;
   runId: string | null; runUserId: string | null; more: (message: ChatMessage, channel?: 'content' | 'thinking') => void;
   speak?: (message: ChatMessage) => void; speakingId: string | null; answerRef?: (node: HTMLElement | null) => void;
@@ -92,7 +93,7 @@ const RemoteTranscriptTurn = memo(function RemoteTranscriptTurn({ turn, timeline
   </div>;
 });
 
-export const RemoteTranscript = memo(function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: RemoteTranscriptProps) {
+export const RemoteTranscript = memo(function RemoteTranscript({ messages, focusMessageId, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: RemoteTranscriptProps) {
   // Streaming updates only invalidate the live turn. Loaded history keeps its
   // grouping, pagination callbacks and rendered subtrees until history changes.
   const turns = useMemo(() => {
@@ -111,7 +112,7 @@ export const RemoteTranscript = memo(function RemoteTranscript({ messages, timel
         turn.visible.push(message);
         continue;
       }
-      const intermediate = message.intermediate && message.id !== finalMessageId;
+      const intermediate = message.intermediate && message.id !== finalMessageId && message.id !== focusMessageId;
       for (const channel of ['thinking', 'content'] as const) {
         const text = message[channel];
         if (!text || (channel === 'content' && !intermediate)) continue;
@@ -128,7 +129,7 @@ export const RemoteTranscript = memo(function RemoteTranscript({ messages, timel
       if (!intermediate && message.content) turn.visible.push(message);
     }
     return turns;
-  }, [messages, finalMessageId, more]);
+  }, [messages, focusMessageId, finalMessageId, more]);
 
   // Old peers do not send a user anchor. Attach their replay only to a
   // known final or the last open turn, never to an unrelated prior answer.
