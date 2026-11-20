@@ -2,19 +2,22 @@
 
 ## [0.20.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0) (2026-11-20)
 
-
-### ⚠ BREAKING CHANGES
-
-* **workspace:** Draft Markdown renders automatically. The manual draft preview command has been removed.
-
 ### Features
 
-* **workspace:** search conversation history and improve agent controls across devices ([#587](https://github.com/MLGBJDLW/Nexa/issues/587)) ([9394d45](https://github.com/MLGBJDLW/Nexa/commit/9394d45fc0fe5816641ecad5284c7ad3057495b2))
-
+- Search all conversations from the sidebar. Search message text as well as titles, read a matching excerpt and jump to the exact reply or steering message. Archived conversations can be searched separately.
+- See formatted Markdown as you compose. Headings, lists, code and links use the same presentation when you send the message. Automatic rendering replaces the `/preview` command.
+- Expand storage categories to see their largest files and SQLite tables, locations, sizes and cleanup options. A session permission lets the agent read the last measured report.
+- Choose Fast or Ultrafast from the reasoning controls when your model and account support it. The helix and bubbles respond to the selected speed.
+- Edit a project's appearance by clicking its icon. The picker offers 30 choices. Loading indicators now slow at the top of their orbit and accelerate on the descent, with support for reduced motion. [Workspace changes](https://github.com/MLGBJDLW/Nexa/pull/587)
 
 ### Bug Fixes
 
-* **catalog:** reconcile withdrawn deadlines and scoped November 20 routes ([#585](https://github.com/MLGBJDLW/Nexa/issues/585)) ([626886c](https://github.com/MLGBJDLW/Nexa/commit/626886c67d028b5c73164a4ade3f7c4cda406f9e))
+- Keep valid DeepSeek tool results when resuming a turn, and recognize Qwen4 Max reasoning and tool replay on Alibaba Token Plan in both regions.
+- Deliver observed coordinate input to the built-in browser and show its cursor at dispatch. Stale positions are invalidated across same-document navigation.
+- Reuse credentials already configured for the same structured-decision endpoint. Paid speed choices stay bound to the selected account, model and primary route.
+- Wrap live run controls when the workspace narrows, and honor longer explicitly configured streaming idle timeouts.
+- Return to the latest message after visiting an older search result, even in very long conversations. Formatting a draft no longer shifts the toolbar during a click.
+- Update the model catalog, including account-reported Codex tiers, OpenRouter inventory and regional Vertex AI Claude routes. [Provider audit](https://github.com/MLGBJDLW/Nexa/pull/585)
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 9394d45fc0fe5816641ecad5284c7ad3057495b2 -->
