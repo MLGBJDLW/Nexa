@@ -1232,7 +1232,7 @@ test('phone sidebar opens an older body match without paging through the interve
   await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
   const phone = page.locator('.mobile-app');
   await phone.locator('.native-chat-header button').first().click();
-  await phone.getByRole('button', { name: 'Search conversations' }).click();
+  await phone.getByRole('button', { name: 'Search all conversations' }).click();
   await phone.getByRole('searchbox').fill('旧记录');
   await phone.getByRole('button', { name: /Previous work.*旧记录/ }).click();
   await expect(phone.locator('[data-message-id="historical"]')).toContainText('旧记录的正文');

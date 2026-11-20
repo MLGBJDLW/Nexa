@@ -3,8 +3,8 @@ import { expect, test } from './timeline-test';
 
 test('sidebar search opens a message hit and restores the history list', async ({ page }) => {
   await page.goto('/chat/conv-active');
-  await page.getByRole('button', { name: 'Search conversations', exact: true }).click();
-  const input = page.getByRole('searchbox', { name: 'Search conversations' });
+  await page.getByRole('button', { name: 'Search all conversations', exact: true }).click();
+  const input = page.getByRole('searchbox', { name: 'Search all conversations' });
   await expect(input).toBeFocused();
   await input.fill('藏在正文');
   await page.getByRole('button', { name: /Active conversation.*藏在正文/ }).click();
