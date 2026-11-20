@@ -18,7 +18,7 @@
   "storageRuntime": "运行时与缓存",
   "storageExtensions": "技能与扩展",
   "storageDatabaseOther": "设置及其他数据库数据",
-  "storageUsageHint": "此 Nexa 安装使用的储存空间，不包含外部项目文件。",
+  "storageUsageHint": "此 Nexa 安装使用的储存空间，不包含外部项目文件。展开分类可查看其中最大的 12 项及其清理方式。",
   "storageDistribution": "储存占用分类",
   "storagePartial": "本次扫描不完整，大文件夹、链接或无法读取的文件可能未计入；可刷新重新统计。",
   "storageActiveChats": "活跃聊天",

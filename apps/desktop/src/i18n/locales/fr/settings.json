@@ -18,7 +18,7 @@
   "storageRuntime": "Exécution et cache",
   "storageExtensions": "Compétences et extensions",
   "storageDatabaseOther": "Paramètres et autres données",
-  "storageUsageHint": "Espace utilisé par cette installation de Nexa. Les fichiers de projets externes sont exclus.",
+  "storageUsageHint": "Espace utilisé par cette installation de Nexa. Les fichiers de projets externes sont exclus. Dépliez une catégorie pour voir ses 12 éléments les plus volumineux et les options de nettoyage.",
   "storageDistribution": "Répartition du stockage",
   "storagePartial": "Analyse partielle : certains dossiers volumineux, liens ou fichiers illisibles peuvent être exclus. Actualisez pour recommencer.",
   "storageActiveChats": "Discussions actives",

@@ -18,7 +18,7 @@
   "storageRuntime": "Laufzeit und Cache",
   "storageExtensions": "Skills und Erweiterungen",
   "storageDatabaseOther": "Einstellungen und weitere Daten",
-  "storageUsageHint": "Speicher dieser Nexa-Installation. Externe Projektdateien sind nicht enthalten.",
+  "storageUsageHint": "Speicher dieser Nexa-Installation. Externe Projektdateien sind nicht enthalten. Öffne eine Kategorie, um die 12 größten Einträge und Hinweise zum Bereinigen zu sehen.",
   "storageDistribution": "Speicher nach Kategorie",
   "storagePartial": "Die Messung ist unvollständig. Große Ordner, Links oder nicht lesbare Dateien können fehlen. Aktualisiere für eine neue Messung.",
   "storageActiveChats": "Aktive Chats",

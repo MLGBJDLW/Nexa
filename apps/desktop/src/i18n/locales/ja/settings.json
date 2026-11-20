@@ -18,7 +18,7 @@
   "storageRuntime": "ランタイムとキャッシュ",
   "storageExtensions": "スキルと拡張機能",
   "storageDatabaseOther": "設定などのデータベース",
-  "storageUsageHint": "この Nexa が使用するストレージです。外部のプロジェクトファイルは含まれません。",
+  "storageUsageHint": "この Nexa が使用するストレージです。外部のプロジェクトファイルは含まれません。カテゴリを開くと、容量の大きい上位 12 件と整理方法を確認できます。",
   "storageDistribution": "ストレージの内訳",
   "storagePartial": "一部のみ集計しました。大きなフォルダー、リンク、読み取れないファイルは除外される場合があります。更新して再集計できます。",
   "storageActiveChats": "アクティブなチャット",

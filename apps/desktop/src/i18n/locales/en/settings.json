@@ -18,7 +18,7 @@
   "storageRuntime": "Runtime and cache",
   "storageExtensions": "Skills and extensions",
   "storageDatabaseOther": "Settings and other database data",
-  "storageUsageHint": "Storage used by this Nexa installation. External project files are not included.",
+  "storageUsageHint": "Storage used by this Nexa installation. External project files are not included. Expand a category to see its 12 largest entries and how to clean them up.",
   "storageDistribution": "Storage by category",
   "storagePartial": "This scan is partial. Large folders, links or unreadable files may be excluded; refresh to measure again.",
   "storageActiveChats": "Active chats",

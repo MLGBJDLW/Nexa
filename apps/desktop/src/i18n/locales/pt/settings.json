@@ -18,7 +18,7 @@
   "storageRuntime": "Execução e cache",
   "storageExtensions": "Skills e extensões",
   "storageDatabaseOther": "Configurações e outros dados",
-  "storageUsageHint": "Espaço usado por esta instalação do Nexa. Não inclui arquivos de projetos externos.",
+  "storageUsageHint": "Espaço usado por esta instalação do Nexa. Não inclui arquivos de projetos externos. Expanda uma categoria para ver os 12 maiores itens e como liberar espaço.",
   "storageDistribution": "Armazenamento por categoria",
   "storagePartial": "A verificação é parcial. Pastas grandes, links ou arquivos ilegíveis podem estar excluídos. Atualize para medir novamente.",
   "storageActiveChats": "Chats ativos",
