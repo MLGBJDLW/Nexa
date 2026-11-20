@@ -276,13 +276,13 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let observed = state.observe(&session.id, tab_id, "modified-click").await?;
                     let button = observed.elements.iter().find(|element| element.name == "Continue").ok_or("Missing chord button")?;
                     let (clicked, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-click",
-                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":observed.observation_id,"target_ref":button.element_ref,"modifiers":["Control","Shift"]})).await?;
+                        serde_json::json!({"delivery":"foreground","action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":observed.observation_id,"target_ref":button.element_ref,"modifiers":["Control","Shift"]})).await?;
                     let flags = state.eval_action(&session.id,tab_id,"window.fixtureClick").await?;
-                    if flags["ctrl"] != true || flags["shift"] != true || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
-                        return Err(format!("Missing physical click modifiers: {flags}"));
+                    if flags["ctrl"] != true || flags["shift"] != true || flags["cursorVisible"] != false || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
+                        return Err(format!("Physical click modifiers or cursor ownership did not match: {flags}"));
                     }
                     let (zoomed, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-wheel",
-                        serde_json::json!({"action":"scroll","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":clicked.observation_id,"point":{"x":400,"y":200},"modifiers":["Control"],"scroll_y":-100})).await?;
+                        serde_json::json!({"delivery":"foreground","action":"scroll","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":clicked.observation_id,"point":{"x":400,"y":200},"modifiers":["Control"],"scroll_y":-100})).await?;
                     if clicked.viewport["deviceScaleFactor"] == zoomed.viewport["deviceScaleFactor"] || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
                         return Err("Control-wheel did not zoom the foreground tab.".into());
                     }
