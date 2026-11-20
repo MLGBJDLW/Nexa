@@ -189,7 +189,10 @@ export function AgentModelPicker({
   const [activeConfigId, setActiveConfigId] = useState(selectedConfig?.id ?? agentConfigs[0]?.id ?? '');
   const [activeModelId, setActiveModelId] = useState(selectedConfig?.model ?? '');
   const [pickerStep, setPickerStep] = useState<PickerStep>('providers');
-  const [savingControls, setSavingControls] = useState(false);
+  const [pendingControls, setPendingControls] = useState<{
+    conversationId: typeof conversationId;
+    selection: AgentModelSelection;
+  } | null>(null);
   const [query, setQuery] = useState('');
   const [pendingProvider, setPendingProvider] = useState<{ configId: string; conversationId: string | null | undefined } | null>(null);
   useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPendingProvider(null); setPickerStep('models'); setQuery(''); setOpen(true); } });
@@ -480,29 +483,39 @@ export function AgentModelPicker({
     setBudgetDraft(String(currentConfig.thinkingBudget ?? defaultThinkingBudget(activeModelRow.reasoning) ?? ''));
   }, [activeModelRow?.key]);
 
+  // A tier click edits only speed and a slider action edits only reasoning. Both
+  // extend the latest choice for this route while the shared save queue drains.
+  const pendingSelection = pendingControls && pendingControls.conversationId === conversationId
+    && pendingControls.selection.config.id === activeModelRow?.providerRow.config.id
+    && pendingControls.selection.model === activeModelRow?.model.id ? pendingControls.selection : null;
+  const activeControls = pendingSelection ?? activeModelRow?.providerRow.config;
+  const activeTiers = modelServiceTiers(activeModelRow?.model);
+  const activeTier = activeControls?.serviceTier && activeTiers?.includes(activeControls.serviceTier) ? activeControls.serviceTier : null;
   const applyReasoningSelection = useCallback(
-    async (reasoning: {
-      reasoningEnabled: boolean | null;
-      thinkingBudget: number | null;
-      reasoningEffort: string | null;
-      serviceTier?: ServiceTier | null;
-    }, keepOpen = false) => {
-      if (!activeModelRow) return;
-      if (!keepOpen) setOpen(false);
-      setSavingControls(true);
+    async (patch: Partial<Pick<AgentModelSelection, 'reasoningEnabled' | 'thinkingBudget' | 'reasoningEffort' | 'serviceTier'>>, keepOpen = false) => {
+      if (!activeModelRow || !activeControls) return;
+      const selection: AgentModelSelection = {
+        config: activeModelRow.providerRow.config,
+        model: activeModelRow.model.id,
+        reasoningEnabled: activeControls.reasoningEnabled,
+        reasoningEffort: activeControls.reasoningEffort,
+        thinkingBudget: activeControls.thinkingBudget,
+        serviceTier: activeTier,
+        ...patch,
+      };
+      const request = { conversationId, selection };
+      setPendingControls(request);
+      if (!keepOpen) {
+        setOpen(false);
+        requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
+      }
       try {
-        return await onSelect({
-          config: activeModelRow.providerRow.config,
-          model: activeModelRow.model.id,
-          serviceTier: selectedTier,
-          ...reasoning,
-        });
+        return await onSelect(selection);
       } finally {
-        setSavingControls(false);
-        if (!keepOpen) requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
+        setPendingControls(current => current === request ? null : current);
       }
     },
-    [activeModelRow, onSelect, selectedTier],
+    [activeModelRow, activeControls, activeTier, conversationId, onSelect],
   );
 
   const applyBudget = useCallback(() => {
@@ -924,15 +937,10 @@ export function AgentModelPicker({
                           </div>
                         </div>
 
-                        <fieldset disabled={savingControls} aria-busy={savingControls} className="min-h-0 min-w-0 flex-1 overflow-y-auto py-2">
-                          <ServiceTierButtons tiers={modelServiceTiers(activeModelRow.model)} value={selectedTier}
-                            onChange={serviceTier => void applyReasoningSelection({
-                              reasoningEnabled: selected.reasoningEnabled,
-                              reasoningEffort: selected.reasoningEffort,
-                              thinkingBudget: selected.thinkingBudget,
-                              serviceTier,
-                            }, true)} />
-                          <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey} serviceTier={selectedTier}
+                        <div aria-busy={Boolean(pendingSelection)} className="min-h-0 min-w-0 flex-1 overflow-y-auto py-2">
+                          <ServiceTierButtons tiers={activeTiers} value={activeTier}
+                            onChange={serviceTier => void applyReasoningSelection({ serviceTier }, true)} />
+                          <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey} serviceTier={activeTier}
                             onSelect={key => { const option = intensityOptions.find(option => option.key === key); return option ? applyReasoningSelection(option.selection, true) : false; }}>
                           {!activeModelRow.reasoning ? (
                             <p className="text-[11px] leading-4 text-text-tertiary">
@@ -1009,7 +1017,7 @@ export function AgentModelPicker({
                             </p>
                           )}
                           </ReasoningIntensity>
-                        </fieldset>
+                        </div>
 
                         {activeModelRow.reasoning?.thinkingBudget?.enabled && (
                           <div className="flex gap-1 border-t border-border/50 pt-2">

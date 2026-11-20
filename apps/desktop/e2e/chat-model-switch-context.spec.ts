@@ -790,11 +790,18 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
     const bond = page.locator('.nexa-intensity-strands');
     const period = () => bond.evaluate(element => parseFloat(getComputedStyle(element).animationDuration));
     const normal = await period();
+    await holdNextReasoningSave(page);
     await speed.getByRole('button', { name: 'Fast', exact: true }).click();
     await expect.poll(period).toBeLessThan(normal);
     const fast = await period();
+    await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Low', exact: true }).click();
     await speed.getByRole('button', { name: 'Fast', exact: true }).click();
     await expect.poll(period).toBe(normal);
+    await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts.length)).toBe(1);
+    await page.evaluate(() => (window as any).__releaseReasoningSave());
+    await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.slice(-2)
+      .map((entry: { reasoningEffort: string; serviceTier: string | null }) => [entry.reasoningEffort, entry.serviceTier])))
+      .toEqual([['low', 'fast'], ['low', null]]);
     await speed.getByRole('button', { name: 'Ultrafast' }).click();
     await expect.poll(period).toBeLessThan(fast);
     await page.getByRole('button', { name: 'List', exact: true }).click();
