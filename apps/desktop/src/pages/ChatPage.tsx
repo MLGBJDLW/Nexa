@@ -1000,7 +1000,7 @@ export function ChatPage() {
         try {
           const nextConfig = { ...selection.config, model: selection.model, modelId: selection.model,
             reasoningEnabled: selection.reasoningEnabled, reasoningEffort: selection.reasoningEffort,
-            thinkingBudget: selection.thinkingBudget };
+            thinkingBudget: selection.thinkingBudget, serviceTier: selection.serviceTier ?? null };
           await chat.switchAgentConfig(nextConfig);
           setAgentConfigs(current => current.map(config => config.id === nextConfig.id ? nextConfig : config));
           return true;

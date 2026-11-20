@@ -10,6 +10,7 @@ export function runtimeAgentConfig(provider: string, name: string, model: string
     reasoningEnabled: retained ? config?.reasoningEnabled ?? null : null,
     thinkingBudget: retained ? config?.thinkingBudget ?? null : null,
     reasoningEffort: retained ? config?.reasoningEffort ?? null : null,
+    serviceTier: retained ? config?.serviceTier : null,
     maxIterations: config?.maxIterations ?? null, summarizationModel: null, summarizationProvider: null,
     imageGenerationModel: null, subagentAllowedTools: config?.subagentAllowedTools ?? null,
     subagentAllowedSkillIds: config?.subagentAllowedSkillIds,

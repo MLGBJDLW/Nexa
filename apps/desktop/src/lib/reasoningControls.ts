@@ -1,7 +1,27 @@
+import type { TranslationKey } from '../i18n';
 import type {
   ReasoningCapability,
   ReasoningEffortLevel,
 } from './providerPresets';
+
+const REASONING_EFFORT_LABEL_KEYS: Record<ReasoningEffortLevel, TranslationKey> = {
+  none: 'settings.reasoningNone',
+  minimal: 'settings.reasoningMinimal',
+  low: 'settings.reasoningLow',
+  medium: 'settings.reasoningMedium',
+  high: 'settings.reasoningHigh',
+  max: 'settings.reasoningMax',
+  xhigh: 'settings.reasoningXHigh',
+  ultra: 'settings.reasoningUltra',
+};
+
+export function isReasoningEffort(effort: string): effort is ReasoningEffortLevel {
+  return Object.prototype.hasOwnProperty.call(REASONING_EFFORT_LABEL_KEYS, effort);
+}
+
+export function reasoningEffortLabel(t: (key: TranslationKey) => string, effort: string): string {
+  return isReasoningEffort(effort) ? t(REASONING_EFFORT_LABEL_KEYS[effort]) : effort;
+}
 
 export function defaultReasoningEffort(
   capability: ReasoningCapability | null,

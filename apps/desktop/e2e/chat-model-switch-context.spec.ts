@@ -195,7 +195,9 @@ test.beforeEach(async ({ page }) => {
             await new Promise<void>(resolve => waiters.push(resolve));
           }
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
-          const models = [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
+          const models = [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000,
+            ...(args.provider === 'openai_codex' ? { serviceTiers: ['fast', 'ultrafast'] } : {}),
+          }];
           if (args.provider === 'github_copilot') models.push({ id: 'gemini-4-argon', name: 'Gemini 4 Argon', reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 265536 });
           (fixture.__catalogResults ??= []).push(String(args.provider));
           return models;
@@ -781,11 +783,29 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
   await page.getByTestId(`agent-model-option-${configId}-gpt-native`).click();
   await expect(picker).toHaveAttribute('title', new RegExp(`${provider} / gpt-native$`));
   await page.getByTestId('agent-reasoning-picker-trigger').click();
+  const speed = page.getByRole('group', { name: 'Processing speed' });
+  if (provider === 'openai_codex') {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+    const bond = page.locator('.nexa-intensity-strands');
+    const period = () => bond.evaluate(element => parseFloat(getComputedStyle(element).animationDuration));
+    const normal = await period();
+    await speed.getByRole('button', { name: 'Fast', exact: true }).click();
+    await expect.poll(period).toBeLessThan(normal);
+    const fast = await period();
+    await speed.getByRole('button', { name: 'Fast', exact: true }).click();
+    await expect.poll(period).toBe(normal);
+    await speed.getByRole('button', { name: 'Ultrafast' }).click();
+    await expect.poll(period).toBeLessThan(fast);
+    await page.getByRole('button', { name: 'List', exact: true }).click();
+  } else await expect(speed).toHaveCount(0);
   await expect(page.getByTestId('agent-model-reasoning-none')).toHaveCount(0);
   await page.getByTestId('agent-model-reasoning-ultra').click();
   await page.locator('textarea').fill('Please inspect the current page');
   await page.locator('textarea').press('Enter');
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: configId });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({
+    agentConfigId: configId, modelSelection: { serviceTier: provider === 'openai_codex' ? 'ultrafast' : null },
+  });
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string,unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider, model: 'gpt-native', reasoningEffort: 'ultra' });
 });
 }

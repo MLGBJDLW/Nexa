@@ -128,11 +128,13 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [modelRevision, setModelRevision] = useState(0);
   const modelDraft = useMemo(() => readChatModelDraft(routeKey), [routeKey, modelRevision]);
   const { connectionId, modelSelection } = resolveChatModel(connections, conversationId, opened || chat?.agentConfigId ? chat : undefined, modelDraft);
+  const selectedConnection = connections.find(item => item.id === connectionId);
   useEffect(() => {
     if (!modelDraft || !chat?.modelSelection || chat.agentConfigId !== modelDraft.connectionId || !connectionId) return;
     const choice = modelDraft.modelSelection;
     const confirmed = choice ? choice.model === chat.modelSelection.model &&
       choice.reasoningEffort === chat.modelSelection.reasoningEffort &&
+      (choice.serviceTier ?? null) === (chat.modelSelection.serviceTier ?? null) &&
       choice.thinkingBudget === chat.modelSelection.thinkingBudget &&
       (choice.reasoningEnabled == null || choice.reasoningEnabled === chat.modelSelection.reasoningEnabled)
       : modelDraft.submitted && chat.model === connections.find(item => item.id === connectionId)?.model;

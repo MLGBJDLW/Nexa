@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type CSSProperties, type PointerEvent } from 'react';
-import { AnimatePresence, motion, useReducedMotion, useSpring, useTransform } from 'framer-motion';
+import { AnimatePresence, motion, useSpring, useTransform } from 'framer-motion';
 import { List, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { updateDisplayPreferences, useDisplayPreferences } from '../../lib/displayPreferences';
+import { useReducedMotionPreference } from '../../lib/uiMotion';
+import type { ServiceTier } from '../../features/models/modelChoices';
 import './reasoningIntensity.css';
 
 export interface IntensityOption { key: string; label: string }
@@ -24,7 +26,7 @@ const EFFORT_COLORS: Record<string, string> = {
 const SPRING = { type: 'spring' as const, stiffness: 380, damping: 32, mass: 0.6 };
 const RANGE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
 const HELIX_PERIOD = 140;
-const helixY = (x: number, phase = 0) => 16 + Math.sin(x / HELIX_PERIOD * Math.PI * 2 + phase) * 9;
+const helixY = (x: number, phase = 0) => 16 + Math.sin(x / HELIX_PERIOD * Math.PI * 2 + phase) * 11;
 // One extra period lets the browser translate a fixed drawing seamlessly. The
 // previous SMIL paths and endpoints rebuilt SVG geometry on every frame.
 const helixPath = (phase: number) => Array.from({ length: 73 }, (_, index) => {
@@ -34,30 +36,39 @@ const helixPath = (phase: number) => Array.from({ length: 73 }, (_, index) => {
 const STRANDS = [0, Math.PI].map(helixPath);
 const RUNGS = Array.from({ length: 15 }, (_, index) => {
   const x = 10 + index * 260 / 14;
-  return { left: `${x / 280 * 100}%`, delay: `${-x / HELIX_PERIOD * 8}s`, scale: Math.sin(x / HELIX_PERIOD * Math.PI * 2) };
+  return { left: `${x / 280 * 100}%`, delay: `calc(var(--helix-period) * ${-x / HELIX_PERIOD})`, scale: Math.sin(x / HELIX_PERIOD * Math.PI * 2) };
 });
 
 function ReasoningBond({ reducedMotion }: { reducedMotion: boolean }) {
+  const highlight = useId();
   return <span className="nexa-intensity-bond" data-reduced-motion={reducedMotion} aria-hidden="true">
     {RUNGS.map(({ left, delay, scale }, index) => <span key={index} className="nexa-intensity-rung"
       style={{ left, animationDelay: delay, transform: `scaleY(${scale})` }} />)}
     <svg className="nexa-intensity-strands" viewBox="0 0 420 32" preserveAspectRatio="none">
-      {STRANDS.map((path, index) => <path key={index} d={path} />)}
+      <defs>
+        <linearGradient id={highlight} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="white" />
+          <stop offset="45%" stopColor="var(--intensity-color)" />
+          <stop offset="100%" stopColor="var(--color-text-primary)" stopOpacity=".8" />
+        </linearGradient>
+      </defs>
+      {STRANDS.map((path, index) => <path key={index} d={path} stroke={index ? `url(#${highlight})` : undefined} />)}
     </svg>
     {RUNGS.filter((_, index) => index % 4 === 1).map(({ left, delay, scale }, index) => <span key={index}
-      className="nexa-intensity-spark" style={{ left, animationDelay: delay, transform: `translateY(${scale * 5.0625}px)` }} />)}
+      className="nexa-intensity-spark" style={{ left, animationDelay: delay, transform: `translateY(${scale * 6.1875}px)` }} />)}
   </span>;
 }
 
-export function ReasoningIntensity({ options, selectedKey, onSelect, children }: {
+export function ReasoningIntensity({ options, selectedKey, onSelect, serviceTier, children }: {
   options: IntensityOption[];
   selectedKey: string;
   onSelect: (key: string) => void | boolean | Promise<void | boolean>;
+  serviceTier?: ServiceTier | null;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
   const { reasoningControl } = useDisplayPreferences();
-  const reducedMotion = !!useReducedMotion();
+  const reducedMotion = useReducedMotionPreference();
   const animationId = useId();
   const selected = Math.max(0, options.findIndex(option => option.key === selectedKey));
   const lastIndex = Math.max(1, options.length - 1);
@@ -124,7 +135,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
     </div>
     <AnimatePresence initial={false} mode="wait">
       <motion.div key={reasoningControl} initial={reducedMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reducedMotion ? 0 : -3 }} transition={transition}>
-        {reasoningControl === 'list' ? children : <div className="nexa-intensity" aria-busy={saving} style={{ '--intensity-color': color } as CSSProperties}>
+        {reasoningControl === 'list' ? children : <div className="nexa-intensity" data-service-tier={serviceTier ?? 'default'} aria-busy={saving} style={{ '--intensity-color': color } as CSSProperties}>
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
             <span className="text-[11px] text-text-tertiary">{t('settings.reasoningEffort')}</span>
             <output className="nexa-intensity-label text-sm font-semibold text-text-primary" data-testid="reasoning-slider-label">

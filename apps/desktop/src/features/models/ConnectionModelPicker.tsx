@@ -4,9 +4,12 @@ import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ModelChoices, ModelChoicesLoader, TurnModelSelection } from './modelChoices';
+import { ServiceTierButtons } from './ServiceTierButtons';
+import { ReasoningIntensity } from '../../components/chat/ReasoningIntensity';
+import { reasoningEffortLabel } from '../../lib/reasoningControls';
 
 const field = 'w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 py-2.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-50';
-export function ConnectionModelPicker({ connectionId, defaultModel, value, onChange, load, label, disabled = false }: {
+export function ConnectionModelPicker({ connectionId, defaultModel, value, onChange, load, label, disabled = false, allowServiceTiers = false }: {
   connectionId: string;
   defaultModel: string;
   value: TurnModelSelection | null;
@@ -14,6 +17,7 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
   load: ModelChoicesLoader;
   label: string;
   disabled?: boolean;
+  allowServiceTiers?: boolean;
 }) {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<ModelChoices | null>(null);
@@ -40,8 +44,20 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
   };
   const changeReasoning = (patch: Partial<TurnModelSelection>) => onChange({
     model, reasoningEnabled: selected?.reasoning ? true : null,
-    reasoningEffort: value?.reasoningEffort ?? null, thinkingBudget: value?.thinkingBudget ?? null, ...patch,
+    reasoningEffort: value?.reasoningEffort ?? null, thinkingBudget: value?.thinkingBudget ?? null,
+    ...(value?.serviceTier ? { serviceTier: value.serviceTier } : {}), ...patch,
   });
+  const effort = value?.reasoningEffort === 'none' ? '' : value?.reasoningEffort ?? '';
+  const levels = selected?.reasoning?.effortLevels.filter(level => level !== 'none') ?? [];
+  const chooseEffort = (level: string) => changeReasoning({ reasoningEffort: level || null, thinkingBudget: null });
+  const effortField = !!selected?.reasoning?.effortLevels.length && <label className="block space-y-1.5 text-xs text-text-secondary">
+    <span>{t('settings.reasoningEffort')}</span>
+    <NexaSelect className={field} disabled={disabled} aria-label={`${label} · ${t('settings.reasoningEffort')}`} value={effort}
+      onChange={event => chooseEffort(event.target.value)}>
+      <option value="">{t('settings.isDefault')}</option>
+      {levels.map(level => <option key={level} value={level}>{reasoningEffortLabel(t, level)}</option>)}
+    </NexaSelect>
+  </label>;
   return <div className="min-w-0 space-y-2" data-testid="connection-model-picker">
     <div className="flex items-end gap-2">
       <label className="min-w-0 flex-1 space-y-1.5 text-xs font-medium text-text-secondary">
@@ -64,14 +80,17 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
       <span role="status">{loading ? t('remote.modelsLoading') : failed ? t('remote.modelsUnavailable') : ''}</span>
       <button type="button" disabled={disabled} className="text-accent" onClick={() => setCustom(current => !current)}>{custom ? t('remote.chooseModel') : t('remote.customModel')}</button>
     </div>
-    {!!selected?.reasoning?.effortLevels.length && <label className="block space-y-1.5 text-xs text-text-secondary">
-      <span>{t('settings.reasoningEffort')}</span>
-      <NexaSelect className={field} disabled={disabled} aria-label={`${label} · ${t('settings.reasoningEffort')}`} value={value?.reasoningEffort === 'none' ? '' : value?.reasoningEffort ?? ''}
-        onChange={event => changeReasoning({ reasoningEffort:event.target.value || null, thinkingBudget:null })}>
-        <option value="">{t('settings.isDefault')}</option>
-        {selected.reasoning.effortLevels.filter(effort => effort !== 'none').map(effort => <option key={effort} value={effort}>{effort}</option>)}
-      </NexaSelect>
-    </label>}
+    {allowServiceTiers && selected?.available !== false && <ServiceTierButtons tiers={selected?.serviceTiers}
+      value={value?.serviceTier} onChange={serviceTier => changeReasoning({ serviceTier, reasoningEnabled: value?.reasoningEnabled ?? null })} disabled={disabled} />}
+    {allowServiceTiers && effortField ? <fieldset disabled={disabled} className="min-w-0">
+      <ReasoningIntensity options={[{ key: 'native-default', label: t('settings.isDefault') },
+        ...levels.map(level => ({ key: `effort:${level}`, label: reasoningEffortLabel(t, level) }))]}
+        selectedKey={effort ? `effort:${effort}` : 'native-default'}
+        serviceTier={value?.serviceTier && selected?.serviceTiers?.includes(value.serviceTier) ? value.serviceTier : null}
+        onSelect={key => chooseEffort(key === 'native-default' ? '' : key.slice('effort:'.length))}>
+        {effortField}
+      </ReasoningIntensity>
+    </fieldset> : effortField}
     {selected?.reasoning?.thinkingBudget && selected.reasoning.thinkingBudget.enabled !== false && <label className="block space-y-1.5 text-xs text-text-secondary">
       <span>{t('settings.thinkingBudget')}</span>
       <input className={field} type="number" disabled={disabled} min={Math.max(1, selected.reasoning.thinkingBudget.minTokens ?? 1)} max={selected.reasoning.thinkingBudget.maxTokens} value={value?.thinkingBudget ?? ''}

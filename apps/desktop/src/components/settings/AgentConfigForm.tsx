@@ -672,6 +672,8 @@ export function AgentConfigForm({
         reasoningEnabled: normalizedReasoningEnabled,
         thinkingBudget: normalizedThinkingBudget,
         reasoningEffort: normalizedReasoningEffort,
+        serviceTier: config?.model === model.trim() && config.provider === provider && normalizeBaseUrl(config.baseUrl ?? '') === normalizeBaseUrl(baseUrl)
+          ? config.serviceTier : null,
         maxIterations,
         summarizationModel: summarizationModel?.trim() || null,
         summarizationProvider: summarizationProvider || null,
@@ -703,7 +705,7 @@ export function AgentConfigForm({
       };
     },
     [
-      config?.id,
+      config,
       name,
       provider,
       apiKey,

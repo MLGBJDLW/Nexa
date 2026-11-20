@@ -6,6 +6,7 @@ export interface ChatConnection {
   model: string;
   isDefault: boolean;
   provider?: string;
+  defaultSelection?: TurnModelSelection;
 }
 
 export interface ChatConversation {

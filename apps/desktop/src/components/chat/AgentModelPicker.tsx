@@ -9,22 +9,24 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, ChevronLeft, Loader2, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
-import { useTranslation, type TranslationKey } from '../../i18n';
+import { Check, ChevronDown, ChevronLeft, Loader2, RefreshCw, Search, SlidersHorizontal, Zap } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import {
   PROVIDER_PRESETS,
   resolveProviderModelCatalog,
   findProviderPreset,
+  modelServiceTiers,
   isRemovedProviderModel,
   isChatModelId,
   type ProviderModelPreset,
   type ProviderPreset,
   type ReasoningCapability,
-  type ReasoningEffortLevel,
 } from '../../lib/providerPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
 import {
   defaultReasoningEffort,
+  isReasoningEffort,
+  reasoningEffortLabel,
   defaultThinkingBudget,
   normalizeThinkingBudget,
   thinkingBudgetOptions,
@@ -41,6 +43,8 @@ import { loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { compactModelSearch } from '../../lib/modelSearch';
 import { useAppCommand } from '../../lib/appCommands';
 import { ReasoningIntensity } from './ReasoningIntensity';
+import type { ServiceTier } from '../../features/models/modelChoices';
+import { ServiceTierButtons } from '../../features/models/ServiceTierButtons';
 import { SubscriptionUsagePopover } from './SubscriptionUsagePopover';
 
 export interface AgentModelSelection {
@@ -49,6 +53,7 @@ export interface AgentModelSelection {
   reasoningEnabled: boolean | null;
   thinkingBudget: number | null;
   reasoningEffort: string | null;
+  serviceTier?: ServiceTier | null;
 }
 
 interface AgentModelPickerProps {
@@ -79,51 +84,13 @@ interface ModelRow {
 
 type PickerStep = 'providers' | 'models' | 'reasoning';
 
-const REASONING_EFFORT_LABEL_KEYS: Record<ReasoningEffortLevel, TranslationKey> = {
-  none: 'settings.reasoningNone',
-  minimal: 'settings.reasoningMinimal',
-  low: 'settings.reasoningLow',
-  medium: 'settings.reasoningMedium',
-  high: 'settings.reasoningHigh',
-  max: 'settings.reasoningMax',
-  xhigh: 'settings.reasoningXHigh',
-  ultra: 'settings.reasoningUltra',
-};
-
-function normalizeBaseUrl(value: string | null | undefined): string {
-  return (value ?? '').trim().replace(/\/+$/, '').toLowerCase();
-}
-
 function normalizeSearch(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function findPresetForConfig(config: AgentConfig): ProviderPreset | null {
-  const exact = findProviderPreset({
-    provider: config.provider,
-    baseUrl: config.baseUrl,
-  });
-  if (exact) return exact;
-
-  const baseUrl = normalizeBaseUrl(config.baseUrl);
-  if (!baseUrl && config.provider === 'open_ai') {
-    return PROVIDER_PRESETS.find((preset) => preset.id === 'openai') ?? null;
-  }
-
-  if (baseUrl) {
-    return (
-      PROVIDER_PRESETS.find(
-        (preset) =>
-          preset.provider === config.provider &&
-          normalizeBaseUrl(preset.baseUrl) === baseUrl,
-      ) ?? null
-    );
-  }
-
-  const providerMatches = PROVIDER_PRESETS.filter(
-    (preset) => preset.provider === config.provider,
-  );
-  return providerMatches.length === 1 ? providerMatches[0] : null;
+  return findProviderPreset(config) ?? (!config.baseUrl?.trim() && config.provider === 'open_ai'
+    ? PROVIDER_PRESETS.find(preset => preset.id === 'openai') ?? null : null);
 }
 
 function hasOwnReasoning(model: ProviderModelPreset): boolean {
@@ -222,6 +189,7 @@ export function AgentModelPicker({
   const [activeConfigId, setActiveConfigId] = useState(selectedConfig?.id ?? agentConfigs[0]?.id ?? '');
   const [activeModelId, setActiveModelId] = useState(selectedConfig?.model ?? '');
   const [pickerStep, setPickerStep] = useState<PickerStep>('providers');
+  const [savingControls, setSavingControls] = useState(false);
   const [query, setQuery] = useState('');
   const [pendingProvider, setPendingProvider] = useState<{ configId: string; conversationId: string | null | undefined } | null>(null);
   useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPendingProvider(null); setPickerStep('models'); setQuery(''); setOpen(true); } });
@@ -244,11 +212,11 @@ export function AgentModelPicker({
     .map(([catalogKey, state]) => [catalogKey, state.models!.map(model => {
           const provider = state.provider;
           const nativeEfforts = model.supportsReasoningEffort === false ? [] : model.reasoningEfforts;
-          const effortLevels = nativeEfforts.filter((effort): effort is ReasoningEffortLevel => effort in REASONING_EFFORT_LABEL_KEYS);
+          const effortLevels = nativeEfforts.filter(isReasoningEffort);
           const nativeModel = {
             id: model.id, name: model.name, source: 'discovered' as const, status: 'active' as const, productReadiness: 'known' as const,
             contextTokens: model.contextWindow,
-            capabilities: { reasoning: nativeEfforts.length ? { mode: nativeEfforts.includes('none') ? 'optional' as const : 'always' as const, effortLevels, nativeEffortLevels: nativeEfforts } : null },
+            capabilities: { serviceTiers: model.serviceTiers, reasoning: nativeEfforts.length ? { mode: nativeEfforts.includes('none') ? 'optional' as const : 'always' as const, effortLevels, nativeEffortLevels: nativeEfforts } : null },
           };
           return { ...nativeModel, descriptor: projectModelDescriptor(nativeModel, {
             surface: 'text', providerId: provider, endpointId: modelEndpointId('text', provider), region: 'global',
@@ -354,7 +322,10 @@ export function AgentModelPicker({
     : selectedConfig
     ? `${selectedConfig.name || selectedConfig.provider} · ${selectedConfig.provider} / ${selectedConfig.model}`
     : t('settings.defaultModel');
-  const canChangeReasoning = Boolean(selectedConfig && !selectedRetired && (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning));
+  const selectedTiers = modelServiceTiers(selectedModelRow?.model);
+  const selectedTier = selectedConfig?.serviceTier && selectedTiers?.includes(selectedConfig.serviceTier) ? selectedConfig.serviceTier : null;
+  const canChangeReasoning = Boolean(selectedConfig && !selectedRetired &&
+    (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning || selectedTiers?.length));
   useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: canChangeReasoning, run: () => {
     if (!selectedConfig) return;
     setPendingProvider(null);
@@ -363,7 +334,7 @@ export function AgentModelPicker({
   } });
   const selectedLabel = selectedModelRow?.model.name || selectedConfig?.model || t('settings.defaultModel');
   const selectedReasoningLabel = selectedConfig?.reasoningEffort && selectedConfig.reasoningEffort !== 'none'
-    ? (REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel] ? t(REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel]) : selectedConfig.reasoningEffort)
+    ? reasoningEffortLabel(t, selectedConfig.reasoningEffort)
     : selectedConfig?.thinkingBudget
       ? formatBudget(selectedConfig.thinkingBudget)
       : selectedConfig?.reasoningEnabled === true && !selectedModelRow?.reasoning?.nativeEffortLevels
@@ -478,6 +449,8 @@ export function AgentModelPicker({
             ? null
             : defaultBudget,
         reasoningEffort: preserveReasoning && savedConfig.reasoningEffort !== 'none' ? savedConfig.reasoningEffort : defaultEffort,
+        serviceTier: savedConfig.model === row.model.id && savedConfig.serviceTier && modelServiceTiers(row.model)?.includes(savedConfig.serviceTier)
+          ? savedConfig.serviceTier : null,
       })).then((saved) => {
         if (saved === false) return;
         if (!isCurrent && row.providerRow.preset?.runtime === 'acp') {
@@ -508,22 +481,28 @@ export function AgentModelPicker({
   }, [activeModelRow?.key]);
 
   const applyReasoningSelection = useCallback(
-    (reasoning: {
+    async (reasoning: {
       reasoningEnabled: boolean | null;
       thinkingBudget: number | null;
       reasoningEffort: string | null;
+      serviceTier?: ServiceTier | null;
     }, keepOpen = false) => {
       if (!activeModelRow) return;
       if (!keepOpen) setOpen(false);
-      const result = onSelect({
-        config: activeModelRow.providerRow.config,
-        model: activeModelRow.model.id,
-        ...reasoning,
-      });
-      if (!keepOpen) requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
-      return result;
+      setSavingControls(true);
+      try {
+        return await onSelect({
+          config: activeModelRow.providerRow.config,
+          model: activeModelRow.model.id,
+          serviceTier: selectedTier,
+          ...reasoning,
+        });
+      } finally {
+        setSavingControls(false);
+        if (!keepOpen) requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
+      }
     },
-    [activeModelRow, onSelect],
+    [activeModelRow, onSelect, selectedTier],
   );
 
   const applyBudget = useCallback(() => {
@@ -550,7 +529,7 @@ export function AgentModelPicker({
       intensityOptions.push({ key: 'native-default', label: t('settings.isDefault'), selection: { reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null } });
     }
     if (levels.length) {
-      intensityOptions.push(...levels.map(level => ({ key: `effort:${level}`, label: REASONING_EFFORT_LABEL_KEYS[level as ReasoningEffortLevel] ? t(REASONING_EFFORT_LABEL_KEYS[level as ReasoningEffortLevel]) : level, selection: { reasoningEnabled: true, thinkingBudget: null, reasoningEffort: level } })));
+      intensityOptions.push(...levels.map(level => ({ key: `effort:${level}`, label: reasoningEffortLabel(t, level), selection: { reasoningEnabled: true, thinkingBudget: null, reasoningEffort: level } })));
     } else if (intensityCapability.thinkingBudget?.enabled) {
       const budgets = thinkingBudgetOptions(intensityCapability);
       const custom = normalizeThinkingBudget(selected?.thinkingBudget ?? null, intensityCapability);
@@ -675,7 +654,7 @@ export function AgentModelPicker({
           }
         }}
       >
-        <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />
+        {selectedTier ? <Zap className="h-3.5 w-3.5 shrink-0 fill-current text-accent" /> : <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />}
         <span className="hidden min-w-0 sm:flex sm:items-center">
           <span className="max-w-[6rem] truncate text-xs font-medium leading-4 text-text-secondary group-hover:text-text-primary">
             {selectedReasoningLabel}
@@ -945,8 +924,15 @@ export function AgentModelPicker({
                           </div>
                         </div>
 
-                        <div className="min-h-0 flex-1 overflow-y-auto py-2">
-                          <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey}
+                        <fieldset disabled={savingControls} aria-busy={savingControls} className="min-h-0 min-w-0 flex-1 overflow-y-auto py-2">
+                          <ServiceTierButtons tiers={modelServiceTiers(activeModelRow.model)} value={selectedTier}
+                            onChange={serviceTier => void applyReasoningSelection({
+                              reasoningEnabled: selected.reasoningEnabled,
+                              reasoningEffort: selected.reasoningEffort,
+                              thinkingBudget: selected.thinkingBudget,
+                              serviceTier,
+                            }, true)} />
+                          <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey} serviceTier={selectedTier}
                             onSelect={key => { const option = intensityOptions.find(option => option.key === key); return option ? applyReasoningSelection(option.selection, true) : false; }}>
                           {!activeModelRow.reasoning ? (
                             <p className="text-[11px] leading-4 text-text-tertiary">
@@ -1023,7 +1009,7 @@ export function AgentModelPicker({
                             </p>
                           )}
                           </ReasoningIntensity>
-                        </div>
+                        </fieldset>
 
                         {activeModelRow.reasoning?.thinkingBudget?.enabled && (
                           <div className="flex gap-1 border-t border-border/50 pt-2">

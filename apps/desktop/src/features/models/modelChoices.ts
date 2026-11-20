@@ -1,8 +1,11 @@
+export type ServiceTier = 'fast' | 'ultrafast';
+
 export interface TurnModelSelection {
   model: string;
   reasoningEnabled: boolean | null;
   reasoningEffort: string | null;
   thinkingBudget: number | null;
+  serviceTier?: ServiceTier | null;
 }
 export interface ModelChoice {
   id: string;
@@ -10,6 +13,7 @@ export interface ModelChoice {
   available?: boolean;
   replacementModelId?: string | null;
   vision: boolean | null;
+  serviceTiers?: ServiceTier[];
   reasoning: {
     mode?: string | null;
     disabledMode?: 'between_tools';

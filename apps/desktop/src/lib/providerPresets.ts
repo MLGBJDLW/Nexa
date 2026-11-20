@@ -258,6 +258,13 @@ export function getReasoningCapability(input: {
   return getProviderModelCapabilities(input)?.reasoning ?? null;
 }
 
+export function modelServiceTiers(model?: ProviderModelPreset, now = Date.now()) {
+  const capabilities = model?.capabilities;
+  if (model?.descriptor.availableToCredential === false
+    || (capabilities?.serviceTiersUntil && !(now < Date.parse(capabilities.serviceTiersUntil)))) return undefined;
+  return capabilities?.serviceTiers;
+}
+
 /** A persisted discovery may predate the installed bundle. Preserve its account
  * evidence while exposing new bundled models with their original access status. */
 export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapshot) {
@@ -280,9 +287,15 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
   // Keep the current release's picker order. An older account snapshot can
   // contribute access and additional IDs without burying newly shipped rows.
   const byId = new Map(bundled);
-  for (const model of observed) {
-    const id = normalizeModelId(model.id);
+  for (const observation of observed) {
+    const id = normalizeModelId(observation.id);
     const current = bundled.get(id);
+    const bundledTiers = current?.capabilities?.serviceTiers;
+    const model = bundledTiers
+      ? { ...observation, capabilities: { ...observation.capabilities,
+        serviceTiers: observation.capabilities?.serviceTiers ?? bundledTiers,
+        serviceTiersUntil: current?.capabilities?.serviceTiersUntil ?? observation.capabilities?.serviceTiersUntil } }
+      : observation;
     const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
     // A previous release may have cached the model before its contract changed.
     // Account availability and inference receipts are independent of that contract.

@@ -3,7 +3,7 @@ import type { TurnModelSelection } from '../features/models/modelChoices';
 
 export function modelSelectionForConfig(config: AgentConfig | null): TurnModelSelection | null {
   return config ? { model: config.model, reasoningEnabled: config.reasoningEnabled,
-    reasoningEffort: config.reasoningEffort, thinkingBudget: config.thinkingBudget } : null;
+    reasoningEffort: config.reasoningEffort, thinkingBudget: config.thinkingBudget, serviceTier: config.serviceTier ?? null } : null;
 }
 
 /** Credentials refresh independently of the chat's persisted model choice. */
@@ -15,7 +15,9 @@ export function findConfigForConversation(configs: AgentConfig[], conversation: 
       ?? configs.find(config => config.provider === conversation.provider && config.id === fallback?.id)
       ?? configs.find(config => config.provider === conversation.provider);
   if (!config) return null;
-  return { ...config, ...(conversation.modelSelection ?? {}), model: conversation.model, modelId: conversation.model };
+  const serviceTier = conversation.modelSelection ? conversation.modelSelection.serviceTier ?? null
+    : config.model === conversation.model ? config.serviceTier : null;
+  return { ...config, ...conversation.modelSelection, serviceTier, model: conversation.model, modelId: conversation.model };
 }
 
 export function refreshSelectedConfig(configs: AgentConfig[], selected: AgentConfig | null): AgentConfig | null {
