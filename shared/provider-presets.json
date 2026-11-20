@@ -31598,13 +31598,45 @@
         "source": "official",
         "status": "active",
         "access": "account_enablement",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
         "regions": [
           "cn-beijing"
         ],
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        }
       },
       {
         "id": "qwen3.8-max",
@@ -32184,13 +32216,45 @@
         "source": "official",
         "status": "active",
         "access": "account_enablement",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
         "regions": [
           "ap-southeast-1"
         ],
-        "lastVerifiedAt": "2026-11-18T08:18:54Z",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview"
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        }
       },
       {
         "id": "qwen3.8-max",
