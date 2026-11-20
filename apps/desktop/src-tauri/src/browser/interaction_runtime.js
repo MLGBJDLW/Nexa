@@ -55,6 +55,36 @@
     geometryIds: new WeakMap(),
     nextGeometryId: 0,
   };
+  let navigationGeneration = 0;
+  const watchedDocuments = new WeakSet();
+  const watchNavigation = (ownerDocument) => {
+    const view = ownerDocument.defaultView;
+    if (!view || watchedDocuments.has(ownerDocument)) return;
+    watchedDocuments.add(ownerDocument);
+    const invalidate = () => {
+      navigationGeneration++;
+      runtime.refs.clear();
+      runtime.refIds = new WeakMap();
+      if (presentation) cancelPresentation(presentation.id);
+      lastCursorPoint = null;
+    };
+    if (view.navigation?.currentEntry) {
+      view.navigation.addEventListener('currententrychange', invalidate);
+    } else {
+      // Older WebViews emit no event for successful pushState/replaceState.
+      const history = view.History.prototype;
+      for (const method of ['pushState', 'replaceState']) {
+        const original = history[method];
+        history[method] = function (...args) {
+          const result = Reflect.apply(original, this, args);
+          invalidate();
+          return result;
+        };
+      }
+      view.addEventListener('popstate', invalidate);
+      view.addEventListener('hashchange', invalidate);
+    }
+  };
 
   const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
     const label = el.getRootNode().getElementById?.(id) || el.ownerDocument.getElementById(id);
@@ -151,6 +181,7 @@
   const roots = () => {
     const result = [document];
     const visit = (root) => {
+      if (root.nodeType === Node.DOCUMENT_NODE) watchNavigation(root);
       for (const element of root.querySelectorAll?.('*') || []) {
         if (element.shadowRoot) { result.push(element.shadowRoot); visit(element.shadowRoot); }
         if (element.tagName === 'IFRAME') {
@@ -428,7 +459,7 @@
         targetContextFingerprint(element, contextCache),
       ].join('\u001f');
     }).join('\u001e');
-    return `v4|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
+    return `v5|${navigationGeneration}|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
   };
   const observedTextOf = (rootList = roots()) => {
     const rendered = (element) => {
@@ -1176,6 +1207,7 @@
     takeArtifact: () => runtime.takeArtifact(),
     selectedText: () => runtime.selectedText(),
   });
+  watchNavigation(document);
   Object.defineProperty(window, '__NEXA_BROWSER_RUNTIME__', {
     value: bridge,
     configurable: false,

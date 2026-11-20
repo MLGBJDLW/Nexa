@@ -335,6 +335,8 @@ which may repeat between workers. History-isolated workers use their trusted
 parent mutation owner for process/log and loopback-permission scope.
 
 Browser navigation invalidates observations without granting a new control owner.
+Same-document history changes retire element references and prepared input even
+when the page returns to the same URL with the same controls.
 Read-only observation can restart after navigation within one bounded deadline,
 but it cannot reclaim user control, revive a closed tab, or repeat native input.
 Browser failures retain their underlying cause alongside commit/side-effect
