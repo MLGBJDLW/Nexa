@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useId, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Root } from 'mdast';
@@ -28,13 +28,51 @@ export const UserMarkdown = memo(function UserMarkdown({ text, drafting = false 
   </div>;
 });
 
-export function LiveDraftMarkdown({ text }: { text: string }) {
+function LiveDraftMarkdown({ text }: { text: string }) {
   const rendered = useDeferredValue(text);
   // Keep simple typing cheap. Let the same GFM parser used by sent messages
   // decide whether punctuation, URLs, Setext headings or code change the display.
   if (!text.trim() || !rendered.trim() || /^[\p{L}\p{N} ]+$/u.test(rendered)) return null;
   return <div data-testid="chat-draft-markdown" className="live-draft-markdown max-h-40 overflow-auto px-4 py-2 text-sm text-text-primary">
     <UserMarkdown text={rendered} drafting />
+  </div>;
+}
+
+export function DraftEditRegion({ draftKey, text, sourceClassName, children }: { draftKey: string; text: string; sourceClassName: string; children: ReactNode }) {
+  const region = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState(false);
+  useLayoutEffect(() => {
+    const editor = region.current;
+    if (!editing || !editor) return;
+    const doc = editor.ownerDocument;
+    let pointerDown = false;
+    let frame = 0;
+    // A blur occurs on pointerdown. Collapsing the source then can move the
+    // toolbar or message under that pointer before its click is dispatched.
+    const settle = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!pointerDown && !editor.contains(doc.activeElement)) setEditing(false);
+      });
+    };
+    const press = () => { pointerDown = true; };
+    const release = () => { pointerDown = false; settle(); };
+    const leave = () => { if (!pointerDown) settle(); };
+    doc.addEventListener('pointerdown', press, true);
+    doc.addEventListener('pointerup', release, true);
+    doc.addEventListener('pointercancel', release, true);
+    editor.addEventListener('focusout', leave);
+    return () => {
+      cancelAnimationFrame(frame);
+      doc.removeEventListener('pointerdown', press, true);
+      doc.removeEventListener('pointerup', release, true);
+      doc.removeEventListener('pointercancel', release, true);
+      editor.removeEventListener('focusout', leave);
+    };
+  }, [editing]);
+  return <div ref={region} className="draft-edit-region" data-editing={editing} onFocusCapture={() => setEditing(true)}>
+    <div className={`draft-source ${sourceClassName}`}>{children}</div>
+    <LiveDraftMarkdown key={draftKey} text={text} />
   </div>;
 }
 

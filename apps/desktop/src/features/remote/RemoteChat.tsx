@@ -1,4 +1,4 @@
-import { LiveDraftMarkdown } from '../../components/chat/UserMessageText';
+import { DraftEditRegion } from '../../components/chat/UserMessageText';
 import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from '../../components/chat/ConversationHistorySearch';
 import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useGenerationMetrics } from '../../lib/useGenerationMetrics';
@@ -1293,8 +1293,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           </div>
         )}</div>}
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
-        <div className="draft-edit-region">
-        <div className="draft-source flex min-w-0 items-start">
+        <DraftEditRegion draftKey={conversationId} text={draft} sourceClassName="flex min-w-0 items-start">
         <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
@@ -1317,9 +1316,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           onClick={() => { draftRef.current = ghostPrompt; setDraft(ghostPrompt); composerInput.current?.focus(); }}>
           <SquarePen size={16}/>
         </button>}
-        </div>
-        <LiveDraftMarkdown key={conversationId} text={draft} />
-        </div>
+        </DraftEditRegion>
         {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
           {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}

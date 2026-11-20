@@ -57,7 +57,7 @@ import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
 import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
-import { LiveDraftMarkdown } from './UserMessageText';
+import { DraftEditRegion } from './UserMessageText';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
 import { CodeReviewPanel } from './CodeReviewPanel';
@@ -2124,8 +2124,7 @@ export function ChatInput({
           onChange={handleFileSelect}
         />
 
-        <div className="draft-edit-region">
-        <div className="draft-source relative">
+        <DraftEditRegion draftKey={draftKey} text={value} sourceClassName="relative">
         {ghostSuggestion && <div data-testid="chat-input-ghost" aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 px-4 pb-3 pt-3.5 text-sm leading-6 text-text-tertiary/70">
           <span className="line-clamp-2">{ghostSuggestion}</span><kbd className="ml-1 rounded border border-border px-1 text-[10px]">Tab</kbd>
         </div>}
@@ -2157,9 +2156,7 @@ export function ChatInput({
           className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
         />
         </NexaPopoverAnchor>
-        </div>
-        <LiveDraftMarkdown key={draftKey} text={value} />
-        </div>
+        </DraftEditRegion>
 
         <div id="chat-advanced-options" data-testid="chat-advanced-options" hidden={!moreOptionsOpen} className="border-t border-border/35 p-2.5">
           <div className="flex flex-wrap items-center gap-2">
