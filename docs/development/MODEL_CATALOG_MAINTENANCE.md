@@ -127,3 +127,13 @@ publisher contract as the global and single-region endpoints. The configured
 project location must match the hostname's region. Model access and availability
 still depend on that project and location.
 [Google multi-region endpoints](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#multi-region-endpoints)
+
+The 09:19 UTC validation covered 94 endpoints and 1,526 model projections with
+zero static errors. OpenRouter returned 477 chat, 70 image, 38 embedding, 43
+decision and 35 video models. All newly listed IDs had catalog entries. Ten
+top-provider limits exceeded the conservative saved limits. The absent
+`cohere/north-mini-code:free` and `x-ai/grok-build-0.1` routes have no confirmed
+retirement date, and remain available for account discovery. Jina's direct
+connection on this machine still failed. The scheduled run reached its 30-model
+public inventory.
+[OpenRouter catalog](https://openrouter.ai/api/v1/models) · [Scheduled inventory evidence](MODEL_CATALOG_EVIDENCE_2026_11_20.md#coverage)
