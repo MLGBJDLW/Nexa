@@ -225,6 +225,14 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
     }
   };
 
+  const appearanceRef = useRef<HTMLDetailsElement>(null);
+  const openAppearance = () => {
+    const section = appearanceRef.current;
+    if (!section) return;
+    section.open = true;
+    section.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.focus();
+  };
+
   const renderIconPicker = (value: string, onChange: (id: string) => void) => (
     <div className="grid grid-cols-6 gap-1">
       {PROJECT_ICON_OPTIONS.map((option) => {
@@ -234,6 +242,7 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
           <button
             key={option.id}
             type="button"
+            aria-pressed={selected}
             onClick={() => onChange(option.id)}
             className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
               selected
@@ -489,7 +498,10 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
       >
         <div className="space-y-6 p-1 sm:p-2" data-testid="project-editor">
           <div className="flex items-center gap-3">
+            <button type="button" onClick={openAppearance} aria-label={t('project.appearance')}
+              title={t('project.appearance')} className="shrink-0 rounded-xl transition-transform hover:scale-105 focus-visible:outline-accent">
             <ProjectIcon icon={creating ? newIcon : editIcon} color={creating ? newColor : editColor} className="h-12 w-12 shrink-0 rounded-xl" size={24} />
+            </button>
             <input autoFocus onKeyDown={event => {
               if (event.key !== 'Enter' || projectBusy) return;
               event.preventDefault();
@@ -499,7 +511,7 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
           </div>
           <WorkspaceRootsPicker key={creating ? 'new-project' : editingProjectId} roots={creating ? newRoots : editRoots} onChange={creating ? setNewRoots : roots => { setEditRoots(roots); setEditWorkspaceChanged(true); }} />
           <div className="space-y-3 border-t border-border/60 pt-4">
-            <details>
+            <details ref={appearanceRef} key={creating ? "new" : editingProjectId}>
               <summary className="cursor-pointer text-xs text-text-tertiary hover:text-text-primary">{t('project.appearance')}</summary>
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {renderIconPicker(creating ? newIcon : editIcon, creating ? setNewIcon : setEditIcon)}
