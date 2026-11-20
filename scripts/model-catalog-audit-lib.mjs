@@ -95,7 +95,11 @@ export function compareEndpointModels(endpoint, liveModels) {
     if (lifecycle && lifecycle !== curated.lifecycle) {
       lifecycleChanged.push({ id, curated: curated.lifecycle, discovered: lifecycle });
     }
-    if (live.expiration_date && live.expiration_date !== curated.deprecationDate) {
+    // Explicit null withdraws an announced expiration; omission remains unknown.
+    // Report the change for review without inferring an active lifecycle.
+    if (Object.hasOwn(live, 'expiration_date')
+      && (live.expiration_date === null || (typeof live.expiration_date === 'string' && live.expiration_date.length > 0))
+      && live.expiration_date !== (curated.deprecationDate ?? null)) {
       expirationChanged.push({ id, curated: curated.deprecationDate ?? null, discovered: live.expiration_date });
     }
     if (Array.isArray(live.regions)) {

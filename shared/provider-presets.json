@@ -8519,11 +8519,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/z-ai/glm-5.1",
         "maxOutputTokens": 131072,
-        "status": "deprecated",
-        "deprecationDate": "2026-11-20"
+        "status": "active"
       },
       {
         "id": "google/gemma-4-26b-a4b-it:free",
@@ -11295,11 +11294,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 131072,
-        "status": "deprecated",
-        "deprecationDate": "2026-12-31",
+        "status": "active",
         "recommended": false
       },
       {
@@ -12557,10 +12555,11 @@
           "temperature",
           "tool_choice",
           "tools",
+          "top_k",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/openai/gpt-oss-safeguard-20b",
         "maxOutputTokens": 65536
       },
@@ -17890,6 +17889,38 @@
         "recommended": false
       },
       {
+        "id": "mistralai/pixtral-large-2502",
+        "name": "Mistral: Pixtral Large 2502",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://openrouter.ai/api/v1/models/mistralai/pixtral-large-2502/endpoints",
+        "contextTokens": 128000,
+        "maxOutputTokens": 102400,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "max_tokens",
+          "stop",
+          "temperature",
+          "top_k",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": null
+        }
+      },
+      {
         "id": "qwen/qwen-2.5-coder-32b-instruct",
         "name": "Qwen2.5 Coder 32B Instruct",
         "capabilities": {
@@ -20950,9 +20981,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/~deepseek/deepseek-v4-flash-latest",
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 384000,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -23651,7 +23682,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-20",
         "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hy4/endpoints",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -23665,17 +23696,26 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "supportedParameters": [
+          "frequency_penalty",
           "include_reasoning",
+          "logit_bias",
+          "logprobs",
           "max_completion_tokens",
           "max_tokens",
+          "min_p",
+          "presence_penalty",
           "reasoning",
           "reasoning_effort",
+          "repetition_penalty",
           "response_format",
           "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
-          "tools"
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
         ],
         "capabilities": {
           "vision": true,
@@ -34961,6 +35001,49 @@
             "defaultEffort": "max"
           }
         }
+      },
+      {
+        "id": "kimi-k3.1-pro-prime",
+        "name": "Kimi K3.1 Pro Prime (Alibaba Beijing)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-20",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/prime-mode",
+        "regions": [
+          "cn-beijing"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "max"
+          }
+        },
+        "access": "account_enablement"
       },
       {
         "id": "kimi-k3",
