@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.16...nexa-mobile-v0.4.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workspace:** Draft Markdown renders automatically. The manual draft preview command has been removed.
+
+### Features
+
+* **workspace:** search conversation history and improve agent controls across devices ([#587](https://github.com/MLGBJDLW/Nexa/issues/587)) ([9394d45](https://github.com/MLGBJDLW/Nexa/commit/9394d45fc0fe5816641ecad5284c7ad3057495b2))
+
 ## [0.3.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.15...nexa-mobile-v0.3.16) (2026-11-19)
 
 ### Features
