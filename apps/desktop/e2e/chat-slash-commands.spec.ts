@@ -357,6 +357,13 @@ test('live turn timing appears after three seconds without a global elapsed stat
   const duration = (await elapsed.innerText()).match(/(\d+):(\d{2})/)!;
   expect(Number(duration[1]) * 60 + Number(duration[2])).toBeGreaterThanOrEqual(3);
 
+  // A docked workspace can leave the composer narrower than the app viewport.
+  const row = page.getByTestId('chat-composer-primary-controls').locator('..');
+  await row.evaluate(el => { el.style.width = '236px'; });
+  const mode = (await page.getByTestId('chat-mode-segment').boundingBox())!;
+  const timing = (await elapsed.boundingBox())!;
+  expect(mode.x + mode.width <= timing.x || mode.y + mode.height <= timing.y).toBe(true);
+
   await page.getByTestId('chat-context-trigger').hover();
   await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('First event');
   await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('First visible output');

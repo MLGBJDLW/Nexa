@@ -2013,10 +2013,10 @@ export function ChatInput({
       )}
 
       <div className="space-y-2">
-        <div className="flex min-h-8 items-start justify-between gap-2">
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div
             data-testid="chat-composer-primary-controls"
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+            className="flex max-w-full flex-wrap items-center gap-1.5"
           >
             {!nativeAgent && modeSegment}
             {nativeAgent && <span className="text-xs text-text-tertiary" title={t('settings.externalAgentControls')}>{t('settings.externalAgents')}</span>}

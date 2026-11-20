@@ -395,7 +395,7 @@ export function ChatRunOverview({
   return (
     <div
       ref={overviewRef}
-      className="relative z-30 ml-auto flex h-8 shrink-0 items-center"
+      className="relative z-30 ml-auto flex min-h-8 max-w-full flex-wrap items-center justify-end gap-y-1"
       data-testid="chat-run-overview"
       onMouseEnter={() => {
         pointerInsideRef.current = true;
