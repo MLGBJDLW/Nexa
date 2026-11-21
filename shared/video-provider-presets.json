@@ -6434,6 +6434,101 @@
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-11-18"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "seedance2_5_flash",
+        "displayName": "Seedance 2.5 Flash via Runway",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "854:480",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "480:854"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 15000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "promptRequired": true
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation applies to the aggregated model.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "tiered_per_second",
+          "minimumAmountMicros": 520000,
+          "tiers": [
+            {
+              "resolution": "480P",
+              "microsPerSecond": 130000
+            },
+            {
+              "resolution": "720P",
+              "microsPerSecond": 200000
+            }
+          ],
+          "note": "Text-only output is billed by duration and resolution, with a 52-credit minimum."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-21"
       }
     ]
   },
