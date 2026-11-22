@@ -8,6 +8,7 @@
 | [Internationalization](I18N_GUIDELINES.md) | Namespace JSON, generated files, and locale review |
 | [Agent task evaluation](AGENT_TASK_EVALUATION.md) | Contract, replay, scripted and opt-in live task evidence |
 | [Model catalog audit](MODEL_CATALOG_AUDIT.md) | Provider coverage, verified model metadata and discovery limits |
+| [Model catalog evidence, November 22](MODEL_CATALOG_EVIDENCE_2026_11_22.md) | Inkling availability, Liquid and Grok lifecycle, scoped premium routes and endpoint evidence |
 | [Model catalog evidence, November 21](MODEL_CATALOG_EVIDENCE_2026_11_21.md) | Ark and Vertex lifecycle guidance, regional and OpenRouter routes, endpoint coverage |
 | [Model catalog evidence, November 20](MODEL_CATALOG_EVIDENCE_2026_11_20.md) | Withdrawn aggregator deadlines, scoped Prime/Pixtral routes and explicit coverage limits |
 | [Model catalog evidence, November 19](MODEL_CATALOG_EVIDENCE_2026_11_19.md) | Gemini Neon, MiniMax retirements, regional embedding catalogs and measured discovery coverage |

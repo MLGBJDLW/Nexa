@@ -9184,12 +9184,11 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
           "include_reasoning",
           "max_tokens",
           "reasoning",
-          "response_format",
           "seed",
           "stop",
           "temperature",
@@ -9198,9 +9197,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/minimax/minimax-m2.7",
-        "maxOutputTokens": 176947
+        "lastVerifiedAt": "2026-11-22",
+        "documentationRef": "https://openrouter.ai/api/v1/models/minimax/minimax-m2.7/endpoints",
+        "maxOutputTokens": 131072
       },
       {
         "id": "openai/gpt-5.4-nano",
@@ -17980,7 +17979,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-21",
+        "lastVerifiedAt": "2026-11-22",
         "documentationRef": "https://openrouter.ai/api/v1/models/radixark/daisyrose-27b/endpoints",
         "contextTokens": 262144,
         "maxOutputTokens": 235929,
@@ -18016,7 +18015,20 @@
         "capabilities": {
           "vision": true,
           "promptCache": true,
-          "reasoning": null
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "defaultEffort": "xhigh",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
         }
       },
       {
@@ -24088,6 +24100,70 @@
         }
       },
       {
+        "id": "thinkingmachines/inkling-2-mini",
+        "name": "Thinking Machines: Inkling 2 Mini",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-22",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-mini/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "thinkingmachines/inkling-2-small",
         "name": "Thinking Machines: Inkling 2 Small",
         "source": "official",
@@ -28159,7 +28235,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "source": "official",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-22",
+        "deprecationDate": "2026-11-19",
+        "documentationRef": "https://docs.x.ai/developers/release-notes#grok-build-01-end-of-life"
       },
       {
         "id": "grok-4.20-0309-reasoning",
@@ -28246,8 +28328,7 @@
         "source": "official",
         "lastVerifiedAt": "2026-09-12",
         "deprecationDate": "2026-05-15",
-        "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement",
-        "replacementModelId": "grok-build-0.1"
+        "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement"
       },
       {
         "id": "grok-3",

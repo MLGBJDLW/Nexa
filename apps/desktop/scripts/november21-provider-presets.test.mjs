@@ -43,9 +43,7 @@ test('DaisyRose hosted boundaries remain distinct from other aggregator and open
   assert.equal(row.maxOutputTokens, 235_929);
   assert.equal(row.supportsTools, true);
   assert.equal(row.supportsStructuredOutput, true);
-  assert.equal(row.capabilities.reasoning, null);
   assert.equal(row.recommended, false);
-  assert.equal(model('openrouter', 'thinkingmachines/inkling-2-mini'), undefined);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-flash').contextTokens, 1_048_576);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-pro').contextTokens, 1_048_576);
   assert.equal(model('openrouter', 'deepseek/deepseek-v4-flash-vision-exp').maxOutputTokens, 262_144);
