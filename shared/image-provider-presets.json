@@ -178,18 +178,13 @@
         "id": "qwen-image-2.0",
         "name": "Qwen Image 2.0"
       },
-      {
-        "id": "qwen-image-max",
-        "name": "Qwen Image Max"
-      },
-      {
-        "id": "qwen-image-plus",
-        "name": "Qwen Image Plus"
-      },
-      {
-        "id": "qwen-image",
-        "name": "Qwen Image"
-      },
+      {"id":"qwen-image-2.0-pro-2026-06-22","name":"Qwen Image 2.0 Pro (2026-06-22)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["cn-beijing"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-pro-2026-04-22","name":"Qwen Image 2.0 Pro (2026-04-22)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["cn-beijing"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-pro-2026-03-03","name":"Qwen Image 2.0 Pro (2026-03-03)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["cn-beijing"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-2026-03-03","name":"Qwen Image 2.0 (2026-03-03)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["cn-beijing"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-max","name":"Qwen Image Max","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
+      {"id":"qwen-image-plus","name":"Qwen Image Plus","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
+      {"id":"qwen-image","name":"Qwen Image","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
       {"id":"qwen-image-2.1-pro","name":"Qwen Image 2.1 Pro","recommended":false,"source":"official","status":"active","access":"public","regions":["cn-beijing"],"lastVerifiedAt":"2026-10-08","productReadiness":"known","documentationRef":"https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"capabilities":{"imageGeneration":true,"imageEditing":false,"multiReferenceEditing":false},"outputFormats":["png"]},
       { "id": "qwen-image-2.1-turbo", "name": "Qwen Image 2.1 Turbo", "recommended": false, "source": "official", "status": "active", "access": "public", "regions": ["cn-beijing"], "lastVerifiedAt": "2026-10-13", "productReadiness": "known", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference", "inputModalities": ["text"], "outputModalities": ["image"], "maxImages": 1, "capabilities": {"imageGeneration": true, "imageEditing": false, "multiReferenceEditing": false}, "outputFormats": ["png"], "releaseDate": "2026-10-09" }
     ],
@@ -296,18 +291,13 @@
         "id": "qwen-image-2.0",
         "name": "Qwen Image 2.0"
       },
-      {
-        "id": "qwen-image-max",
-        "name": "Qwen Image Max"
-      },
-      {
-        "id": "qwen-image-plus",
-        "name": "Qwen Image Plus"
-      },
-      {
-        "id": "qwen-image",
-        "name": "Qwen Image"
-      },
+      {"id":"qwen-image-2.0-pro-2026-06-22","name":"Qwen Image 2.0 Pro (2026-06-22)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["ap-southeast-1"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-pro-2026-04-22","name":"Qwen Image 2.0 Pro (2026-04-22)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["ap-southeast-1"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-pro-2026-03-03","name":"Qwen Image 2.0 Pro (2026-03-03)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["ap-southeast-1"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0-pro","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-2.0-2026-03-03","name":"Qwen Image 2.0 (2026-03-03)","source":"official","status":"active","productReadiness":"known","recommended":false,"regions":["ap-southeast-1"],"lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/help/en/model-studio/qwen-image-2-0","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"outputFormats":["png"]},
+      {"id":"qwen-image-max","name":"Qwen Image Max","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
+      {"id":"qwen-image-plus","name":"Qwen Image Plus","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
+      {"id":"qwen-image","name":"Qwen Image","status":"removed","deprecationDate":"2026-10-10","replacementModelId":"qwen-image-2.0","recommended":false,"source":"official","productReadiness":"known","lastVerifiedAt":"2026-11-23","documentationRef":"https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4"},
       {"id":"qwen-image-2.1-pro","name":"Qwen Image 2.1 Pro","recommended":false,"source":"official","status":"active","access":"public","regions":["ap-southeast-1"],"lastVerifiedAt":"2026-10-08","productReadiness":"known","documentationRef":"https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference","inputModalities":["text"],"outputModalities":["image"],"maxImages":1,"capabilities":{"imageGeneration":true,"imageEditing":false,"multiReferenceEditing":false},"outputFormats":["png"]},
       { "id": "qwen-image-2.1-turbo", "name": "Qwen Image 2.1 Turbo", "recommended": false, "source": "official", "status": "active", "access": "public", "regions": ["ap-southeast-1"], "lastVerifiedAt": "2026-10-13", "productReadiness": "known", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference", "inputModalities": ["text"], "outputModalities": ["image"], "maxImages": 1, "capabilities": {"imageGeneration": true, "imageEditing": false, "multiReferenceEditing": false}, "outputFormats": ["png"], "releaseDate": "2026-10-09" }
     ],
