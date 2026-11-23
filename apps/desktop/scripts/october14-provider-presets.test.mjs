@@ -361,7 +361,7 @@ test('November 13 Decider v1.3 routes stay unique and opt-in on the Decisions pr
 test('HeyGen Decisions routes remain opt-in and retired router models retain saved IDs', () => {
   const router = read('system-one-provider-presets').find(row => row.id === 'openrouter');
   for (const [id, context] of [
-    ['heygen/heygen-decision-1', 131072],
+    ['heygen/heygen-decision-1', 262144],
     ['heygen/heygen-decision-1-turbo', 262144],
   ]) {
     const matches = router.models.filter(row => row.id === id);
