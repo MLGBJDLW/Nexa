@@ -789,8 +789,13 @@ test('new chat resets the previous conversation persona before first persistence
   await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat' }).click();
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByRole('button', { name: 'Personas' })).toHaveAttribute('title', /Default/);
-  await page.getByRole('textbox', { name: 'Type a message...', exact: true }).fill('Hello from a fresh draft.');
-  await page.getByRole('textbox', { name: 'Type a message...', exact: true }).press('Enter');
+  const input = page.getByRole('textbox', { name: 'Type a message...', exact: true });
+  await input.fill('Hello from a fresh draft.');
+  await input.press('Enter');
+  await expect(input).not.toHaveAttribute('data-draft-key', /^__new__/);
+  await expect(input).toBeFocused();
+  await page.keyboard.insertText('Continue here.');
+  await expectDraft(input, 'Continue here.');
 
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __CREATE_CONVERSATION_ARGS__: Array<Record<string, unknown>> })

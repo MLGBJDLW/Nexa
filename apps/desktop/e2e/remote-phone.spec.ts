@@ -523,7 +523,7 @@ test("QR pairs once and retries an uncertain chat launch with the same ID after 
   await expect(
     page.getByRole("button", { name: "Public connection", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
+  await expectDraft(page.getByLabel("Message", { exact: true }), "");
   expect(app.counts().launches).toHaveLength(2);
   expect(new Set(app.counts().launches).size).toBe(1);
   await page.screenshot({
@@ -778,7 +778,7 @@ test('phone keeps replies and tools in order and the composer opaque with a cust
   const opaque = await page.getByTestId('remote-composer').evaluate(element => {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
     const ctx = canvas.getContext('2d')!;
-    return [element, element.querySelector('textarea')!].map(item => {
+    return [element, element.querySelector('.remote-composer-input')!].map(item => {
       ctx.clearRect(0,0,1,1); ctx.fillStyle = getComputedStyle(item).backgroundColor; ctx.fillRect(0,0,1,1);
       return ctx.getImageData(0,0,1,1).data[3];
     });
@@ -1004,7 +1004,7 @@ test("phone microphone and camera pause across a route change then resume the sa
   await page
     .getByRole("button", { name: "Continue in chat", exact: true })
     .click();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+  await expectDraft(page.getByLabel("Message", { exact: true }),
     /owner is still unconfirmed/,
   );
   expect(
@@ -1236,7 +1236,7 @@ test("an old chat launch cannot clear the new conversation draft", async ({
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
   ).toBeEnabled();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+  await expectDraft(page.getByLabel("Message", { exact: true }),
     "Keep this new draft",
   );
   await expect(

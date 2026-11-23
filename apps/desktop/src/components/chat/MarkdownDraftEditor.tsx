@@ -73,6 +73,7 @@ export function MarkdownDraftEditor({ editorRef, draftKey, value, label, descrip
   current.current = { value, onChange, onCursor };
   const attributes = useRef(new Compartment()).current;
   const lastValue = useRef(value);
+  const owner = useRef(draftKey);
 
   useImperativeHandle(editorRef, () => ({
     focus() { viewRef.current?.focus(); },
@@ -101,7 +102,7 @@ export function MarkdownDraftEditor({ editorRef, draftKey, value, label, descrip
     viewRef.current = view;
     lastValue.current = current.current.value;
     return () => { viewRef.current = null; view.destroy(); };
-  }, [createState, draftKey]);
+  }, [createState]);
 
   useLayoutEffect(() => {
     const view = viewRef.current!;
@@ -109,6 +110,7 @@ export function MarkdownDraftEditor({ editorRef, draftKey, value, label, descrip
       EditorView.editable.of(!disabled), EditorState.readOnly.of(disabled),
       EditorView.contentAttributes.of({
         'aria-label': label, 'aria-multiline': 'true', 'aria-disabled': String(disabled),
+        tabindex: disabled ? '-1' : '0',
         'aria-placeholder': placeholder, 'data-draft-key': draftKey,
         ...(testId && { 'data-testid': testId }), ...(description && { 'aria-description': description }),
       }),
@@ -117,12 +119,14 @@ export function MarkdownDraftEditor({ editorRef, draftKey, value, label, descrip
 
   useLayoutEffect(() => {
     const view = viewRef.current!;
-    if (value === lastValue.current) return;
+    const switched = owner.current !== draftKey;
+    if (!switched && value === lastValue.current) return;
+    owner.current = draftKey;
     // External replacements (history, dictation, send and draft restoration) start a fresh undo history.
     lastValue.current = value;
-    const anchor = Math.min(view.state.selection.main.head, value.length);
+    const anchor = switched ? value.length : Math.min(view.state.selection.main.head, value.length);
     view.setState(createState(value, anchor));
-  }, [createState, value]);
+  }, [createState, draftKey, value]);
 
   return <div {...events} ref={mount} className={`markdown-draft-editor ${className}`} data-empty={value.length === 0} />;
 }
