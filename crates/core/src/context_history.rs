@@ -164,6 +164,31 @@ fn hash_item(hash: &mut blake3::Hasher, role: &str, content: &str, has_images: b
     hash.update(&[u8::from(has_images)]);
 }
 
+/// Find a raw JSON excerpt that the checkpoint's storage projection will turn
+/// into a bounded prefix of the fully protected item. Shorten a cut through a
+/// private value or an expanding replacement, falling back to the locator.
+fn checkpoint_excerpt(
+    privacy: &ChatPrivacyPolicy,
+    content: &str,
+    max_chars: usize,
+) -> (String, String, bool) {
+    let full = privacy.project_text(content);
+    let mut limit = max_chars;
+    while limit > 0 {
+        let mut chars = content.chars();
+        let input: String = chars.by_ref().take(limit).collect();
+        let encoded = Value::String(input.clone()).to_string();
+        if let Ok(visible) = serde_json::from_str::<String>(&privacy.project_text(&encoded)) {
+            let length = visible.chars().count();
+            if length <= max_chars && full.starts_with(&visible) {
+                return (input, visible, chars.next().is_some());
+            }
+        }
+        limit /= 2;
+    }
+    (String::new(), String::new(), !content.is_empty())
+}
+
 impl ContextHistoryArchive {
     pub fn prepare(
         privacy: &ChatPrivacyPolicy,
@@ -240,6 +265,7 @@ impl ContextHistoryArchive {
             // Excerpts are evidence, never fresh instructions. Exact values remain archived.
             let mut remaining = max_chars;
             let mut recent = Vec::new();
+            let mut expected = Vec::new();
             for (ordinal, item) in self
                 .items
                 .iter()
@@ -251,15 +277,26 @@ impl ContextHistoryArchive {
                 if remaining == 0 {
                     break;
                 }
-                let count = remaining.min(700);
-                let projected = privacy.project_text(&item.content);
-                let mut chars = projected.chars();
-                let text: String = chars.by_ref().take(count).collect();
-                remaining = remaining.saturating_sub(text.chars().count());
-                recent.push(json!({"item":ordinal,"role":item.role,"excerpt":text,"truncated":chars.next().is_some()}));
+                let (text, visible, truncated) =
+                    checkpoint_excerpt(privacy, &item.content, remaining.min(700));
+                remaining -= visible.chars().count();
+                let mut entry =
+                    json!({"item":ordinal,"role":item.role,"excerpt":text,"truncated":truncated});
+                recent.push(entry.clone());
+                entry["excerpt"] = Value::String(visible);
+                expected.push(entry);
             }
             recent.reverse();
+            expected.reverse();
             self.recent_progress = Some(Value::Array(recent));
+            // A custom expression can depend on surrounding JSON or checkpoint text.
+            // Include inline excerpts only if the complete projected prompt agrees.
+            if !privacy
+                .project_text(&self.checkpoint_text())
+                .contains(&Value::Array(expected).to_string())
+            {
+                self.recent_progress = None;
+            }
         }
         self
     }

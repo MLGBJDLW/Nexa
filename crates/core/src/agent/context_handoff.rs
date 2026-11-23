@@ -59,7 +59,10 @@ impl AgentExecutor {
         }
         let next = plan.replacement(
             messages,
-            Message::text(Role::System, archive.checkpoint_text()),
+            Message::text(
+                Role::System,
+                privacy.redact_text(&archive.checkpoint_text()),
+            ),
         );
         let before_tokens = metrics
             .messages
@@ -267,6 +270,15 @@ mod tests {
     async fn seamless_checkpoint_keeps_recent_progress_and_restores_the_same_durable_window() {
         let (mut executor, db, id) = setup();
         executor.config.context_management_mode = ContextManagementMode::Seamless;
+        db.save_privacy_config(&crate::privacy::PrivacyConfig {
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "mark evidence".into(),
+                pattern: "evidence".into(),
+                replacement: "evidence!".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
         let mut messages = history();
         messages.push(Message::text(
             Role::User,
@@ -320,7 +332,8 @@ mod tests {
             .find(|m| m.text_content().contains("Recent progress:"))
             .unwrap()
             .text_content();
-        assert!(checkpoint.contains("Exact historical evidence"));
+        assert!(checkpoint.contains("Exact historical evidence!"));
+        assert!(!checkpoint.contains("evidence!!"));
         assert!(messages
             .iter()
             .any(|m| m.role == Role::User && m.text_content().contains("123.45")));
@@ -449,6 +462,10 @@ mod tests {
         let mut messages = vec![
             request.clone(),
             Message::text(Role::Tool, "The probe contacted reader@example.test"),
+            Message::text(
+                Role::Tool,
+                format!("{}private-contact@long.example.test", "header ".repeat(97)),
+            ),
         ];
         let changed = executor
             .handoff_context_with_intent(
@@ -474,9 +491,13 @@ mod tests {
         };
         assert_eq!(read(0), "Contact reader@example.test");
         assert_eq!(read(1), "The probe! contacted [EMAIL]");
-        assert!(messages.iter().any(|message| message
-            .text_content()
-            .contains("The probe! contacted [EMAIL]")));
+        let checkpoint = messages
+            .iter()
+            .find(|message| message.role == Role::System)
+            .unwrap()
+            .text_content();
+        assert!(checkpoint.contains("The probe! contacted [EMAIL]"));
+        assert!(!checkpoint.contains("private-contact"));
     }
 
     #[test]
