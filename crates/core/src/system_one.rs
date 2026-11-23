@@ -15,6 +15,8 @@ mod openai;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemOneConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     #[serde(default)]
     pub enabled: bool,
     #[serde(default = "default_provider")]
@@ -48,6 +50,7 @@ fn default_model() -> String {
 impl Default for SystemOneConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             enabled: false,
             provider: default_provider(),
             api_key: String::new(),
@@ -301,7 +304,7 @@ impl DecisionResponse {
     }
 }
 
-fn base_endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
+pub(crate) fn base_endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
     let preset = presets()
         .iter()
         .find(|preset| preset.id == config.provider)
@@ -369,6 +372,15 @@ impl crate::db::Database {
         &self,
         config: &mut SystemOneConfig,
     ) -> Result<(), CoreError> {
+        if let Some(id) = &config.connection_id {
+            config.api_key.clear();
+            if config.enabled {
+                config.api_key = self.bound_capability_key(id, |source| {
+                    crate::capability_credentials::matches_system_one(source, config)
+                })?;
+            }
+            return Ok(());
+        }
         if !config.enabled || !config.api_key.trim().is_empty() {
             return Ok(());
         }

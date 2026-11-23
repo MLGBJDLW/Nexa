@@ -23,6 +23,7 @@ pub mod approval;
 mod background_process;
 pub mod behavioral_eval;
 pub mod browser_runtime;
+mod capability_credentials;
 pub mod capability_package;
 pub mod capability_registry;
 pub mod chat_worktrees;

@@ -22,6 +22,8 @@ pub enum ImageGenerationSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenerationConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     #[serde(default)]
     pub source: ImageGenerationSource,
     #[serde(default = "default_image_provider")]
@@ -45,6 +47,7 @@ pub struct ImageGenerationConfig {
 impl Default for ImageGenerationConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             source: ImageGenerationSource::Auto,
             provider: default_image_provider(),
             api_style: default_image_api_style(),
@@ -1104,11 +1107,30 @@ fn encrypt_app_config_secrets(mut config: AppConfig) -> Result<AppConfig, CoreEr
     // Saving is an explicit choice. Only loading an unversioned legacy
     // configuration may upgrade the former microphone default.
     config.dictation_defaults_version = CURRENT_DICTATION_DEFAULTS_VERSION;
-    config.image_generation.api_key =
-        crate::crypto::encrypt_api_key(&config.image_generation.api_key)?;
-    config.text_to_speech.api_key = crate::crypto::encrypt_api_key(&config.text_to_speech.api_key)?;
-    config.speech_to_text.api_key = crate::crypto::encrypt_api_key(&config.speech_to_text.api_key)?;
-    config.system_one.api_key = crate::crypto::encrypt_api_key(&config.system_one.api_key)?;
+    for (binding, key) in [
+        (
+            &config.image_generation.connection_id,
+            &mut config.image_generation.api_key,
+        ),
+        (
+            &config.text_to_speech.connection_id,
+            &mut config.text_to_speech.api_key,
+        ),
+        (
+            &config.speech_to_text.connection_id,
+            &mut config.speech_to_text.api_key,
+        ),
+        (
+            &config.system_one.connection_id,
+            &mut config.system_one.api_key,
+        ),
+    ] {
+        if binding.is_some() {
+            key.clear();
+        } else {
+            *key = crate::crypto::encrypt_api_key(key)?;
+        }
+    }
     for provider in &mut config.web_search.custom_providers {
         if provider.connection_id.is_some() {
             provider.api_key.clear();

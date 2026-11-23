@@ -492,7 +492,7 @@ pub fn retrieve_similar_successes(
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    let config = db.get_embedder_config()?;
+    let config = db.runtime_embedder_config()?;
     let embedder = crate::embed::create_embedder(&config)?;
     if embedder.dimensions() == 0 {
         return Ok(Vec::new());

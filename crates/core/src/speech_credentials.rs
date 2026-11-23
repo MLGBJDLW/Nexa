@@ -65,11 +65,31 @@ impl Database {
         Ok(config)
     }
 
-    /// Fill only absent keys; an explicit speech key always wins. This is also
-    /// used before mobile validates a newly selected cloud speech provider.
+    /// Bound accounts are revalidated for each request. Unbound configurations
+    /// retain their dedicated key or inherit the matching legacy default.
     pub fn resolve_speech_credentials(&self, config: &mut AppConfig) -> Result<(), CoreError> {
-        if !config.speech_to_text.api_key.trim().is_empty()
-            && !config.text_to_speech.api_key.trim().is_empty()
+        let input = &mut config.speech_to_text;
+        if let Some(id) = &input.connection_id {
+            input.api_key = self.bound_media_key(
+                id,
+                "stt",
+                &input.provider,
+                &input.api_style,
+                input.base_url.as_deref(),
+            )?;
+        }
+        let output = &mut config.text_to_speech;
+        if let Some(id) = &output.connection_id {
+            output.api_key = self.bound_media_key(
+                id,
+                "tts",
+                &output.provider,
+                &output.api_style,
+                output.base_url.as_deref(),
+            )?;
+        }
+        if (input.connection_id.is_some() || !input.api_key.trim().is_empty())
+            && (output.connection_id.is_some() || !output.api_key.trim().is_empty())
         {
             return Ok(());
         }
