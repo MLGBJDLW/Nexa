@@ -435,7 +435,53 @@ fn disable_ambient(
     Ok(overrides)
 }
 
-async fn model(wire: &mut Wire, id: &str) -> Result<Value, CoreError> {
+/// Both Codex transports consume the same visible model pages. Some runtimes
+/// paginate below the requested size, including before the default model.
+#[derive(Default)]
+pub(crate) struct ModelCatalogPages {
+    cursor: Option<String>,
+    seen: HashSet<String>,
+}
+
+impl ModelCatalogPages {
+    pub(crate) const TIMEOUT: Duration = RPC_TIMEOUT;
+
+    pub(crate) fn params(&self) -> Value {
+        json!({"limit": 100, "cursor": self.cursor, "includeHidden": false})
+    }
+
+    pub(crate) fn entries<'a>(
+        &mut self,
+        page: &'a Value,
+    ) -> Result<impl Iterator<Item = (&'a str, &'a Value)>, &'static str> {
+        let rows = page["data"]
+            .as_array()
+            .ok_or("Invalid Codex model catalog")?;
+        self.cursor = match &page["nextCursor"] {
+            Value::Null => None,
+            Value::String(next) if !next.is_empty() => {
+                if !self.seen.insert(next.clone()) {
+                    return Err("Codex model catalog repeated its cursor");
+                }
+                Some(next.clone())
+            }
+            _ => return Err("Invalid Codex model catalog cursor"),
+        };
+        Ok(rows
+            .iter()
+            .filter(|row| row["hidden"] != true)
+            .filter_map(|row| {
+                let id = row["model"].as_str().filter(|id| !id.is_empty())?;
+                Some((id, row))
+            }))
+    }
+
+    pub(crate) fn has_more(&self) -> bool {
+        self.cursor.is_some()
+    }
+}
+
+async fn model(wire: &mut Wire, selected_id: Option<&str>) -> Result<Value, CoreError> {
     let account = wire
         .request("account/read", json!({"refreshToken":false}))
         .await?;
@@ -444,35 +490,25 @@ async fn model(wire: &mut Wire, id: &str) -> Result<Value, CoreError> {
             "Sign in with a ChatGPT subscription in provider settings first",
         ));
     }
-    let mut cursor = Value::Null;
-    let mut cursors = HashSet::new();
-    for _ in 0..20 {
-        let result = wire
-            .request(
-                "model/list",
-                json!({"limit":100,"cursor":cursor,"includeHidden":false}),
-            )
-            .await?;
-        let models = result["data"]
-            .as_array()
-            .ok_or_else(|| protocol_error("invalid Codex model catalog"))?;
-        if let Some(model) = models
-            .iter()
-            .find(|model| model["model"].as_str() == Some(id))
-        {
-            return Ok(model.clone());
+    tokio::time::timeout(ModelCatalogPages::TIMEOUT, async {
+        let mut pages = ModelCatalogPages::default();
+        loop {
+            let page = wire.request("model/list", pages.params()).await?;
+            if let Some((_, model)) = pages.entries(&page).map_err(protocol_error)?.find(|(id, row)| {
+                selected_id.map_or_else(|| row["isDefault"] == true, |selected| selected == *id)
+            }) {
+                return Ok(model.clone());
+            }
+            if !pages.has_more() {
+                return Err(protocol_error(match selected_id {
+                    Some(_) => "the selected model is unavailable to this ChatGPT account; refresh its model list",
+                    None => "The Codex account has no default model; refresh its model catalog",
+                }));
+            }
         }
-        cursor = result["nextCursor"].clone();
-        if cursor.is_null() {
-            break;
-        }
-        if !cursors.insert(cursor.to_string()) {
-            return Err(protocol_error("Codex model catalog repeated its cursor"));
-        }
-    }
-    Err(protocol_error(
-        "the selected model is unavailable to this ChatGPT account; refresh its model list",
-    ))
+    })
+    .await
+    .map_err(|_| CoreError::StreamIncomplete("Codex model discovery timed out".into()))?
 }
 
 fn user_input(text: &str, images: &[(String, String)]) -> Vec<Value> {
@@ -591,7 +627,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         let (wire, model) =
             super::connect_with_recovery(&request.events, &cancellation, || async {
                 let mut wire = Wire::start().await?;
-                let model = model(&mut wire, &model_id).await?;
+                let model = model(&mut wire, Some(&model_id)).await?;
                 Ok((wire, model))
             })
             .await?;
@@ -1053,6 +1089,26 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn codex_model_pages_follow_opaque_cursors_and_filter_hidden_entries() {
+        let mut pages = ModelCatalogPages::default();
+        for i in 0..24 {
+            let next = format!("cursor-{i}");
+            let page = json!({"data":[{"model":"hidden","hidden":true}],"nextCursor":next});
+            assert_eq!(pages.entries(&page).unwrap().count(), 0);
+            assert!(pages.has_more());
+            assert_eq!(pages.params()["cursor"], next);
+        }
+        let page = json!({"data":[{"model":"later-default","isDefault":true}],"nextCursor":null});
+        assert_eq!(
+            pages.entries(&page).unwrap().next().unwrap().0,
+            "later-default"
+        );
+        assert!(!pages.has_more());
+        let duplicate = json!({"data":[],"nextCursor":"cursor-3"});
+        assert!(pages.entries(&duplicate).is_err());
+    }
+
     #[test]
     fn account_service_tiers_preserve_codex_request_ids() {
         use nexa_core::model_catalog::ServiceTier;

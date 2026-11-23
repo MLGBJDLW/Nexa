@@ -24,39 +24,17 @@ pub(crate) async fn generate_subscription_image(
             .map_err(protocol_error)?;
         let cwd = workspace.path().to_string_lossy().to_string();
         let mut wire = Wire::start_for_images(true).await?;
-        let account = wire
-            .request("account/read", json!({"refreshToken":false}))
-            .await?;
-        if account.pointer("/account/type").and_then(Value::as_str) != Some("chatgpt") {
-            return Err(protocol_error("Sign in with a ChatGPT subscription in AI provider settings first. No API-key fallback was attempted."));
-        }
+        let selected = requested_model.filter(|id| !id.trim().is_empty());
+        let entry = model(&mut wire, selected).await?;
+        let model_id = entry["model"]
+            .as_str()
+            .ok_or_else(|| protocol_error("Codex catalog entry omitted its model ID"))?;
         let capabilities = wire
             .request("modelProvider/capabilities/read", json!({}))
             .await?;
         if capabilities["imageGeneration"] != true {
             return Err(protocol_error("This Codex runtime does not expose subscription image generation. Update Codex or explicitly select API Key."));
         }
-        let model_id = match requested_model.filter(|id| !id.trim().is_empty()) {
-            Some(id) => {
-                model(&mut wire, id).await?;
-                id.to_string()
-            }
-            None => {
-                let catalog = wire
-                    .request("model/list", json!({"limit":100,"includeHidden":false}))
-                    .await?;
-                catalog["data"]
-                    .as_array()
-                    .and_then(|models| models.iter().find(|m| m["isDefault"] == true))
-                    .and_then(|model| model["model"].as_str())
-                    .ok_or_else(|| {
-                        protocol_error(
-                            "The Codex account has no default model; refresh its model catalog",
-                        )
-                    })?
-                    .to_string()
-            }
-        };
         let config = wire
             .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
             .await?;

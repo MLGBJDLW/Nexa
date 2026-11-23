@@ -17,6 +17,7 @@ use github_copilot_sdk::rpc::AccountGetQuotaRequest;
 use github_copilot_sdk::{install_bundled_cli, Client};
 
 use super::AppState;
+use crate::agent_runtime::codex::ModelCatalogPages;
 
 const CODEX_BINARY_OVERRIDE: &str = "NEXA_CODEX_BIN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -662,6 +663,15 @@ impl CodexAppServerClient {
     }
 
     fn request(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
+        self.request_until(method, params, Instant::now() + REQUEST_TIMEOUT)
+    }
+
+    fn request_until(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+        deadline: Instant,
+    ) -> Result<Value, String> {
         let request_id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         let mut message = json!({ "method": method, "id": request_id });
@@ -670,7 +680,6 @@ impl CodexAppServerClient {
         }
         self.write_message(&message)?;
 
-        let deadline = Instant::now() + REQUEST_TIMEOUT;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -1227,28 +1236,11 @@ pub(crate) async fn native_subscription_models(
             }
             let mut models = Vec::new();
             let mut default_index = None;
-            let mut cursor: Option<String> = None;
-            let mut cursors = std::collections::HashSet::new();
+            let mut pages = ModelCatalogPages::default();
+            let deadline = Instant::now() + ModelCatalogPages::TIMEOUT;
             loop {
-                let page = client.request(
-                    "model/list",
-                    Some(json!({"limit":100,"includeHidden":false,"cursor":cursor})),
-                )?;
-                let entries = page
-                    .get("data")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| "Codex returned an invalid model catalog".to_string())?;
-                for item in entries {
-                    if item.get("hidden").and_then(Value::as_bool) == Some(true) {
-                        continue;
-                    }
-                    let Some(id) = item
-                        .get("model")
-                        .and_then(Value::as_str)
-                        .filter(|id| !id.is_empty())
-                    else {
-                        continue;
-                    };
+                let page = client.request_until("model/list", Some(pages.params()), deadline)?;
+                for (id, item) in pages.entries(&page)? {
                     if item["isDefault"] == true && default_index.is_none() {
                         default_index = Some(models.len());
                     }
@@ -1283,15 +1275,8 @@ pub(crate) async fn native_subscription_models(
                             .collect(),
                     });
                 }
-                cursor = page
-                    .get("nextCursor")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
-                let Some(next) = cursor.as_ref() else {
+                if !pages.has_more() {
                     break;
-                };
-                if models.len() > 1000 || !cursors.insert(next.clone()) {
-                    return Err("Codex model pagination did not converge".into());
                 }
             }
             // New profiles use the first entry. The declared account default
