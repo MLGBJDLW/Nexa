@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
@@ -493,8 +494,8 @@ test('opens a shared Browser Workspace and attaches pointed page context', async
   const attachedNotice = page.getByRole('region', { name: 'Notifications alt+T' })
     .getByRole('listitem').filter({ hasText: 'Browser context attached to the chat input' });
   await expect(attachedNotice).toBeVisible();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/<browser_artifact>/);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/More information/);
+  await expectDraft(page.getByTestId('chat-input-textarea'), /<browser_artifact>/);
+  await expectDraft(page.getByTestId('chat-input-textarea'), /More information/);
   await attachedNotice.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(attachedNotice).toHaveCount(0);
 
@@ -732,13 +733,13 @@ test('drops a deferred page pick when the active conversation changes', async ({
   await page.getByText('Shared Browser Workspace B', { exact: true }).click();
   await expect(page).toHaveURL(/\/chat\/conv-browser-workspace-b$/);
   const composer = page.getByTestId('chat-input-textarea');
-  await expect(composer).toHaveValue('');
+  await expectDraft(composer, '');
 
   await page.evaluate(() => {
     (window as unknown as { __resolveDeferredBrowserPick__: () => void }).__resolveDeferredBrowserPick__();
   });
   await page.waitForTimeout(400);
-  await expect(composer).toHaveValue('');
+  await expectDraft(composer, '');
 });
 
 test('drops deferred selected text when the active conversation changes', async ({ page }) => {
@@ -761,7 +762,7 @@ test('drops deferred selected text when the active conversation changes', async 
   await page.getByText('Shared Browser Workspace B', { exact: true }).click();
   await expect(page).toHaveURL(/\/chat\/conv-browser-workspace-b$/);
   const composer = page.getByTestId('chat-input-textarea');
-  await expect(composer).toHaveValue('');
+  await expectDraft(composer, '');
 
   await page.evaluate(() => {
     (window as unknown as {
@@ -769,7 +770,7 @@ test('drops deferred selected text when the active conversation changes', async 
     }).__resolveDeferredBrowserSelectedText__();
   });
   await page.waitForTimeout(100);
-  await expect(composer).toHaveValue('');
+  await expectDraft(composer, '');
 });
 
 test('starts the new conversation browser without waiting for an older conversation create', async ({ page }) => {

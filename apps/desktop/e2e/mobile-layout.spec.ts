@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { test, expect } from '@playwright/test';
 
 test('phone conversation actions stay compact at narrow widths', async ({ page }) => {
@@ -314,21 +315,21 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   // Allow the short tap's double-click selection window to expire.
   await page.waitForTimeout(380);
   await touchStart();await expect.poll(()=>count('speech.listen')).toBe(1);await release('touchEnd');
-  await expect(input).toHaveValue('Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
-  await input.fill('draft');await input.evaluate(node=>node.setSelectionRange(5,5));
+  await expectDraft(input, 'Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
+  await input.fill('draft');await input.press('End');
   await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
-  await expect.poll(()=>count('speech.cancel')).toBe(1);await expect(input).toHaveValue('draft');
+  await expect.poll(()=>count('speech.cancel')).toBe(1);await expectDraft(input, 'draft');
   await page.emulateMedia({reducedMotion:'no-preference'});
   await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);
   const waveform = page.getByTestId('microphone-waveform');
   await expect(waveform).toBeVisible();
   await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:.82, text:'Hello'}));
-  await expect(input).toHaveValue('draft Hello');
+  await expectDraft(input, 'draft Hello');
   await expect(waveform.locator('span').last()).toHaveAttribute('style', /scaleY\(0\.82/);
   await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:0}));
   await expect(waveform.locator('span').last()).toHaveAttribute('style', /scaleY\(0\.06/);
   await page.getByRole('button',{name:'Stop',exact:true}).click();
-  await expect(input).toHaveValue('draft Hello from dictation');
+  await expectDraft(input, 'draft Hello from dictation');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   const started=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.find((a:any)=>a.method==='chat.start'));
   expect(started.params.executionMode).toBe('plan');

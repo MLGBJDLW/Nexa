@@ -821,8 +821,8 @@ impl LocalRuntime {
         message: &str,
     ) -> Result<(), String> {
         let message = message.trim();
-        if message.is_empty() || message.chars().count() > 64_000 {
-            return Err("Enter a steering message of 1 to 64000 characters.".into());
+        if message.is_empty() {
+            return Err("Enter a nonempty steering message.".into());
         }
         let active = self.active.lock().await;
         let turn = active

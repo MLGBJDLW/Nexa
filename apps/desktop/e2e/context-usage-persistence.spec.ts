@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
@@ -750,14 +751,14 @@ test('manual compact keeps canonical messages and yields its temporary estimate 
   await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
   await expect(page.getByTestId('chat-send')).toBeDisabled();
   await page.getByTestId('chat-input-textarea').fill('Draft the next question while compacting.');
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Draft the next question while compacting.');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'Draft the next question while compacting.');
   await expect(page.getByTestId('chat-send')).toBeDisabled();
 
   await page.evaluate(() => localStorage.removeItem('__e2e_hold_compaction__'));
   await expect(page.getByText('Compaction complete').first()).toBeVisible();
   await expect(page.getByTestId('chat-send')).toBeEnabled();
   await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Draft the next question while compacting.');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'Draft the next question while compacting.');
   await expect(page.getByTestId('chat-compact-status').first()).toBeVisible();
   await expect(page.getByTestId('chat-context-trigger')).not.toHaveAttribute('aria-label', /7% context used/);
   await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /0% context used/);
@@ -827,7 +828,7 @@ test('manual compact status and completion stay scoped to the target conversatio
 
   await page.getByTestId('conversation-item-conv-empty').click();
   await expect(page.getByTestId('chat-compact-status')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input-textarea')).not.toHaveAttribute('placeholder', /compacting/i);
+  await expect(page.getByTestId('chat-input-textarea')).not.toHaveAttribute('aria-placeholder', /compacting/i);
 
   await page.waitForTimeout(500);
   await expect(page.getByText('Compaction complete')).toHaveCount(0);
@@ -946,7 +947,7 @@ test('history Fork remains available during streaming and keeps the existing com
   await page.screenshot({ path: '../../.artifacts/runtime-speech-20261021/fork-waiting.png' });
   await page.evaluate(() => localStorage.removeItem('__e2e_hold_compaction__'));
   await expect(page.getByTestId('chat-compact-status')).toContainText('New window ready');
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Keep this draft while Fork is queued.');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'Keep this draft while Fork is queued.');
   await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
   await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
 });

@@ -1,4 +1,4 @@
-import { DraftEditRegion } from '../../components/chat/UserMessageText';
+import { MarkdownDraftEditor, type DraftEditorHandle } from '../../components/chat/MarkdownDraftEditor';
 import { ConversationHistorySearch, type HistoryHit, type HistoryPage } from '../../components/chat/ConversationHistorySearch';
 import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useGenerationMetrics } from '../../lib/useGenerationMetrics';
@@ -102,7 +102,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   const [modelOpen, setModelOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const contentScroll = useRef<HTMLDivElement>(null);
-  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const composerInput = useRef<DraftEditorHandle>(null);
   const followOutput = useRef(true);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [catalogRevision, setCatalogRevision] = useState(0);
@@ -292,11 +292,6 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
       hitToReveal.current = null;
     }
   }, [drawerOpen, messages, searchAnchor]);
-  useLayoutEffect(() => {
-    if (!mobile || !composerInput.current) return;
-    composerInput.current.style.height = 'auto';
-    composerInput.current.style.height = `${Math.min(160, composerInput.current.scrollHeight)}px`;
-  }, [mobile, draft]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [answers, setAnswers] = useState<
@@ -1293,16 +1288,15 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           </div>
         )}</div>}
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
-        <DraftEditRegion draftKey={conversationId} text={draft} sourceClassName="flex min-w-0 items-start">
-        <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
-          aria-label={t("remote.message")}
-          className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
-          maxLength={64000}
+        <div className="flex min-w-0 items-start">
+        <MarkdownDraftEditor {...holdHandlers} editorRef={composerInput} draftKey={conversationId}
+          label={t("remote.message")}
+          className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input remote-draft w-full rounded-lg text-sm leading-6"}
           placeholder={ghostPrompt || t(canSteer ? 'chat.steeringMessage' : 'remote.messageHint')}
           value={draft}
-          onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
-          aria-description={[hasDictation && t('voice.holdComposerToDictate'), followups?.items[0] && t('chat.followupTabHint', { prompt: followups.items[0].prompt })].filter(Boolean).join(' ') || undefined}
-          onKeyDown={event => {
+          onChange={text => { draftRef.current = text; setDraft(text); }}
+          description={[hasDictation && t('voice.holdComposerToDictate'), followups?.items[0] && t('chat.followupTabHint', { prompt: followups.items[0].prompt })].filter(Boolean).join(' ') || undefined}
+          onKeyDownCapture={event => {
             if (event.key === 'Escape' && followups && !event.nativeEvent.isComposing) {
               event.preventDefault(); setDismissedFollowup(followups.key);
             }
@@ -1316,7 +1310,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           onClick={() => { draftRef.current = ghostPrompt; setDraft(ghostPrompt); composerInput.current?.focus(); }}>
           <SquarePen size={16}/>
         </button>}
-        </DraftEditRegion>
+        </div>
         {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
           {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}

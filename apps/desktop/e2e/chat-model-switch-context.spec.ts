@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 import { readFileSync } from 'node:fs';
@@ -583,12 +584,12 @@ test('followup recommendations accept JSONL in the composer and Tab completes wi
   await page.goto('/chat/conv-model-switch');
   const input = page.getByTestId('chat-input-textarea');
   await expect(page.getByTestId('followup-suggestions').getByRole('button')).toHaveCount(2);
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await expect(page.getByTestId('chat-input-ghost')).toContainText('Check the generated report');
   await expect(page.locator('.chat-assistant-reply')).not.toContainText('"label"');
   await page.getByTestId('chat-input').screenshot({path:testInfo.outputPath('followup-suggestions.png')});
   await input.focus(); await input.press('Tab');
-  await expect(input).toHaveValue('Check the generated report for missing evidence.');
+  await expectDraft(input, 'Check the generated report for missing evidence.');
   expect(await page.evaluate(() => (window as any).__lastAgentChatArgs)).toBeNull();
   await expect(page.getByTestId('followup-suggestions')).toHaveCount(0);
   await input.fill('');
@@ -809,8 +810,8 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
   } else await expect(speed).toHaveCount(0);
   await expect(page.getByTestId('agent-model-reasoning-none')).toHaveCount(0);
   await page.getByTestId('agent-model-reasoning-ultra').click();
-  await page.locator('textarea').fill('Please inspect the current page');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('Please inspect the current page');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({
     agentConfigId: configId, modelSelection: { serviceTier: provider === 'openai_codex' ? 'ultrafast' : null },
   });
@@ -838,8 +839,8 @@ test('provider-managed reasoning sends Gemini Argon with its advertised Copilot 
   await expect(page.getByTestId('agent-model-reasoning-ultra')).toHaveCount(0);
   await expect(page.getByTestId('agent-model-reasoning-medium')).toBeVisible();
   await page.getByTestId('agent-model-reasoning-low').click();
-  await page.locator('textarea').fill('Hello Gemini');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('Hello Gemini');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string, unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-subscription' });
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string, unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider: 'github_copilot', model: 'gemini-4-argon', reasoningEffort: 'low' });
 });
@@ -849,9 +850,9 @@ test('subscription compact command is rejected without starting an API summarize
   await page.goto('/chat/conv-model-switch');
   await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
-  await page.locator('textarea').fill('/compact');
-  await page.locator('textarea').press('Escape');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('/compact');
+  await page.getByTestId('chat-input-textarea').press('Escape');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect(page.getByText('Manual compaction is unavailable for this conversation.', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('e2e-compact-started'))).toBeNull();
 });
@@ -860,8 +861,8 @@ test('ACP native slash commands reach the native runtime without local template 
   await page.goto('/chat/conv-model-switch');
   await openProviderModels(page, 'cfg-acp');
   await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
-  await page.locator('textarea').fill('/compact');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('/compact');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-acp', message: '/compact' });
   expect(await page.evaluate(() => localStorage.getItem('e2e-compact-started'))).toBeNull();
 });
@@ -927,8 +928,8 @@ test('ACP external agent model selector hides unsupported runtime controls and u
   await expect(page.getByTestId('chat-compact')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('external-agent-composer-narrow.png') });
-  await page.locator('textarea').fill('Please inspect the current project');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('Please inspect the current project');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: unknown }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-acp', collaborationMode: 'direct', powerMode: 'standard' });
 });
 
@@ -1107,8 +1108,8 @@ test('a new turn does not inherit the completed turn context before native usage
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
   await openProviderModels(page, 'cfg-codex');
   await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
-  await page.locator('textarea').fill('Start the next turn');
-  await page.locator('textarea').press('Enter');
+  await page.getByTestId('chat-input-textarea').fill('Start the next turn');
+  await page.getByTestId('chat-input-textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.message)).toBe('Start the next turn');
   await expect(page.getByRole('button', { name: /5% context used/ })).toHaveCount(0);
 });

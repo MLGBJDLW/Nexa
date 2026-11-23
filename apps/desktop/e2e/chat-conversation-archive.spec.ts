@@ -1,3 +1,4 @@
+import { draftText, expectDraft } from './draft-editor';
 import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 
@@ -41,7 +42,7 @@ test('chat worktree keeps the draft and requires a snapshot decision before arch
   await panel.getByRole('button', { name: 'Archive with snapshot' }).click();
   await expect(panel).toContainText('archived');
   await panel.getByRole('button', { name: 'Restore snapshot' }).click(); await expect(panel).toContainText('ready');
-  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep my worktree draft');
+  await page.keyboard.press('Escape'); await expectDraft(input, 'Keep my worktree draft');
   await input.fill('/worktree'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __worktreeActions: string[] }).__worktreeActions)).toEqual(['create', 'archive', 'restore']);
 });
@@ -70,7 +71,7 @@ test('MCP resources and prompt templates are reviewed before adding text to the 
   expect(await page.evaluate(() => (window as unknown as {__mcpReads:unknown[]}).__mcpReads)).toEqual([]);
   await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
   await page.screenshot({path:testInfo.outputPath('mcp-resources.png')});
-  await panel.getByRole('button',{name:'Add text to draft'}).click(); await expect(panel).toBeHidden(); await expect(input).toHaveValue(/Keep my draft\n\nMCP · Knowledge · notes:\/\/report\nQuarterly report evidence/);
+  await panel.getByRole('button',{name:'Add text to draft'}).click(); await expect(panel).toBeHidden(); await expectDraft(input, /Keep my draft\n\nMCP · Knowledge · notes:\/\/report\nQuarterly report evidence/);
   await input.fill('/mcp-context'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
   await selectControl(panel.getByRole('combobox',{name:'Connector',exact:true}), 'knowledge');
   await selectControl(panel.getByRole('combobox',{name:'Resources',exact:true}), 'notes://{id}');
@@ -126,7 +127,7 @@ test('project checks require explicit enablement and expose receipts through hoo
   await page.screenshot({ path:testInfo.outputPath('project-checks.png') });
   await panel.getByRole('button', { name:'Disable',exact:true }).click();
   await expect(panel).toContainText('Disabled');
-  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep this draft');
+  await page.keyboard.press('Escape'); await expectDraft(input, 'Keep this draft');
   await input.fill('/hooks'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
   const saves = await page.evaluate(() => (window as unknown as { __hookSaves:Array<{ projectId:string;hook:{enabled:boolean;manifestHash:string;event:string} }> }).__hookSaves);
   expect(saves.map(save => save.hook.enabled)).toEqual([true,false]);
@@ -170,7 +171,7 @@ test('project file rules share a local command and inspector without changing th
   await expect(panel).toContainText('Run the frontend verification.');
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
-  await expect(input).toHaveValue('Keep my draft');
+  await expectDraft(input, 'Keep my draft');
   await input.fill('/rules');
   await page.keyboard.press('Enter');
   await expect(panel).toBeVisible();
@@ -702,7 +703,7 @@ test('creating a project opens its own new conversation and first send uses that
   await page.getByTestId('project-start-chat').click();
   await expect(page.getByTestId('project-new-conversation')).toHaveCount(0);
   await expect(page.getByTestId('task-home')).toHaveCount(0);
-  await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveValue('');
+  await expectDraft(page.getByRole('textbox', { name: 'Type a message...' }), '');
   await page.getByRole('textbox', { name: 'Type a message...' }).fill('First task in the fresh project');
   await page.getByRole('textbox', { name: 'Type a message...' }).press('Enter');
   await expect.poll(() => page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__[0]?.projectId)).toBe('project-1');
@@ -715,8 +716,8 @@ test('new chat cannot accept input under the previous conversation draft owner',
   const owner = await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat', exact: true })
     .evaluate(button => {
       button.click();
-      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="chat-input-textarea"]');
-      return { key: input?.dataset.draftKey, canType: input != null && !input.disabled };
+      const input = document.querySelector<HTMLElement>('[data-testid="chat-input-textarea"]');
+      return { key: input?.dataset.draftKey, canType: input?.isContentEditable === true };
     });
   expect(owner.canType && owner.key !== '__new__:project-legacy').toBe(false);
 });
@@ -732,14 +733,14 @@ test('project drafts remain separate and browser navigation restores the selecte
   await page.getByPlaceholder('Enter project name...').fill('Fresh project');
   await page.getByTestId('project-save').click();
   await page.getByTestId('project-start-chat').click();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await input.fill('Unsent fresh project draft');
   await sidebar.getByRole('button', { name: 'Fresh project', exact: true }).click();
   await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
   await expect(page.getByTestId('project-new-conversation')).toContainText('Legacy project');
   await expect(input).toHaveCount(0);
   await page.getByTestId('project-start-chat').click();
-  await expect(input).toHaveValue('Unsent legacy project draft');
+  await expectDraft(input, 'Unsent legacy project draft');
   await page.evaluate(() => {
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
@@ -751,7 +752,7 @@ test('project drafts remain separate and browser navigation restores the selecte
   await expect.poll(() => page.evaluate(() => typeof (window as any).__rejectProjectDraft)).toBe('function');
   await page.goBack();
   await expect(sidebar.getByRole('button', { name: 'Fresh project', exact: true })).toBeVisible();
-  await expect(input).toHaveValue('Unsent fresh project draft');
+  await expectDraft(input, 'Unsent fresh project draft');
   await page.evaluate(async () => {
     (window as any).__rejectProjectDraft();
     await new Promise(requestAnimationFrame);
@@ -759,7 +760,7 @@ test('project drafts remain separate and browser navigation restores the selecte
   await expect(page.getByTestId('chat-reading-surface')).not.toContainText('D:/legacy-missing');
   await page.goForward();
   await expect(sidebar.getByRole('button', { name: 'Legacy project', exact: true })).toBeVisible();
-  await expect(input).toHaveValue('Unsent legacy project draft');
+  await expectDraft(input, 'Unsent legacy project draft');
   expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(1);
 });
 
@@ -788,8 +789,8 @@ test('new chat resets the previous conversation persona before first persistence
   await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat' }).click();
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByRole('button', { name: 'Personas' })).toHaveAttribute('title', /Default/);
-  await page.getByPlaceholder('Type a message...').fill('Hello from a fresh draft.');
-  await page.getByPlaceholder('Type a message...').press('Enter');
+  await page.getByRole('textbox', { name: 'Type a message...', exact: true }).fill('Hello from a fresh draft.');
+  await page.getByRole('textbox', { name: 'Type a message...', exact: true }).press('Enter');
 
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __CREATE_CONVERSATION_ARGS__: Array<Record<string, unknown>> })
@@ -801,7 +802,7 @@ test('failed first persistence keeps the local draft available for retry', async
   await page.goto('/chat/conv-active');
   await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat' }).click();
   await page.evaluate(() => localStorage.setItem('e2e-fail-next-conversation-create', '1'));
-  const input = page.getByPlaceholder('Type a message...');
+  const input = page.getByRole('textbox', { name: 'Type a message...', exact: true });
   await input.fill('Keep this draft when persistence fails.');
 
   await input.press('Enter');
@@ -810,7 +811,7 @@ test('failed first persistence keeps the local draft available for retry', async
     (window as unknown as { __CREATE_CONVERSATION_ARGS__: Array<Record<string, unknown>> })
       .__CREATE_CONVERSATION_ARGS__.length,
   )).toBe(1);
-  await expect(input).toHaveValue('Keep this draft when persistence fails.');
+  await expectDraft(input, 'Keep this draft when persistence fails.');
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByTestId('conversation-item-conv-new')).toHaveCount(0);
 });
@@ -819,7 +820,7 @@ test('rejected first turn rolls back its empty conversation and keeps the draft'
   await page.goto('/chat/conv-active');
   await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat' }).click();
   await page.evaluate(() => localStorage.setItem('e2e-fail-next-agent-launch', '1'));
-  const input = page.getByPlaceholder('Type a message...');
+  const input = page.getByRole('textbox', { name: 'Type a message...', exact: true });
   await input.fill('Keep this draft when the agent launch is rejected.');
 
   await input.press('Enter');
@@ -832,7 +833,7 @@ test('rejected first turn rolls back its empty conversation and keeps the draft'
     (window as unknown as { __ARCHIVE_COMMANDS__: string[] })
       .__ARCHIVE_COMMANDS__.filter((command) => command === 'delete_conversation_cmd').length,
   )).toBe(1);
-  await expect(input).toHaveValue('Keep this draft when the agent launch is rejected.');
+  await expectDraft(input, 'Keep this draft when the agent launch is rejected.');
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByTestId('conversation-item-conv-new')).toHaveCount(0);
 });
@@ -849,7 +850,7 @@ for (const outcome of ['accepted', 'rejected'] as const) test(`a deferred first 
         ? resolve(null) : reject(new Error('Workspace folder is unavailable: D:/old/Temp')); })
       : original(command, args);
   }, outcome);
-  const input = page.getByPlaceholder('Type a message...');
+  const input = page.getByRole('textbox', { name: 'Type a message...', exact: true });
   await input.fill('Start this conversation without stealing later navigation.');
 
   await input.press('Enter');
@@ -871,7 +872,7 @@ test('first persistence is single-flight when Enter is pressed repeatedly', asyn
   await page.goto('/chat/conv-active');
   await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat' }).click();
   await page.evaluate(() => localStorage.setItem('e2e-delay-conversation-create', '1'));
-  const input = page.getByPlaceholder('Type a message...');
+  const input = page.getByRole('textbox', { name: 'Type a message...', exact: true });
   await input.fill('Create exactly one conversation.');
 
   await input.press('Enter');
@@ -897,7 +898,7 @@ test('archived conversations can be restored from the sidebar manager', async ({
   await expect(page.getByTestId('archived-conversation-banner')).toContainText('read-only');
   await expect(page.getByText('Keep this archived question available.')).toBeVisible();
   await expect(page.getByText('This archived answer remains readable.')).toBeVisible();
-  await expect(page.getByPlaceholder('Type a message...')).toBeHidden();
+  await expect(page.getByRole('textbox', { name: 'Type a message...', exact: true })).toBeHidden();
 
   await archivedItem.getByRole('button', { name: 'Unarchive' }).click();
   await expect(archivedItem).toBeHidden();
@@ -978,7 +979,7 @@ test('typing shortcuts do not toggle the conversation sidebar', async ({ page })
   await page.goto('/chat/conv-active');
 
   const sidebar = page.getByTestId('chat-history-sidebar');
-  const composer = page.getByPlaceholder('Type a message...');
+  const composer = page.getByRole('textbox', { name: 'Type a message...', exact: true });
   await composer.focus();
   await composer.press('Control+b');
   await expect(sidebar).toHaveAttribute('data-collapsed', 'false');
@@ -1070,7 +1071,7 @@ test('a projectless workspace error opens provider settings for recovery', async
   await input.fill('Start the external agent');
   await input.press('Enter');
   await expect(page.getByTestId('chat-reading-surface')).toContainText('D:/removed/Temp');
-  await expect(input).toHaveValue('Start the external agent');
+  await expectDraft(input, 'Start the external agent');
   await page.screenshot({ path: testInfo.outputPath('workspace-error-recovery.png'), animations: 'disabled' });
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click({ timeout: 10000 });
   await expect(page).toHaveURL(/\/settings\?tab=providers$/);
@@ -1106,9 +1107,9 @@ test('review preserves drafts, deduplicates selected feedback and keeps old find
   await panel.getByRole('button',{name:'Record finding',exact:true}).click();
   await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();
   await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
-  await expect(input).toHaveValue('Keep this draft\n\n[nexa-review:packet-one]\nFix the selected current finding.');
+  await expectDraft(input, 'Keep this draft\n\n[nexa-review:packet-one]\nFix the selected current finding.');
   await open(); await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
-  expect((await input.inputValue()).match(/nexa-review:packet-one/g)).toHaveLength(1);
+  expect((await draftText(input)).match(/nexa-review:packet-one/g)).toHaveLength(1);
   await open(); await page.evaluate(()=>{(window as unknown as {__reviewChanged:boolean}).__reviewChanged=true;});
   await panel.getByRole('button',{name:'Refresh diff',exact:true}).click(); await expect(panel.getByRole('checkbox',{name:'Wrong result',exact:true})).toBeDisabled();
   await expect(panel.getByRole('button',{name:'Accept',exact:true})).toBeDisabled();
@@ -1117,7 +1118,7 @@ test('review preserves drafts, deduplicates selected feedback and keeps old find
   await panel.getByText('Checks at this SHA (1)',{exact:true}).click(); await expect(panel).toContainText('Rust tests');
   await page.screenshot({path:testInfo.outputPath('code-review.png')});
   await panel.getByRole('button',{name:'Verified fixed',exact:true}).click(); await expect(panel).toContainText('Resolved');
-  await page.keyboard.press('Escape'); await expect(input).toHaveValue(/^Keep this draft/);
+  await page.keyboard.press('Escape'); await expectDraft(input, /^Keep this draft/);
   await input.fill('/review');await page.keyboard.press('Enter');await expect(panel).toBeVisible();
   expect(await page.evaluate(()=>(window as unknown as {__reviewActions:string[]}).__reviewActions)).not.toContain('publish');
 });

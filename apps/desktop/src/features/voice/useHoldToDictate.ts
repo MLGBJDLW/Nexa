@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, type MouseEvent, type PointerEvent } from 'react';
 
 type Hold = {
-  id: number; x: number; y: number; target: HTMLTextAreaElement; active: boolean;
+  id: number; x: number; y: number; target: HTMLDivElement; active: boolean;
   timer?: ReturnType<typeof setTimeout>;
 };
+function hasSelection(target: HTMLElement) {
+  const selection = target.ownerDocument.getSelection();
+  return selection && !selection.isCollapsed && target.contains(selection.anchorNode);
+}
 export type DictationControls = { start: () => void; finish: () => void; cancel: () => void };
 
 /** A stationary primary press owns capture only after the hold threshold. */
@@ -48,11 +52,11 @@ export function useHoldToDictate(options: {
     };
   }, [end]);
   return {
-    onPointerDown(event: PointerEvent<HTMLTextAreaElement>) {
+    onPointerDown(event: PointerEvent<HTMLDivElement>) {
       suppressClick.current = false;
       const target = event.currentTarget;
       if (!event.isPrimary || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) { end(true); return; }
-      if (!current.current.enabled || held.current || target.disabled || target.readOnly || target.selectionStart !== target.selectionEnd) return;
+      if (!current.current.enabled || held.current || hasSelection(target)) return;
       if (current.current.pointerTypes && !current.current.pointerTypes.includes(event.pointerType)) return;
       const now = performance.now();
       const previous = lastPress.current;
@@ -62,25 +66,25 @@ export function useHoldToDictate(options: {
       held.current = press;
       press.timer = setTimeout(() => {
         if (held.current !== press) return;
-        if (!current.current.enabled || !target.isConnected || document.hidden || target.selectionStart !== target.selectionEnd) { end(true); return; }
+        if (!current.current.enabled || !target.isConnected || document.hidden || hasSelection(target)) { end(true); return; }
         try { target.setPointerCapture(press.id); } catch { end(true); return; }
         press.active = true; suppressClick.current = true;
         current.current.onStart();
       }, 480);
     },
-    onPointerMove(event: PointerEvent<HTMLTextAreaElement>) {
+    onPointerMove(event: PointerEvent<HTMLDivElement>) {
       const press = held.current;
       if (!press || press.id !== event.pointerId) return;
       if (event.buttons !== 1 || ((!press.active || event.pointerType === 'mouse') && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10)) end(true);
     },
-    onPointerLeave(event: PointerEvent<HTMLTextAreaElement>) { if (held.current?.id === event.pointerId && !held.current.active) end(true); },
+    onPointerLeave(event: PointerEvent<HTMLDivElement>) { if (held.current?.id === event.pointerId && !held.current.active) end(true); },
     onBlur() { end(true); },
-    onLostPointerCapture(event: PointerEvent<HTMLTextAreaElement>) { if (held.current?.id === event.pointerId) end(true); },
-    onClickCapture(event: MouseEvent<HTMLTextAreaElement>) {
+    onLostPointerCapture(event: PointerEvent<HTMLDivElement>) { if (held.current?.id === event.pointerId) end(true); },
+    onClickCapture(event: MouseEvent<HTMLDivElement>) {
       if (suppressClick.current) { suppressClick.current = false; event.preventDefault(); event.stopPropagation(); }
     },
-    onContextMenu(event: MouseEvent<HTMLTextAreaElement>) {
-      if (held.current?.active || (held.current && !event.currentTarget.value)) event.preventDefault();
+    onContextMenu(event: MouseEvent<HTMLDivElement>) {
+      if (held.current?.active || (held.current && event.currentTarget.dataset.empty === 'true')) event.preventDefault();
       else end(true);
     },
   };

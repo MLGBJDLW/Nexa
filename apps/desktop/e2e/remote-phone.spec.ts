@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { selectControl } from './select-control';
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { readFileSync } from 'node:fs';
@@ -680,14 +681,14 @@ test('phone dictation pauses and recovers the same session after a stalled audio
   await page.getByRole('button', { name: 'Voice input', exact: true }).click();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('保留的文字');
-  await expect(draft).toHaveValue('保留的文字');
+  await expectDraft(draft, '保留的文字');
   await expect.poll(() => app.counts().sockets, { timeout: 8000 }).toBeGreaterThan(1);
   app.audioDelay(0);
   const audio = app.counts().audio;
   await expect.poll(() => app.counts().audio).toBeGreaterThan(audio + 5);
   expect(app.counts().actions.filter(item => item.method === 'voice.start')).toHaveLength(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(draft).toHaveValue('保留的文字');
+  await expectDraft(draft, '保留的文字');
   await page.getByRole('button', { name: 'Finish dictation', exact: true }).click();
 });
 
@@ -700,14 +701,14 @@ test('phone dictation edits the composer live and retains manual corrections thr
   await draft.hover(); await page.mouse.down();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('今天天气很好');
-  await expect(draft).toHaveValue('写下： 今天天气很好');
+  await expectDraft(draft, '写下： 今天天气很好');
   await draft.fill('写下： 明天天气很好');
   app.dictation('今天天气很好啊');
-  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await expectDraft(draft, '写下： 明天天气很好啊');
   await page.mouse.up();
   await expect.poll(() => app.counts().actions.some(item => item.method === 'voice.finish')).toBe(true);
   await expect(page.getByRole('button', {name:'Voice input',exact:true})).toBeEnabled();
-  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await expectDraft(draft, '写下： 明天天气很好啊');
   await expect.poll(() => page.evaluate(() => (window as any).__remoteTracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
