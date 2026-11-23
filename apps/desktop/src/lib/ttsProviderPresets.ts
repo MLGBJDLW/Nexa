@@ -1,4 +1,5 @@
 import ttsProviderPresets from "../../../../shared/tts-provider-presets.json";
+import { credentialFeatureEndpoint } from './providerCredentials';
 import {
   attachModelDescriptors,
   canonicalModelProviderId,
@@ -111,9 +112,12 @@ export function ttsPresetEndpointMatches(preset: TtsProviderPreset, baseUrl: str
 export function findTtsProviderPreset(config: {
   provider: string;
   apiStyle: string;
+  baseUrl?: string | null;
 } | null | undefined): TtsProviderPreset | null {
   if (!config) return null;
-  return TTS_PROVIDER_PRESETS.find(
+  const matches = TTS_PROVIDER_PRESETS.filter(
     (preset) => preset.provider === config.provider && preset.apiStyle === config.apiStyle,
-  ) ?? null;
+  );
+  return matches.length < 2 ? matches[0] ?? null
+    : matches.find(preset => credentialFeatureEndpoint(config, 'tts', preset)) ?? null;
 }

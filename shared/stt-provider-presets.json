@@ -149,6 +149,22 @@
     "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-transcriptions-post"]
   },
   {
+    "id": "siliconflow-international",
+    "name": "SiliconFlow International Transcription",
+    "provider": "siliconflow",
+    "apiStyle": "openai_transcription",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.siliconflow.com/v1",
+    "description": "Use an international SiliconFlow account to transcribe a complete recording.",
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
+    "models": [
+      {"id": "FunAudioLLM/SenseVoiceSmall", "name": "SenseVoice Small", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-11-23"},
+      {"id": "TeleAI/TeleSpeechASR", "name": "TeleSpeech ASR", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-11-23"}
+    ],
+    "lastVerifiedAt": "2026-11-23",
+    "documentationUrls": ["https://docs.siliconflow.com/en/api-reference/audio/create-audio-transcriptions"]
+  },
+  {
     "id": "sherpa-sense-voice",
     "name": "sherpa-onnx SenseVoice (Local)",
     "provider": "sherpa_onnx",

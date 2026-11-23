@@ -44,12 +44,17 @@ fn multipart_dialects_preserve_custom_and_legacy_models() {
         .iter()
         .any(|(key, _)| *key == "chunking_strategy"));
     config.provider = "siliconflow".into();
-    config.base_url = Some("https://api.siliconflow.cn/v1".into());
     config.model = "FunAudioLLM/SenseVoiceSmall".into();
-    assert_eq!(
-        transcription_form_fields(&config),
-        vec![("model", config.model.clone())]
-    );
+    for base_url in [
+        "https://api.siliconflow.cn/v1",
+        "https://api.siliconflow.com/v1",
+    ] {
+        config.base_url = Some(base_url.into());
+        assert_eq!(
+            transcription_form_fields(&config),
+            vec![("model", config.model.clone())]
+        );
+    }
 }
 
 #[test]

@@ -1,4 +1,5 @@
 import sttProviderPresets from '../../../../shared/stt-provider-presets.json';
+import { credentialFeatureEndpoint } from './providerCredentials';
 import {
   attachModelDescriptors,
   canonicalModelProviderId,
@@ -86,17 +87,20 @@ export function defaultSttItem(items: SttCatalogItem[]): SttCatalogItem | null {
 export function findSttProviderPreset(config: {
   provider: string;
   apiStyle: string;
+  baseUrl?: string | null;
   sherpaModelFamily?: string | null;
 } | null | undefined): SttProviderPreset | null {
   if (!config) return null;
   const sherpaFamily = config.apiStyle === 'sherpa_onnx'
     ? config.sherpaModelFamily ?? 'sense_voice'
     : null;
-  return STT_PROVIDER_PRESETS.find((preset) =>
+  const matches = STT_PROVIDER_PRESETS.filter((preset) =>
     preset.provider === config.provider
     && preset.apiStyle === config.apiStyle
     && (preset.sherpaModelFamily ?? null) === sherpaFamily,
-  ) ?? null;
+  );
+  return matches.length < 2 ? matches[0] ?? null
+    : matches.find(preset => credentialFeatureEndpoint(config, 'stt', preset)) ?? null;
 }
 
 /** Product/runtime capability for a concrete saved configuration. Unknown and

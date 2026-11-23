@@ -106,6 +106,13 @@ test('new models are bound to implemented transports and unknown realtime models
 });
 
 test('every curated voice model binding resolves inside its own provider', () => {
+  for (const apiStyle of ['openai_speech', 'openai_transcription']) {
+    const lookup = apiStyle === 'openai_speech' ? tts.findTtsProviderPreset : stt.findSttProviderPreset;
+    const config = { provider: 'siliconflow', apiStyle };
+    assert.equal(lookup({ ...config, baseUrl: 'https://api.siliconflow.cn/v1' }).id, 'siliconflow');
+    assert.equal(lookup({ ...config, baseUrl: 'https://api.siliconflow.com/v1' }).id, 'siliconflow-international');
+    assert.equal(lookup({ ...config, baseUrl: 'https://relay.example/v1' }), null);
+  }
   for (const preset of tts.TTS_PROVIDER_PRESETS) {
     const models = new Set(preset.models.map(m => m.id));
     for (const voice of preset.voices) {
