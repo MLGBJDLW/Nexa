@@ -1,6 +1,6 @@
 {
   "name": "manage_skill",
-  "description": "List, inspect and activate skills, read bundled resources, and run declared script helpers through their sandbox. To download or import skills, first use inspect_install_sources with local paths, public GitHub repository/skill URLs, or direct .zip/.skill/Markdown URLs. It returns skillFile/contentDigest selections and package warnings without installing. Then use install_sources with the chosen selections and the same sources/github_ref; installation verifies the inspected content, persists complete resource bundles and returns active skill IDs. GitHub SKILL.md URLs include sibling resources. Private repositories require an authenticated local checkout. Installation does not execute scripts. When an available skill matches the user task, call activate_skill before following its workflow. Use view_skill for inspection, list_skills to discover installed skills, and view_resource for referenced files. Use run_resource_helper only when an activated skill explicitly instructs it. Use proposals for self-evolution; applying proposals, installing skills and executing helpers follow the host approval policy.",
+  "description": "List, inspect and activate skills, read bundled resources, and run declared script helpers through their sandbox. To download or import skills, first use inspect_install_sources with local paths, public GitHub repository/skill URLs, npx skills add OWNER/REPO [--skill NAME ...] commands, or direct .zip/.skill/Markdown URLs. It returns skillFile/contentDigest selections and package warnings without installing. Then use install_sources with the chosen selections and the same sources/github_ref; installation verifies the inspected content, persists complete resource bundles and returns active skill IDs. GitHub SKILL.md URLs include sibling resources. Private repositories require an authenticated local checkout. Installation does not execute scripts. When an available skill matches the user task, call activate_skill before following its workflow. Use view_skill for inspection, list_skills to discover installed skills, and view_resource for referenced files. Use run_resource_helper only when an activated skill explicitly instructs it. Use proposals for self-evolution; applying proposals, installing skills and executing helpers follow the host approval policy.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -31,7 +31,7 @@
         "type": "array",
         "minItems": 1,
         "items": { "type": "string", "minLength": 1 },
-        "description": "Required for inspect_install_sources and install_sources. Local Markdown/archive/directory paths in the current file scope, or public HTTP(S) skill URLs. Multiple sources and collections are supported."
+        "description": "Required for inspect_install_sources and install_sources. Local Markdown/archive/directory paths in the current file scope, or public HTTP(S) skill URLs. For public GitHub skills, a literal npx skills add OWNER/REPO@NAME or npx skills add OWNER/REPO --skill NAME command is also accepted. Commands select packages without executing npm."
       },
       "selection": {
         "type": "array",

@@ -173,14 +173,90 @@ fn download_spec(source: &str, github_ref: Option<&str>) -> Result<DownloadSpec,
     })
 }
 
+/// Interpret the public GitHub install notation as data. No npm process or package
+/// lifecycle script runs, and ordinary relative paths retain their local meaning.
+fn remote_source(
+    source: &str,
+    github_ref: Option<&str>,
+) -> Result<Option<(DownloadSpec, Vec<String>)>, CoreError> {
+    let mut words = source.split_ascii_whitespace().peekable();
+    if words.peek() != Some(&"npx") {
+        return if source.contains("://") {
+            Ok(Some((download_spec(source, github_ref)?, Vec::new())))
+        } else {
+            Ok(None)
+        };
+    }
+    words.next();
+    if matches!(words.peek(), Some(&"-y" | &"--yes")) {
+        words.next();
+    }
+    if !matches!(words.next(), Some("skills" | "skills@latest")) || words.next() != Some("add") {
+        return Err(invalid("Use npx skills add OWNER/REPO [--skill NAME ...]"));
+    }
+    let source = words
+        .next()
+        .ok_or_else(|| invalid("Missing skills repository"))?;
+    let (repository, selector) = source
+        .split_once('@')
+        .map_or((source, None), |(repo, skill)| (repo, Some(skill)));
+    let repository = repository
+        .strip_prefix("https://github.com/")
+        .unwrap_or(repository)
+        .trim_end_matches('/');
+    let parts = repository.split('/').collect::<Vec<_>>();
+    if parts.len() != 2
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || matches!(*part, "." | "..")
+                || !part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+        })
+    {
+        return Err(invalid(
+            "Use a public GitHub owner/repository or pass a local path directly in sources",
+        ));
+    }
+    let mut skills = selector.into_iter().map(str::to_owned).collect::<Vec<_>>();
+    while let Some(option) = words.next() {
+        match option {
+            "--yes" | "-y" | "--global" | "-g" => {}
+            "--skill" | "-s" => {
+                let count = skills.len();
+                while words.peek().is_some_and(|name| !name.starts_with('-')) {
+                    skills.push(words.next().unwrap().to_owned());
+                }
+                if skills.len() == count {
+                    return Err(invalid("--skill requires one or more skill names"));
+                }
+            }
+            _ => return Err(invalid(format!("Unsupported skills add option: {option}"))),
+        }
+    }
+    if skills.iter().any(|name| {
+        name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    }) {
+        return Err(invalid(
+            "Use exact skill names or omit --skill to inspect the collection",
+        ));
+    }
+    Ok(Some((
+        download_spec(&format!("https://github.com/{repository}"), github_ref)?,
+        skills,
+    )))
+}
+
 pub(super) fn validate_sources(
     sources: &[String],
     github_ref: Option<&str>,
 ) -> Result<(), CoreError> {
     let mut github = false;
     for source in sources {
-        if source.contains("://") {
-            let spec = download_spec(source, github_ref)?;
+        if let Some((spec, _)) = remote_source(source, github_ref)? {
             github |= spec.github_directory.is_some();
         }
     }
@@ -324,13 +400,12 @@ pub(super) async fn prepare(
             continue;
         }
         crate::privacy::runtime::ensure_invocation_current()?;
-        let remote = source.starts_with("https://") || source.starts_with("http://");
-        let path = if remote {
-            let spec = download_spec(source, github_ref)?;
-            let bytes = download(&spec).await?;
+        let remote = remote_source(source, github_ref)?;
+        let path = if let Some((spec, _)) = &remote {
+            let bytes = download(spec).await?;
             persist_download(
                 &bytes,
-                &spec,
+                spec,
                 result._temporary.path().join(format!("source-{index}")),
             )?
         } else {
@@ -344,9 +419,21 @@ pub(super) async fn prepare(
             .map_err(invalid)?
         };
         let mut previews = crate::skills::inspect_skill_install_source(&path)?;
+        if let Some((_, names)) = &remote {
+            for name in names {
+                if !previews.iter().any(|preview| &preview.name == name) {
+                    return Err(invalid(format!(
+                        "Skill '{name}' was not found in the repository"
+                    )));
+                }
+            }
+            if !names.is_empty() {
+                previews.retain(|preview| names.contains(&preview.name));
+            }
+        }
         for preview in &mut previews {
             let original = preview.skill_file.clone();
-            if remote {
+            if remote.is_some() {
                 let suffix = original
                     .split_once("!/")
                     .map(|(_, suffix)| format!("!/{suffix}"))
@@ -375,6 +462,30 @@ pub(super) async fn prepare(
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn skills_cli_selectors_use_the_existing_github_installer() {
+        let (source, names) = remote_source(
+            "npx -y skills@latest add vercel-labs/skills@find-skills --skill one two -g",
+            Some("main"),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            source.url.as_str(),
+            "https://codeload.github.com/vercel-labs/skills/zip/main"
+        );
+        assert_eq!(names, ["find-skills", "one", "two"]);
+        assert!(remote_source("local/skills", None).unwrap().is_none());
+        for bad in [
+            "npx other add owner/repo",
+            "npx skills add ../repo",
+            "npx skills add owner/repo --skill",
+            "npx skills add owner/repo && echo",
+        ] {
+            assert!(remote_source(bad, None).is_err(), "{bad}");
+        }
+    }
 
     #[tokio::test]
     #[ignore = "Live public GitHub probe; explicitly run without account credentials"]

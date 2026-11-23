@@ -318,6 +318,7 @@ mod tests {
         assert!(skills.iter().any(|s| s.id == "builtin-evidence-first"));
         assert!(skills.iter().any(|s| s.id == "builtin-doc-script-editor"));
         assert!(skills.iter().any(|s| s.id == "builtin-skill-creator"));
+        assert!(skills.iter().any(|s| s.id == "builtin-install-skills"));
         assert!(skills.iter().any(|s| s.id == "builtin-themes"));
     }
 
