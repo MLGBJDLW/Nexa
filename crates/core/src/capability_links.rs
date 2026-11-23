@@ -214,6 +214,9 @@ mod tests {
             Some(account.id.as_str())
         );
         assert!(saved.image_generation.api_key.is_empty());
-        assert_eq!(db.get_embedder_config().unwrap().api_key, "fixture");
+        let raw = db.get_embedder_config().unwrap();
+        assert_eq!(raw.connection_id.as_deref(), Some(account.id.as_str()));
+        assert!(raw.api_key.is_empty());
+        assert_eq!(db.runtime_embedder_config().unwrap().api_key, "fixture");
     }
 }
