@@ -43,10 +43,17 @@ impl AgentExecutor {
             .get_agent_scratchpad(conversation_id)?
             .map(|notes| notes.content)
             .unwrap_or_default();
-        let mut archive =
-            ContextHistoryArchive::prepare(conversation_id, run.turn_id, messages, &notes)?;
+        let privacy = crate::privacy::ChatPrivacyPolicy::load(&run.db.conn())?;
+        let mut archive = ContextHistoryArchive::prepare(
+            &privacy,
+            conversation_id,
+            run.turn_id,
+            messages,
+            &notes,
+        )?;
         if self.config.context_management_mode == ContextManagementMode::Seamless {
             archive = archive.with_continuity(
+                &privacy,
                 (self.config.context_window.unwrap_or(8192) as usize / 4).clamp(512, 6000),
             );
         }
@@ -426,6 +433,53 @@ mod tests {
     }
 
     #[test]
+    fn manual_fork_verifies_privacy_projected_tool_output_and_preserves_user_text() {
+        let (mut executor, db, id) = setup();
+        executor.config.context_management_mode = ContextManagementMode::Seamless;
+        db.save_privacy_config(&crate::privacy::PrivacyConfig {
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "expand once".into(),
+                pattern: "probe".into(),
+                replacement: "probe!".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        let request = Message::text(Role::User, "Contact reader@example.test");
+        let mut messages = vec![
+            request.clone(),
+            Message::text(Role::Tool, "The probe contacted reader@example.test"),
+        ];
+        let changed = executor
+            .handoff_context_with_intent(
+                &mut messages,
+                "test",
+                context_compaction::CompactionRunContext {
+                    db: &db,
+                    conversation_id: Some(&id),
+                    turn_id: None,
+                    active_request: Some(&request),
+                },
+                true,
+                &CancellationToken::new(),
+            )
+            .unwrap();
+        assert!(changed);
+        let windows = db.list_context_history(&id, None, 1).unwrap();
+        let window = windows["windows"][0]["windowId"].as_str().unwrap();
+        let read = |ordinal| {
+            db.read_context_history(&id, window, ordinal, 0, 200)
+                .unwrap()["text"]
+                .clone()
+        };
+        assert_eq!(read(0), "Contact reader@example.test");
+        assert_eq!(read(1), "The probe! contacted [EMAIL]");
+        assert!(messages.iter().any(|message| message
+            .text_content()
+            .contains("The probe! contacted [EMAIL]")));
+    }
+
+    #[test]
     fn interrupted_old_turn_does_not_block_a_fresh_active_window() {
         let mut messages = history();
         messages.remove(3); // An old cancelled turn has an unpaired tool call.
@@ -604,7 +658,14 @@ mod tests {
                     .unwrap();
                 }
             }
-            let archive = ContextHistoryArchive::prepare(&id, None, &messages, "").unwrap();
+            let archive = ContextHistoryArchive::prepare(
+                &crate::privacy::ChatPrivacyPolicy::load(&db.conn()).unwrap(),
+                &id,
+                None,
+                &messages,
+                "",
+            )
+            .unwrap();
             let parent = CancellationToken::new();
             let manual = CancellationToken::new();
             let blocked = db.conn();
