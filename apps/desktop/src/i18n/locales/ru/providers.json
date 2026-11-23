@@ -13,5 +13,17 @@
   "tagFlagship": "Флагман",
   "tagCode": "Код",
   "tagRecommended": "Рекомендуется",
-  "tagVision": "Зрение"
+  "tagVision": "Зрение",
+  "capabilityTitle": "Связать функции с {name}?",
+  "capabilityIntro": "Выберите функции для этого подключения. Доступ зависит от учётной записи и модели. При связывании модель не вызывается.",
+  "capabilityApply": "Связать выбранные",
+  "capabilitySkip": "Готово",
+  "capabilityAvailable": "Использует это подключение при выборе",
+  "capabilityReplaces": "Заменяет {name}",
+  "capabilityLinked": "Уже связано",
+  "capabilityModel": "Выберите модель в настройках",
+  "capabilityEmbedding": "Векторизация базы знаний",
+  "capabilityVideo": "Генерация видео",
+  "capabilityReindex": "При смене модели может потребоваться переиндексация.",
+  "capabilityCatalogOnly": "В каталоге. Приложение пока не отправляет задания этому поставщику."
 }

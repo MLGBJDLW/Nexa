@@ -13,5 +13,17 @@
   "tagFlagship": "旗舰",
   "tagCode": "代码",
   "tagRecommended": "推荐",
-  "tagVision": "视觉"
+  "tagVision": "视觉",
+  "capabilityTitle": "要将哪些功能关联到 {name}？",
+  "capabilityIntro": "可选择使用此连接的功能。实际权限取决于供应商账号和模型。关联时不会发起模型调用。",
+  "capabilityApply": "关联所选功能",
+  "capabilitySkip": "完成",
+  "capabilityAvailable": "选用时使用此连接",
+  "capabilityReplaces": "将替换 {name}",
+  "capabilityLinked": "已关联",
+  "capabilityModel": "请在设置中选择模型",
+  "capabilityEmbedding": "知识库向量嵌入",
+  "capabilityVideo": "视频生成",
+  "capabilityReindex": "更换嵌入模型后可能需要重新建立索引。",
+  "capabilityCatalogOnly": "目录已收录此供应商，当前应用尚未接入其任务提交接口。"
 }
