@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.20.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1) (2026-11-23)
+
+
+### Features
+
+* **chat:** edit Markdown inline and install agent skills from npx commands ([bbcf1c5](https://github.com/MLGBJDLW/Nexa/commit/bbcf1c5b2ebe1e932c3a9d5aba55c51a3621d498))
+* **mobile:** install and activate skills in the private phone library ([39e6059](https://github.com/MLGBJDLW/Nexa/commit/39e6059f88633e1ec501501b70f18b9effaeea65))
+* **mobile:** link saved accounts to speech and web capabilities ([10a8dd4](https://github.com/MLGBJDLW/Nexa/commit/10a8dd447c8bf714810cfa0c07fd9881106d5953))
+* **models:** support OpenRouter Perplexity retrieval and Recraft Flash routes ([0514031](https://github.com/MLGBJDLW/Nexa/commit/05140317e58773fb288fe640255b13e75e120ac3))
+* **providers:** bind native capabilities to the selected account ([e572f5c](https://github.com/MLGBJDLW/Nexa/commit/e572f5cfcc5c5f21fb8cb080b910902cf06fc92c))
+* **providers:** commit selected capability links in one transaction ([ff2604b](https://github.com/MLGBJDLW/Nexa/commit/ff2604b2729f10117e721ca4f3d7c655ccf49c6d))
+* **providers:** link API keys to compatible features and refresh loading indicators ([1e255d8](https://github.com/MLGBJDLW/Nexa/commit/1e255d82e67ae98107e9f181321bdedbdd86a385))
+* **providers:** link API keys to compatible features and refresh loading indicators ([#593](https://github.com/MLGBJDLW/Nexa/issues/593)) ([1e255d8](https://github.com/MLGBJDLW/Nexa/commit/1e255d82e67ae98107e9f181321bdedbdd86a385))
+* **providers:** project saved chat capabilities for each platform ([ace11d2](https://github.com/MLGBJDLW/Nexa/commit/ace11d21a5fd6e0e8ff138594cf8df42636efd88))
+* **providers:** resolve compatible features by endpoint and workspace ([28846ac](https://github.com/MLGBJDLW/Nexa/commit/28846ac75f36f7536a19ab39a8d5bc6e4f9864d6))
+* **settings:** let users choose which features share a connection ([8795073](https://github.com/MLGBJDLW/Nexa/commit/87950738e19198379cdae2eeac6d76d0b11e41a9))
+* **settings:** offer compatible features after saving an API key ([769fb2a](https://github.com/MLGBJDLW/Nexa/commit/769fb2a369ce40222c75efc9181a31fcff6cb733))
+* **skills:** install selected npx skills through the agent library ([4e9ba16](https://github.com/MLGBJDLW/Nexa/commit/4e9ba16b5b59977bb26d4eb1e357985446784bfb))
+* **speech:** support SiliconFlow international account routes ([e4e8847](https://github.com/MLGBJDLW/Nexa/commit/e4e88475a77734aaf46fb1130fa9fa48ef7960f9))
+* **ui:** turn the loading vortex into the Nexa mark and DNA helix ([914f0dc](https://github.com/MLGBJDLW/Nexa/commit/914f0dc2bf11544d054b955c22c85b4040f1ae1c))
+
+
+### Bug Fixes
+
+* **catalog:** confirm Inkling routing and scoped retirements ([2d6bdeb](https://github.com/MLGBJDLW/Nexa/commit/2d6bdeb83f5a7d60a49c4e7c67d69723cc5b2846))
+* **catalog:** reconcile backed OpenRouter model limits and parameters ([058a61a](https://github.com/MLGBJDLW/Nexa/commit/058a61a0088001c4780864e76988d7a5bcd0e3a8))
+* **catalog:** reconcile lifecycle notices and scoped routes ([4eba207](https://github.com/MLGBJDLW/Nexa/commit/4eba2073f227702d9a27b87d729deaa5e7022b8c))
+* **catalog:** reconcile lifecycle notices and scoped routes ([8e0a715](https://github.com/MLGBJDLW/Nexa/commit/8e0a7155abe92fbabc7b495f63b071f1615a7769))
+* **catalog:** record OpenRouter image route sunsets ([e4ea03a](https://github.com/MLGBJDLW/Nexa/commit/e4ea03ae0c383ba360d91bf0c85d9b88ea21d71b))
+* **catalog:** record OpenRouter image route sunsets ([571c048](https://github.com/MLGBJDLW/Nexa/commit/571c0483c1ed03c4a80d7fbc4f8594c0239b6235))
+* **chat:** keep keyboard focus when promoting a new conversation ([dd204ed](https://github.com/MLGBJDLW/Nexa/commit/dd204ed3db19352cee9ae8d2621bc9905971afe7))
+* **chat:** render completed markup while the caret stays in the editor ([fd8c078](https://github.com/MLGBJDLW/Nexa/commit/fd8c0784fea8fa93a2adc9fb06c8e1d596d91000))
+* **chat:** render Markdown directly in desktop and mobile drafts ([70cb055](https://github.com/MLGBJDLW/Nexa/commit/70cb055a810efacfc1969de93d50aa1df65004c3))
+* **codex:** follow the full subscription model catalog ([aaef0e9](https://github.com/MLGBJDLW/Nexa/commit/aaef0e90584a3b9306d479690983549b098c48ab))
+* **context:** apply privacy once to live and restored fork checkpoints ([320ebed](https://github.com/MLGBJDLW/Nexa/commit/320ebed8365082a16ea5818b7563afac9a103344))
+* **context:** verify forked history against its privacy projection ([0a318d5](https://github.com/MLGBJDLW/Nexa/commit/0a318d53fef86e119a4915cdef19e1d650a9ff78))
+* **context:** verify forked history against its privacy projection ([017807c](https://github.com/MLGBJDLW/Nexa/commit/017807c9a57a33263641c1e7d5a957ee891545be))
+* **context:** verify forked history against its privacy projection ([#595](https://github.com/MLGBJDLW/Nexa/issues/595)) ([0a318d5](https://github.com/MLGBJDLW/Nexa/commit/0a318d53fef86e119a4915cdef19e1d650a9ff78))
+* **deps:** update url to the patched 2.5.9 release ([ea457c0](https://github.com/MLGBJDLW/Nexa/commit/ea457c039f1fb852f681743d49f6e762e4fd19dc))
+* **embeddings:** run provider connection checks off the UI thread ([6b8f6c2](https://github.com/MLGBJDLW/Nexa/commit/6b8f6c216c27f5c112c0447077f899c762f3fe5d))
+* **live:** keep Qwen sockets on the saved connection authority ([9f01066](https://github.com/MLGBJDLW/Nexa/commit/9f0106624fb858297edf268136190dcd73e5f2c0))
+* **models:** reconcile regional DashScope image and ASR snapshots ([afbe0bf](https://github.com/MLGBJDLW/Nexa/commit/afbe0bf3dcc9dcfd03cc5d5bfa79173bdccba121))
+* **providers:** align mobile capabilities with reviewed account scopes ([1f44805](https://github.com/MLGBJDLW/Nexa/commit/1f44805e05e7167973497cc842ba0b6ea5b1a938))
+* **skills:** inspect only requested repository bundles ([953dc2b](https://github.com/MLGBJDLW/Nexa/commit/953dc2b23ad96188807112e0ff6658bd57763f2c))
+* **speech:** preserve explicit proxy settings for regional presets ([2743895](https://github.com/MLGBJDLW/Nexa/commit/27438957a16ec72c766d162c32cb5b73931180a3))
+* **wizard:** reuse the saved account when retesting a connection ([977fb65](https://github.com/MLGBJDLW/Nexa/commit/977fb658542af168e044975c42c078424c851ac0))
+
 ## [0.20.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0) (2026-11-20)
 
 ### Features
