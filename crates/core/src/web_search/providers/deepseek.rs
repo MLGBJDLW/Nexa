@@ -355,7 +355,7 @@ mod tests {
         let db = crate::db::Database::open_memory().unwrap();
         let save = |id: Option<&str>, key: &str| {
             db.save_agent_config(&serde_json::from_value(json!({
-                "id":id, "name":key, "provider":"deep_seek", "model":"deepseek-flash", "apiKey":key,
+                "id":id, "name":key, "provider":"deep_seek", "model":"deepseek-flash", "apiKey":key, "isDefault":false,
                 "baseUrl":"https://api.deepseek.com/v1"
             })).unwrap()).unwrap()
         };
