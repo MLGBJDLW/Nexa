@@ -47,6 +47,20 @@
 * **speech:** preserve explicit proxy settings for regional presets ([2743895](https://github.com/MLGBJDLW/Nexa/commit/27438957a16ec72c766d162c32cb5b73931180a3))
 * **wizard:** reuse the saved account when retesting a connection ([977fb65](https://github.com/MLGBJDLW/Nexa/commit/977fb658542af168e044975c42c078424c851ac0))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 0a318d53fef86e119a4915cdef19e1d650a9ff78 -->
+
+### What's Changed
+* fix(catalog): reconcile lifecycle notices and scoped routes by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/589
+* fix(catalog): record OpenRouter image route sunsets by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/591
+* feat(chat): edit Markdown inline and install agent skills from npx commands by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/592
+* feat(providers): link API keys to compatible features and refresh loading indicators by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/593
+* fix(context): verify forked history against its privacy projection by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/595
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0) (2026-11-20)
 
 ### Features
