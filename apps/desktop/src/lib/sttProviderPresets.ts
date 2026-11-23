@@ -1,10 +1,10 @@
 import sttProviderPresets from '../../../../shared/stt-provider-presets.json';
-import { credentialFeatureEndpoint } from './providerCredentials';
 import {
   attachModelDescriptors,
   canonicalModelProviderId,
   inferModelCatalogRegion,
   modelEndpointId,
+  normalizeModelEndpointUrl,
   selectImplicitDefault,
   type LegacyCatalogModel,
   type ModelDescriptor,
@@ -99,8 +99,10 @@ export function findSttProviderPreset(config: {
     && preset.apiStyle === config.apiStyle
     && (preset.sherpaModelFamily ?? null) === sherpaFamily,
   );
-  return matches.length < 2 ? matches[0] ?? null
-    : matches.find(preset => credentialFeatureEndpoint(config, 'stt', preset)) ?? null;
+  // An explicit proxy still uses this provider's protocol. The connection
+  // binding independently verifies its destination before supplying a key.
+  const endpoint = normalizeModelEndpointUrl(config.baseUrl);
+  return matches.find(preset => normalizeModelEndpointUrl(preset.baseUrl) === endpoint) ?? matches[0] ?? null;
 }
 
 /** Product/runtime capability for a concrete saved configuration. Unknown and

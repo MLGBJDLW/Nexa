@@ -1,5 +1,4 @@
 import ttsProviderPresets from "../../../../shared/tts-provider-presets.json";
-import { credentialFeatureEndpoint } from './providerCredentials';
 import {
   attachModelDescriptors,
   canonicalModelProviderId,
@@ -118,6 +117,8 @@ export function findTtsProviderPreset(config: {
   const matches = TTS_PROVIDER_PRESETS.filter(
     (preset) => preset.provider === config.provider && preset.apiStyle === config.apiStyle,
   );
-  return matches.length < 2 ? matches[0] ?? null
-    : matches.find(preset => credentialFeatureEndpoint(config, 'tts', preset)) ?? null;
+  // An explicit proxy still uses this provider's protocol. The connection
+  // binding independently verifies its destination before supplying a key.
+  const endpoint = normalizeModelEndpointUrl(config.baseUrl);
+  return matches.find(preset => normalizeModelEndpointUrl(preset.baseUrl) === endpoint) ?? matches[0] ?? null;
 }

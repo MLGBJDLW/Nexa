@@ -111,7 +111,7 @@ test('every curated voice model binding resolves inside its own provider', () =>
     const config = { provider: 'siliconflow', apiStyle };
     assert.equal(lookup({ ...config, baseUrl: 'https://api.siliconflow.cn/v1' }).id, 'siliconflow');
     assert.equal(lookup({ ...config, baseUrl: 'https://api.siliconflow.com/v1' }).id, 'siliconflow-international');
-    assert.equal(lookup({ ...config, baseUrl: 'https://relay.example/v1' }), null);
+    assert.equal(lookup({ ...config, baseUrl: 'https://relay.example/v1' }).id, 'siliconflow');
   }
   for (const preset of tts.TTS_PROVIDER_PRESETS) {
     const models = new Set(preset.models.map(m => m.id));
