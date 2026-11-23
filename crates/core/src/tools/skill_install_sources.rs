@@ -549,9 +549,7 @@ mod tests {
     async fn public_github_skill_roundtrips_through_install_activation_and_resource_readback() {
         use super::super::{manage_skill_tool::ManageSkillTool, Tool};
         let db = crate::db::Database::open_memory().unwrap();
-        let sources = vec![
-            "https://github.com/openai/skills/tree/main/skills/.system/skill-installer".to_string(),
-        ];
+        let sources = vec!["npx skills add openai/skills@skill-installer".to_string()];
         let context = ToolExecutionContext::new("probe", "{}", &db, &[]);
         let prepared = prepare(&context, &sources, None, &ManageSkillTool::Desktop)
             .await
