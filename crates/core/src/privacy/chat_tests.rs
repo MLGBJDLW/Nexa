@@ -549,7 +549,7 @@ fn privacy_update_masks_derived_memory_and_trace_but_preserves_authored_content(
     {
         let mut conn = db.conn();
         let tx = conn.transaction().unwrap();
-        assert!(archive.commit(&tx).is_err());
+        assert!(matches!(archive.commit(&tx), Err(CoreError::Cancelled(_))));
     }
     assert_eq!(
         db.conn()
