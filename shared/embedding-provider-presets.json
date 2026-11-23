@@ -1736,6 +1736,50 @@
         ]
       },
       {
+        "id": "perplexity/pplx-embed-v2-context-0.6b",
+        "name": "Perplexity Embed V2 Context 0.6B",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "effectiveInputTokens": 32000,
+        "documentationRef": "https://openrouter.ai/perplexity/pplx-embed-v2-context-0.6b",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-23",
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "perplexity/pplx-embed-v2-context-9b",
+        "name": "Perplexity Embed V2 Context 9B",
+        "dimensions": 2048,
+        "contextTokens": 32000,
+        "effectiveInputTokens": 32000,
+        "documentationRef": "https://openrouter.ai/perplexity/pplx-embed-v2-context-9b",
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          1024,
+          2048
+        ],
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-23",
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
         "id": "perplexity/pplx-embed-v1-0.6b",
         "name": "Perplexity Embed V1 0.6B",
         "dimensions": 1024,
