@@ -45,6 +45,20 @@ pub async fn get_app_config_cmd(
 }
 
 #[tauri::command]
+pub async fn link_provider_capabilities_cmd(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    patch: nexa_core::app_settings::CapabilityLinkPatch,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.link_provider_capabilities(&connection_id, patch))
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn save_app_config_cmd(
     app_handle: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -620,7 +634,8 @@ pub async fn get_web_search_status_cmd(
             config.web_search
         }
     };
-    nexa_core::web_search::providers::deepseek::resolve_bound_keys(&mut config, &state.db, None).await;
+    nexa_core::web_search::providers::deepseek::resolve_bound_keys(&mut config, &state.db, None)
+        .await;
     Ok(nexa_core::tools::web_search_tool::provider_status_snapshot(
         &config,
     ))

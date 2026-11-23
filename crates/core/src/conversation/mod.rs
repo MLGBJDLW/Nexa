@@ -5152,7 +5152,7 @@ struct SharedAgentConfigWrite<'a> {
     previous: Option<&'a AgentConfig>,
 }
 
-fn agent_config_on_connection(
+pub(crate) fn agent_config_on_connection(
     conn: &rusqlite::Connection,
     id: &str,
 ) -> Result<AgentConfig, CoreError> {
