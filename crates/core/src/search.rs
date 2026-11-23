@@ -768,10 +768,13 @@ fn hybrid_search_packed(
     // Cloud adapters share the same 200-candidate maximum.
     let vector_limit = internal_limit;
     let mut vec_results = {
-        let config = db.get_embedder_config()?;
+        let mut config = db.get_embedder_config()?;
         match config.provider.as_str() {
             "local" | "api" => {
-                match create_embedder(&config) {
+                match db
+                    .resolve_embedder_credential(&mut config)
+                    .and_then(|()| create_embedder(&config))
+                {
                     Ok(embedder) => {
                         let model_name = embedder.vector_space_id();
                         // If create_embedder fell back to an empty TF-IDF

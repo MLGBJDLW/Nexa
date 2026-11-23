@@ -17,6 +17,8 @@ use local::{LocalRuntime, LocalSettings};
 
 #[derive(Default)]
 struct RuntimeSlot;
+// Serialize app-config read/modify/write operations across the speech and web editors.
+static CONFIG_WRITE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static PHONE_RUNTIME: tokio::sync::OnceCell<Arc<LocalRuntime>> = tokio::sync::OnceCell::const_new();
 impl RuntimeSlot {
     async fn get(&self, app: &AppHandle) -> Result<&Arc<LocalRuntime>, String> {
@@ -63,15 +65,65 @@ async fn mobile_save_settings(
     api_key: String,
     name: Option<String>,
     create_new: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     connections::save_settings(&app, settings, api_key, name, create_new.unwrap_or(false)).await
 }
 
 #[tauri::command]
-async fn mobile_connection(app: AppHandle, action: String, id: String) -> Result<(), String> {
+async fn mobile_connection(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    action: String,
+    id: String,
+) -> Result<Value, String> {
     match action.as_str() {
-        "select" => connections::select(&app, &id).await,
-        "remove" => connections::remove(&app, &id).await,
+        "select" => connections::select(&app, &id).await.map(|()| Value::Null),
+        "remove" => connections::remove(&app, &id).await.map(|()| Value::Null),
+        "capabilities" => {
+            let account = connections::get(&app, Some(&id)).await?;
+            let mut config = runtime
+                .get(&app)
+                .await?
+                .db
+                .load_app_config()
+                .map_err(|e| e.to_string())?;
+            let speech =
+                speech_connections::resolve(&mut Default::default(), &[&account], true).pop();
+            let native = if speech.is_some() {
+                platform::call(&app, "speech", json!({"action":"status"})).await?
+            } else {
+                Value::Null
+            };
+            let plan = web_settings::native_search_plan(&account, &config.web_search)?;
+            let deepseek = config.web_search.custom_providers.iter().find(|p| {
+                p.preset == nexa_core::app_settings::WebSearchCustomProviderPreset::Deepseek
+            });
+            let supports_web = nexa_core::web_search::providers::deepseek::supports_connection(
+                &account.provider,
+                account.base_url.as_deref(),
+            );
+            // Render explicit setup state only. Keys are materialized when a tool runs.
+            config.speech_to_text.api_key = if config.speech_to_text.api_key.is_empty() {
+                ""
+            } else {
+                speech::SAVED_KEY
+            }
+            .into();
+            config.text_to_speech.api_key = if config.text_to_speech.api_key.is_empty() {
+                ""
+            } else {
+                speech::SAVED_KEY
+            }
+            .into();
+            Ok(
+                json!({"id":account.id, "name":account.name, "provider":account.provider, "model":account.model, "baseUrl":account.base_url,
+                "speech":speech, "speechToText":config.speech_to_text, "textToSpeech":config.text_to_speech,
+                "mode":native["mode"], "outputMode":native["outputMode"], "deepseek":supports_web,
+                "webConnectionId":deepseek.and_then(|p| p.connection_id.as_ref()), "webConfigured":deepseek.is_some_and(|p| p.enabled && (p.connection_id.is_some() || p.is_configured())),
+                "webMode":config.web_search.execution_mode, "webProviderMode":config.web_search.provider_mode,
+                "nativeSearch":plan.dialect.is_some(), "nativeSearchActive":plan.uses_provider_native()}),
+            )
+        }
         _ => Err("Unsupported model connection operation.".into()),
     }
 }
@@ -418,27 +470,49 @@ async fn mobile_web_settings(
     connection_id: Option<String>,
 ) -> Result<Value, String> {
     let db = runtime.get(&app).await?.db.clone();
-    let connection = if action == "use_deepseek" {
+    let _writer = if matches!(action.as_str(), "use_deepseek" | "use_native" | "save") {
+        Some(CONFIG_WRITE.lock().await)
+    } else {
+        None
+    };
+    let connection = if matches!(action.as_str(), "use_deepseek" | "use_native") {
         let id = connection_id
             .as_deref()
-            .ok_or("Choose a DeepSeek connection.")?;
+            .ok_or("Choose a saved model connection.")?;
         Some(connections::get(&app, Some(id)).await?)
     } else {
         None
     };
-    tokio::task::spawn_blocking(move || {
-        let mut saved = db.load_app_config().map_err(|e| e.to_string())?;
+    let operation = action.clone();
+    let database = db.clone();
+    let mut config = tokio::task::spawn_blocking(move || {
+        let mut saved = database.load_app_config().map_err(|e| e.to_string())?;
         let mut config = web_search.unwrap_or_else(|| saved.web_search.clone());
         if let Some(connection) = connection {
-            web_settings::use_deepseek_connection(&mut config, &connection)?;
+            if operation == "use_native" {
+                let plan = web_settings::native_search_plan(&connection, &config)?;
+                if plan.dialect.is_none() {
+                    return Err("Native search is unavailable for this connection.".to_string());
+                }
+                config.execution_mode = nexa_core::llm::native_search::SearchExecutionMode::Auto;
+            } else {
+                web_settings::use_deepseek_connection(&mut config, &connection)?;
+            }
         }
         for provider in &mut config.custom_providers {
-            if provider.api_key == "__NEXA_SAVED_KEY__" {
+            if provider.connection_id.is_some() {
+                provider.api_key.clear();
+            }
+            if provider.api_key == speech::SAVED_KEY {
                 provider.api_key = saved
                     .web_search
                     .custom_providers
                     .iter()
-                    .find(|old| old.id == provider.id && old.preset == provider.preset)
+                    .find(|old| {
+                        old.id == provider.id
+                            && old.preset == provider.preset
+                            && old.base_url == provider.base_url
+                    })
                     .map(|old| old.api_key.clone())
                     .unwrap_or_default();
             }
@@ -450,31 +524,40 @@ async fn mobile_web_settings(
                 validate_provider_url(url)?;
             }
         }
-        match action.as_str() {
-            "status" => Ok(json!(
-                nexa_core::tools::web_search_tool::provider_status_snapshot(&config)
-            )),
-            "read" | "save" | "use_deepseek" => {
-                if action != "read" {
-                    saved.web_search = config.clone();
-                    db.save_app_config(&saved).map_err(|e| e.to_string())?;
-                }
-                for provider in &mut config.custom_providers {
-                    if !provider.api_key.is_empty() {
-                        provider.api_key = "__NEXA_SAVED_KEY__".into();
-                    }
-                }
-                let public = nexa_core::app_settings::AppConfig {
-                    web_search: config,
-                    ..Default::default()
-                };
-                Ok(json!(public))
+        match operation.as_str() {
+            "save" | "use_deepseek" | "use_native" => {
+                saved.web_search = config.clone();
+                database
+                    .save_app_config(&saved)
+                    .map_err(|e| e.to_string())?;
             }
-            _ => Err("Unsupported web settings operation".into()),
+            "read" | "status" => {}
+            _ => return Err("Unsupported web settings operation".into()),
         }
+        Ok(config)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    if action == "status" {
+        nexa_core::web_search::providers::deepseek::resolve_bound_keys(
+            &mut config,
+            &db,
+            Some(&web_settings::PhoneAccounts(app)),
+        )
+        .await;
+        return Ok(json!(
+            nexa_core::tools::web_search_tool::provider_status_snapshot(&config)
+        ));
+    }
+    for provider in &mut config.custom_providers {
+        if !provider.api_key.is_empty() {
+            provider.api_key = speech::SAVED_KEY.into();
+        }
+    }
+    Ok(json!(nexa_core::app_settings::AppConfig {
+        web_search: config,
+        ..Default::default()
+    }))
 }
 
 #[tauri::command]
@@ -642,8 +725,22 @@ async fn mobile_speech(
         return platform::call(&app, "speech", args).await;
     }
     let db = runtime.get(&app).await?.db.clone();
+    let _writer = if action == "configure" {
+        Some(CONFIG_WRITE.lock().await)
+    } else {
+        None
+    };
     let mut config = db.load_app_config().map_err(|_| "speech_configuration")?;
     let mut native = platform::call(&app, "speech", json!({"action":"status"})).await?;
+    // A capability link changes only the chosen direction. Preserve native
+    // preferences even when the other direction was reconfigured meanwhile.
+    let check_input = !args["mode"].is_null() || speech_to_text.is_some();
+    let check_output = !args["outputMode"].is_null() || text_to_speech.is_some();
+    for key in ["mode", "outputMode", "language"] {
+        if action == "configure" && args[key].is_null() {
+            args[key] = native[key].clone();
+        }
+    }
     let input_mode = args["mode"].as_str().unwrap_or("system");
     let output_mode = args["outputMode"].as_str().unwrap_or("system");
     if action == "configure" {
@@ -702,10 +799,10 @@ async fn mobile_speech(
         .await
         .map_err(|_| "speech_configuration")?;
     if action == "configure" {
-        if input_mode == "cloud" {
+        if check_input && input_mode == "cloud" {
             speech::validate_input(&resolved.speech_to_text)?;
         }
-        if output_mode == "cloud" {
+        if check_output && output_mode == "cloud" {
             speech::validate_output(&resolved.text_to_speech)?;
         }
         db.save_app_config(&config)

@@ -1,7 +1,8 @@
 import credentialScopes from '../../../../shared/provider-credential-scopes.json';
-import { normalizeModelEndpointUrl } from './modelCatalog';
+import { alibabaWorkspaceRegion, normalizeModelEndpointUrl } from './modelCatalog';
 
 export interface ProviderCredentialConfig {
+  id?: string;
   provider: string;
   baseUrl?: string | null;
   apiKey: string;
@@ -23,7 +24,18 @@ function endpointUrl(value: string | null | undefined): URL | null {
   }
 }
 
+const WORKSPACE_ROUTES: Readonly<Record<string, Readonly<Record<string, string>>>> = credentialScopes.workspaceRoutes;
 const TRUSTED_CREDENTIAL_ENDPOINTS: Readonly<Record<string, string>> = credentialScopes.endpoints;
+
+function cleanCredentialUrl(url: URL): boolean {
+  return !url.username && !url.password && !url.href.includes('?') && !url.href.includes('#');
+}
+
+function workspaceScope(url: URL): string | null {
+  const region = alibabaWorkspaceRegion(new URL('/compatible-mode/v1', url.origin).href);
+  if (!region || !Object.values(WORKSPACE_ROUTES[region] ?? {}).includes(url.pathname.replace(/\/+$/, ''))) return null;
+  return `alibaba-workspace:${url.host}`;
+}
 
 /**
  * Resolve the credential boundary shared by chat and capability providers.
@@ -47,12 +59,9 @@ export function providerCredentialScope(
   const endpoint = endpointUrl(baseUrl);
   const hasTrustedShape = endpoint != null && (endpoint.protocol === 'https:' || endpoint.protocol === 'wss:')
     && !endpoint.port
-    && !endpoint.username
-    && !endpoint.password
-    && !endpoint.search
-    && !endpoint.hash;
+    && cleanCredentialUrl(endpoint);
   const trustedScope = hasTrustedShape
-    ? TRUSTED_CREDENTIAL_ENDPOINTS[normalizedBaseUrl]
+    ? TRUSTED_CREDENTIAL_ENDPOINTS[normalizedBaseUrl.replace(/\/$/, '')] ?? workspaceScope(endpoint)
     : undefined;
   if (trustedScope) return trustedScope;
 
@@ -66,19 +75,76 @@ export function providerCredentialScope(
   return providerAliases[normalizedProvider] ?? normalizedProvider;
 }
 
+type CredentialFeature = 'image' | 'video' | 'stt' | 'tts' | 'embedding' | 'systemOne' | 'webSearch';
+
+interface CredentialFeaturePreset {
+  id: string;
+  baseUrl?: string | null;
+  requiresApiKey?: boolean;
+  apiStyle?: string;
+  provider?: string;
+  providerId?: string;
+}
+
+/** Return the reviewed destination of an implemented preset for this connection. */
+export function credentialFeatureEndpoint(
+  source: Pick<ProviderCredentialConfig, 'provider' | 'baseUrl'>,
+  feature: CredentialFeature,
+  preset: CredentialFeaturePreset,
+): string | null {
+  if (preset.requiresApiKey === false || preset.apiStyle === 'unverified') return null;
+  const sourceUrl = endpointUrl(source.baseUrl);
+  if (source.baseUrl?.trim() && (!sourceUrl || !cleanCredentialUrl(sourceUrl) || sourceUrl.protocol !== 'https:' || sourceUrl.port)) return null;
+  const region = alibabaWorkspaceRegion(source.baseUrl ?? '');
+  if (sourceUrl && region) {
+    const path = WORKSPACE_ROUTES[region]?.[`${feature}:${preset.id}`];
+    return path ? new URL(path, sourceUrl.origin).href : null;
+  }
+  const target = endpointUrl(preset.baseUrl);
+  if (!target || !cleanCredentialUrl(target) || target.port) return null;
+  const targetBase = normalizedUrl(target.href);
+  const targetScope = TRUSTED_CREDENTIAL_ENDPOINTS[targetBase.replace(/\/$/, '')];
+  if (!targetScope) return null;
+  const sourceScope = providerCredentialScope(source.provider, source.baseUrl);
+  if (sourceScope === targetScope) return preset.baseUrl ?? null;
+  // The Singapore speech adapter uses the corresponding regional operations on
+  // the Singapore authority. Individual model/voice availability is regional.
+  if (sourceUrl && sourceScope === 'alibaba-model-studio:singapore' && targetScope === 'alibaba-model-studio:beijing'
+    && (feature === 'stt' || feature === 'tts') && WORKSPACE_ROUTES['ap-southeast-1'][`${feature}:${preset.id}`]) {
+    return new URL(target.pathname, sourceUrl.origin).href;
+  }
+  return null;
+}
+
 export function findSharedProviderCredential<T extends ProviderCredentialConfig>(
   configs: T[],
   provider: string,
   baseUrl?: string | null,
 ): T | null {
+  const targetUrl = endpointUrl(baseUrl);
+  if (baseUrl?.trim() && (!targetUrl || !cleanCredentialUrl(targetUrl))) return null;
   const targetScope = providerCredentialScope(provider, baseUrl);
   const candidates = configs.filter(config => {
     if (!config.apiKey.trim()) return false;
     if (config.baseUrl?.trim()) {
       const url = endpointUrl(config.baseUrl);
-      if (!url || url.username || url.password || url.search || url.hash) return false;
+      if (!url || !cleanCredentialUrl(url)) return false;
     }
     return providerCredentialScope(config.provider, config.baseUrl) === targetScope;
   });
   return candidates.find((config) => config.isDefault) ?? candidates[0] ?? null;
+}
+
+/** A saved binding names one account. Re-check its route after key rotation or endpoint edits. */
+export function featureCredential<T extends ProviderCredentialConfig>(configs: T[], feature: CredentialFeature,
+  presets: CredentialFeaturePreset[], provider: string, baseUrl: string | null | undefined, connectionId?: string | null): T | null {
+  if (!connectionId) return findSharedProviderCredential(configs, provider, baseUrl);
+  const source = configs.find(config => config.id === connectionId);
+  if (!source?.apiKey.trim() || !baseUrl?.trim()) return null;
+  const url = endpointUrl(baseUrl);
+  if (!url || !cleanCredentialUrl(url)) return null;
+  return presets.some(preset => {
+    const target = credentialFeatureEndpoint(source, feature, preset);
+    return target && normalizedUrl(target) === normalizedUrl(baseUrl);
+  }) ? source : null;
 }

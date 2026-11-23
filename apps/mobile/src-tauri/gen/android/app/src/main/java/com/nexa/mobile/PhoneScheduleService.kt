@@ -94,7 +94,7 @@ class PhoneScheduleClockReceiver : BroadcastReceiver() {
 
 internal object PhoneScheduleBridge {
     init { System.loadLibrary("nexa_mobile_lib") }
-    @JvmStatic external fun tick(appDataDir: String, settingsKey: String, connectionJson: String, workerId: String): String
+    @JvmStatic external fun tick(appDataDir: String, settingsKey: String, connectionJson: String, secrets: SecretStore, workerId: String): String
     @JvmStatic external fun stop(workerId: String)
 }
 
@@ -125,7 +125,7 @@ class PhoneScheduleService : JobService() {
                     if (attempt.stopped) return@execute
                     attempt.inNative = true
                 }
-                JSONObject(bridge.tick(dataDir.absolutePath, key.orEmpty(), connection?.toString().orEmpty(), attempt.id))
+                JSONObject(bridge.tick(dataDir.absolutePath, key.orEmpty(), connection?.toString().orEmpty(), secrets, attempt.id))
             } catch (e: Exception) {
                 Log.w("NexaSchedules", "Background schedule check failed (${e.javaClass.simpleName})")
                 null

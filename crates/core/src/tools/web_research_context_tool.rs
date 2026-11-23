@@ -396,7 +396,7 @@ impl Tool for WebResearchContextTool {
             provider_profile: args.provider_profile,
             reranker: args.reranker,
         };
-        let execution = match run_web_search(search_args, db).await {
+        let execution = match run_web_search(search_args, db, tool_registry).await {
             Ok(execution) => execution,
             Err(CoreError::InvalidInput(message)) => {
                 return Ok(tool_contract_error_result(

@@ -15,6 +15,7 @@ import * as api from "../../lib/api";
 import {
   findImageProviderPreset,
   getDefaultImageModel,
+  imageConfigFromPreset,
   getImageQualityOptions,
   getImageSizeOptions,
   getImageOutputFormats,
@@ -24,7 +25,7 @@ import {
 import { extractImageProviderPresets } from "../../lib/imageProviderCapabilityCatalog";
 import { ProviderIcon } from "../../lib/providerIcons";
 import {
-  findSharedProviderCredential,
+  featureCredential,
   providerCredentialScope,
 } from "../../lib/providerCredentials";
 import { Badge } from "../ui/Badge";
@@ -65,7 +66,7 @@ function normalizeUrl(value: string | null | undefined): string {
 
 function isDefaultImageConfig(config: ImageGenerationConfig): boolean {
   return (
-    !config.apiKey.trim() &&
+    !config.connectionId && !config.apiKey.trim() &&
     (config.source ?? 'auto') === 'auto' &&
     config.size === DEFAULT_IMAGE_CONFIG.size &&
     (config.quality ?? null) === DEFAULT_IMAGE_CONFIG.quality &&
@@ -75,26 +76,6 @@ function isDefaultImageConfig(config: ImageGenerationConfig): boolean {
     normalizeUrl(config.baseUrl) === normalizeUrl(DEFAULT_IMAGE_CONFIG.baseUrl) &&
     [DEFAULT_IMAGE_CONFIG.model, 'gpt-image-2.5-flare', 'gpt-image-2'].includes(config.model)
   );
-}
-
-function configFromPreset(
-  current: ImageGenerationConfig,
-  preset: ImageProviderPreset,
-): ImageGenerationConfig {
-  const model = getDefaultImageModel(preset);
-  const preservesCredential = providerCredentialScope(current.provider, current.baseUrl) ===
-    providerCredentialScope(preset.provider, preset.baseUrl);
-  return {
-    ...current,
-    provider: preset.provider,
-    apiStyle: preset.apiStyle,
-    baseUrl: preset.baseUrl,
-    model,
-    size: getImageSizeOptions(preset, model)[0]?.value ?? null,
-    quality: firstOption(getImageQualityOptions(preset, model)),
-    outputFormat: firstOption(getImageOutputFormats(preset, model)),
-    apiKey: preservesCredential ? current.apiKey : "",
-  };
 }
 
 function fallbackPresetForConfig(
@@ -192,7 +173,7 @@ export function ImageGenerationSettingsPanel({
   }, [agentConfigs, providerPresets]);
   const imageConfig = useMemo(() => {
     if (!preferAgentDefaults || !isDefaultImageConfig(storedImageConfig)) return storedImageConfig;
-    if (preferredAgentPreset) return configFromPreset(storedImageConfig, preferredAgentPreset);
+    if (preferredAgentPreset) return imageConfigFromPreset(storedImageConfig, preferredAgentPreset);
     return { ...storedImageConfig, model: DEFAULT_IMAGE_CONFIG.model };
   }, [preferAgentDefaults, preferredAgentPreset, storedImageConfig]);
   const activePreset = useMemo(
@@ -221,8 +202,8 @@ export function ImageGenerationSettingsPanel({
   const quality = imageConfig.quality && !qualityOptions.includes(imageConfig.quality)
     && selectedModelDescriptor ? firstOption(qualityOptions) : imageConfig.quality;
   const sharedKeySource = useMemo(
-    () => findSharedProviderCredential(agentConfigs, imageConfig.provider, imageConfig.baseUrl),
-    [agentConfigs, imageConfig.baseUrl, imageConfig.provider],
+    () => featureCredential(agentConfigs, 'image', providerPresets.filter(p => p.provider === imageConfig.provider && p.apiStyle === imageConfig.apiStyle), imageConfig.provider, imageConfig.baseUrl, imageConfig.connectionId),
+    [agentConfigs, providerPresets, imageConfig.baseUrl, imageConfig.provider, imageConfig.apiStyle, imageConfig.connectionId],
   );
   const resolvedApiKey = imageConfig.apiKey.trim() || sharedKeySource?.apiKey.trim() || "";
   const usesSharedProviderKey = !imageConfig.apiKey.trim() && Boolean(sharedKeySource);
@@ -241,9 +222,9 @@ export function ImageGenerationSettingsPanel({
   const materializedAppConfig = useMemo(
     () => ({
       ...appConfig,
-      imageGeneration: materializedImageConfig,
+      imageGeneration: imageConfig.connectionId ? { ...materializedImageConfig, apiKey: imageConfig.apiKey } : materializedImageConfig,
     }),
-    [appConfig, materializedImageConfig],
+    [appConfig, materializedImageConfig, imageConfig],
   );
 
   const updateImageConfig = (next: ImageGenerationConfig) => {
@@ -257,7 +238,7 @@ export function ImageGenerationSettingsPanel({
       providerPresets.find((candidate) => candidate.id === presetId) ??
       providerPresets[0] ??
       IMAGE_PROVIDER_PRESETS[0];
-    updateImageConfig(configFromPreset(imageConfig, preset));
+    updateImageConfig(imageConfigFromPreset(imageConfig, preset));
   };
 
   const changeModel = (model: string) => {
@@ -396,7 +377,7 @@ export function ImageGenerationSettingsPanel({
                   type={showKey ? "text" : "password"}
                   value={imageConfig.apiKey}
                   onChange={(event) =>
-                    updateImageConfig({ ...imageConfig, apiKey: event.target.value })
+                    updateImageConfig({ ...imageConfig, connectionId: null, apiKey: event.target.value })
                   }
                   placeholder="sk-..."
                   className="pr-10"
@@ -421,9 +402,9 @@ export function ImageGenerationSettingsPanel({
               source={sharedKeySource}
               hasOwnKey={Boolean(imageConfig.apiKey.trim())}
               onApply={() =>
-                updateImageConfig({ ...imageConfig, apiKey: sharedKeySource?.apiKey ?? "" })
+                updateImageConfig({ ...imageConfig, connectionId: null, apiKey: sharedKeySource?.apiKey ?? "" })
               }
-              onReset={() => updateImageConfig({ ...imageConfig, apiKey: "" })}
+              onReset={() => updateImageConfig({ ...imageConfig, connectionId: null, apiKey: "" })}
             />
           </div>
 
@@ -432,7 +413,7 @@ export function ImageGenerationSettingsPanel({
               <Input aria-label={t('settings.baseUrl')}
                 value={imageConfig.baseUrl ?? ""}
                 onChange={(event) =>
-                  updateImageConfig({ ...imageConfig, baseUrl: event.target.value || null })
+                  updateImageConfig({ ...imageConfig, connectionId: null, baseUrl: event.target.value || null })
                 }
                 placeholder={activePreset.baseUrl}
               />

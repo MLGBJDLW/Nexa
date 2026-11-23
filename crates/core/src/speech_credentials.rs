@@ -16,29 +16,26 @@ pub fn connection_speech_endpoint(
     if !preset_base_url.is_empty() && source_scope == preset_scope {
         return Some(preset_base_url.to_owned());
     }
-    let mut source = url::Url::parse(source_base_url?.trim()).ok()?;
-    let host = source.host_str()?;
-    // A regional or workspace chat key stays on that exact authority. Only
-    // substitute paths from the reviewed Beijing speech catalog.
-    if matches!(
-        api_style,
-        "dashscope_asr" | "dashscope_audio_asr" | "dashscope_speech"
-    ) && preset_scope == "alibaba-model-studio:beijing"
-        && source.scheme() == "https"
-        && source.port().is_none()
-        && source.path().trim_end_matches('/') == "/compatible-mode/v1"
-    {
-        let workspace =
-            crate::provider_catalog::alibaba_workspace_preset_id(source.as_str()).is_some();
-        source.set_path(url::Url::parse(preset_base_url).ok()?.path());
-        if workspace
-            || (source_scope.starts_with("alibaba-model-studio:")
-                && source_scope == scope(preset_provider, Some(source.as_str()))?)
-        {
-            return Some(source.into());
-        }
-        return None;
+    let alibaba_preset = match api_style {
+        "dashscope_asr" => Some(("stt", "alibaba-qwen-asr")),
+        "dashscope_audio_asr" => Some(("stt", "alibaba-qwen-audio")),
+        "dashscope_streaming_asr" => Some(("stt", "alibaba-qwen-audio-streaming")),
+        "dashscope_realtime_asr" => Some(("stt", "alibaba-qwen-realtime")),
+        "dashscope_speech" => Some(("tts", "dashscope-cosyvoice")),
+        "dashscope_audio_generation" => Some(("tts", "qwen-audio-generation")),
+        _ => None,
+    };
+    if let Some((feature, id)) = alibaba_preset {
+        return crate::provider_credentials::feature_endpoint(
+            source_provider,
+            source_base_url,
+            feature,
+            id,
+            preset_base_url,
+        );
     }
+    let source = url::Url::parse(source_base_url?.trim()).ok()?;
+    let host = source.host_str()?;
     // An explicitly custom OpenAI-compatible server may expose audio routes.
     // Keep its full base path. A hosted chat provider alone implies no audio API.
     let gateway_audio = matches!(
@@ -68,11 +65,31 @@ impl Database {
         Ok(config)
     }
 
-    /// Fill only absent keys; an explicit speech key always wins. This is also
-    /// used before mobile validates a newly selected cloud speech provider.
+    /// Bound accounts are revalidated for each request. Unbound configurations
+    /// retain their dedicated key or inherit the matching legacy default.
     pub fn resolve_speech_credentials(&self, config: &mut AppConfig) -> Result<(), CoreError> {
-        if !config.speech_to_text.api_key.trim().is_empty()
-            && !config.text_to_speech.api_key.trim().is_empty()
+        let input = &mut config.speech_to_text;
+        if let Some(id) = &input.connection_id {
+            input.api_key = self.bound_media_key(
+                id,
+                "stt",
+                &input.provider,
+                &input.api_style,
+                input.base_url.as_deref(),
+            )?;
+        }
+        let output = &mut config.text_to_speech;
+        if let Some(id) = &output.connection_id {
+            output.api_key = self.bound_media_key(
+                id,
+                "tts",
+                &output.provider,
+                &output.api_style,
+                output.base_url.as_deref(),
+            )?;
+        }
+        if (input.connection_id.is_some() || !input.api_key.trim().is_empty())
+            && (output.connection_id.is_some() || !output.api_key.trim().is_empty())
         {
             return Ok(());
         }

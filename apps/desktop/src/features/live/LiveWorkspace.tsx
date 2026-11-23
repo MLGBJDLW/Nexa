@@ -14,7 +14,7 @@ const protocolNames: Record<LiveProtocol, string> = { openAiRealtime: 'OpenAI Re
 const field = 'w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50';
 const button = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:pointer-events-none';
 
-interface LiveSetup { connectionId?: string; summaryId?: string; purpose?: string; microphone?: boolean; interval?: number; protocol?: LiveProtocol | ''; model?: string; endpoint?: string; observerModel?: TurnModelSelection | null; summaryModel?: TurnModelSelection | null }
+interface LiveSetup { connectionId?: string; summaryId?: string; purpose?: string; microphone?: boolean; interval?: number; protocol?: LiveProtocol | ''; model?: string; observerModel?: TurnModelSelection | null; summaryModel?: TurnModelSelection | null }
 function savedSetup(key?: string): LiveSetup {
   try {
     const value = JSON.parse(localStorage.getItem(`nexa.live.setup:${key ?? 'preview'}`) || '{}');
@@ -24,7 +24,7 @@ function savedSetup(key?: string): LiveSetup {
       const record = input as Partial<TurnModelSelection>;
       return {model:input.model,reasoningEnabled:typeof record.reasoningEnabled === 'boolean' ? record.reasoningEnabled : null,reasoningEffort:typeof record.reasoningEffort === 'string' ? record.reasoningEffort : null,thinkingBudget:typeof record.thinkingBudget === 'number' && Number.isFinite(record.thinkingBudget) && record.thinkingBudget >= 0 ? Math.floor(record.thinkingBudget) : null};
     };
-    return {connectionId:text('connectionId'),summaryId:text('summaryId'),purpose:text('purpose'),model:text('model'),endpoint:text('endpoint'),protocol:['openAiRealtime','geminiLive','qwenRealtime'].includes(value.protocol) ? value.protocol : '',observerModel:selection(value.observerModel),summaryModel:selection(value.summaryModel),microphone: typeof value.microphone === 'boolean' ? value.microphone : true, interval: Number.isFinite(value.interval) ? Math.min(30,Math.max(1,value.interval)) : 2};
+    return {connectionId:text('connectionId'),summaryId:text('summaryId'),purpose:text('purpose'),model:text('model'),protocol:['openAiRealtime','geminiLive','qwenRealtime'].includes(value.protocol) ? value.protocol : '',observerModel:selection(value.observerModel),summaryModel:selection(value.summaryModel),microphone: typeof value.microphone === 'boolean' ? value.microphone : true, interval: Number.isFinite(value.interval) ? Math.min(30,Math.max(1,value.interval)) : 2};
   } catch { return {}; }
 }
 
@@ -41,7 +41,6 @@ export function LiveWorkspace({ transport, onSendToChat, background = false, onR
   const [summaryModel, setSummaryModel] = useState<TurnModelSelection | null>(saved.summaryModel ?? null);
   const [protocol, setProtocol] = useState<LiveProtocol | ''>(saved.protocol || '');
   const [model, setModel] = useState(saved.model || '');
-  const [endpoint, setEndpoint] = useState(saved.endpoint || '');
   const [microphone, setMicrophone] = useState(saved.microphone ?? true);
   const [source, setSource] = useState<LiveVideoSource>('none');
   const [purpose, setPurpose] = useState(saved.purpose || '');
@@ -57,10 +56,10 @@ export function LiveWorkspace({ transport, onSendToChat, background = false, onR
   useEffect(() => {
     if (!transport.preferenceKey) return;
     const timer = window.setTimeout(() => {
-      try { localStorage.setItem(`nexa.live.setup:${transport.preferenceKey}`, JSON.stringify({connectionId,summaryId,observerModel,summaryModel,protocol,model,endpoint,purpose,microphone,interval})); } catch { /* Storage may be disabled. */ }
+      try { localStorage.setItem(`nexa.live.setup:${transport.preferenceKey}`, JSON.stringify({connectionId,summaryId,observerModel,summaryModel,protocol,model,purpose,microphone,interval})); } catch { /* Storage may be disabled. */ }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [connectionId, summaryId, observerModel, summaryModel, protocol, model, endpoint, purpose, microphone, interval, transport.preferenceKey]);
+  }, [connectionId, summaryId, observerModel, summaryModel, protocol, model, purpose, microphone, interval, transport.preferenceKey]);
   useEffect(() => {
     if (selected && protocol && !selected.nativeProtocols.includes(protocol) && !live.active) { setProtocol(''); setModel(''); }
   }, [selected, protocol, live.active]);
@@ -109,7 +108,6 @@ export function LiveWorkspace({ transport, onSendToChat, background = false, onR
           <label className="block space-y-1.5 text-xs font-medium text-text-secondary"><span>{t('live.mode')}</span><NexaSelect className={field} value={protocol} onChange={event => { const value = event.target.value as LiveProtocol | ''; setProtocol(value); setModel(value ? models[value] : ''); }}><option value="">{t('live.incremental')}</option>{selected?.nativeProtocols.map(value => <option key={value} value={value}>{protocolNames[value]}</option>)}</NexaSelect></label>
           <p className="text-xs leading-relaxed text-text-tertiary">{protocol ? t('live.nativeHint') : t('live.incrementalHint')}</p>
           {protocol && (transport.models ? <ConnectionModelPicker connectionId={connectionId} defaultModel={models[protocol]} value={{ model, reasoningEnabled:null, reasoningEffort:null, thinkingBudget:null }} onChange={selection => setModel(selection?.model || models[protocol])} load={transport.models} label={t('live.model')} disabled={live.active || loading} /> : <label className="block space-y-1.5 text-xs font-medium text-text-secondary"><span>{t('live.model')}</span><input className={field} value={model} maxLength={160} onChange={event => setModel(event.target.value)} /></label>)}
-          {protocol === 'qwenRealtime' && <label className="block space-y-1.5 text-xs font-medium text-text-secondary"><span>{t('live.endpoint')}</span><input aria-label={t('live.endpoint')} className={field} value={endpoint} placeholder="wss://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime" onChange={event => setEndpoint(event.target.value)} /><span className="block text-xs font-normal leading-relaxed text-text-tertiary">{t('live.endpointHint')}</span></label>}
           <div className="grid grid-cols-2 gap-3">
             <label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm"><input type="checkbox" checked={microphone} onChange={event => setMicrophone(event.target.checked)} /><Mic size={15} />{t('live.microphone')}</label>
             <label className="block text-xs text-text-secondary"><span className="sr-only">{t('live.visualInput')}</span><NexaSelect aria-label={t('live.visualInput')} className={field} value={source} onChange={event => setSource(event.target.value as LiveVideoSource)}><option value="none">{t('live.none')}</option><option value="camera">{t('live.camera')}</option>{monitors.map((monitor, index) => <option key={monitor.id} value={`monitor:${monitor.id}`}>{t('live.screen')} {index + 1} · {monitor.width} × {monitor.height}</option>)}{desktopWindows.windows.map(window => <option key={window.id} value={`window:${window.id}`}>{window.title} · {window.appName}</option>)}{(!transport.nativeScreenCapture || desktopWindows.supported === false) && typeof navigator.mediaDevices?.getDisplayMedia === 'function' && <option value="screen">{t('chat.shareWindow')}</option>}</NexaSelect></label>
@@ -118,7 +116,7 @@ export function LiveWorkspace({ transport, onSendToChat, background = false, onR
           <label className="flex items-center justify-between gap-3 text-xs font-medium text-text-secondary"><span>{t('live.interval')}</span><input aria-label={t('live.interval')} className={`${field} !w-20`} type="number" min={1} max={30} value={interval} onChange={event => setInterval(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} /></label>
         </fieldset>
         </details>
-        {live.active ? <button className={`${button} w-full border-danger/40 text-danger`} onClick={() => void stop()}><CircleStop size={17} />{t('live.stop')}</button> : <button className={`${button} w-full !border-accent !bg-accent text-white`} disabled={summarizing || !connectionId || loading || (!microphone && source === 'none') || (protocol === 'qwenRealtime' && (!microphone || !endpoint.trim()))} onClick={() => { setSummary(''); void live.start({ connectionId, modelSelection: observerModel, protocol: protocol || null, nativeModel: model || null, nativeEndpoint: endpoint || null, microphone, images: source !== 'none', purpose, intervalSeconds: interval }, source); }}><Radio size={17} />{t('live.start')}</button>}
+        {live.active ? <button className={`${button} w-full border-danger/40 text-danger`} onClick={() => void stop()}><CircleStop size={17} />{t('live.stop')}</button> : <button className={`${button} w-full !border-accent !bg-accent text-white`} disabled={summarizing || !connectionId || loading || (!microphone && source === 'none') || (protocol === 'qwenRealtime' && !microphone)} onClick={() => { setSummary(''); void live.start({ connectionId, modelSelection: observerModel, protocol: protocol || null, nativeModel: model || null, nativeEndpoint: null, microphone, images: source !== 'none', purpose, intervalSeconds: interval }, source); }}><Radio size={17} />{t('live.start')}</button>}
         <p className="text-xs leading-relaxed text-text-tertiary">{t('live.privacy')}</p>
       </section>
       <div className="min-w-0 space-y-5">

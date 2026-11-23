@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import type { AgentConfig } from '../types/conversation';
 import { AnimatePresence } from 'framer-motion';
 import { useNavigate, useOutletContext } from 'react-router';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ export function WizardPage() {
   const navigate = useNavigate();
   const { setWizardCompleted } = useOutletContext<AppShellOutletContext>();
   const { step, form, updateForm, goNext, goPrev } = useWizardState();
+  const [savedAccount, setSavedAccount] = useState<AgentConfig | null>(null);
 
   const finishWizard = useCallback(
     async (openChat: boolean) => {
@@ -87,6 +89,8 @@ export function WizardPage() {
               onNext={goNext}
               onPrev={goPrev}
               onSkip={goNext}
+              savedAccount={savedAccount}
+              onSavedAccount={setSavedAccount}
               selectedPreset={form.providerPreset}
               apiKey={form.apiKey}
               providerSaved={form.providerSaved}

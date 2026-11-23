@@ -1579,6 +1579,71 @@ test("native OpenAI exposes both GPT-6.2 models first and saves the selected mod
   });
 });
 
+test('setup offers matching features after saving and can continue without linking any', async ({ page }) => {
+  await page.goto('/wizard');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'save_agent_config_cmd') {
+        ((window as any).__wizardSaveIds ??= []).push(args.config.id);
+        return { ...args.config, id: 'wizard-account' };
+      }
+      if (command === 'link_provider_capabilities_cmd') (window as any).__unexpectedWizardLink = true;
+      return original(command, args);
+    };
+  });
+  await page.getByRole('button', { name: 'Get started' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
+  await page.locator('[data-nexa-select-trigger]').click();
+  await page.getByRole('option').filter({ hasNotText: 'Removed' }).first().click();
+  await page.getByPlaceholder('API key').fill('wizard-key-fixture');
+  await page.getByRole('button', { name: 'Test connection' }).click();
+  const dialog = page.getByRole('dialog', { name: /Link features/ });
+  await expect(dialog.getByRole('checkbox', { name: /Text to Speech/ }).first()).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Connection successful' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__wizardSaveIds)).toEqual([null, 'wizard-account']);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Add your first knowledge folder' })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__unexpectedWizardLink)).toBeUndefined();
+});
+
+test('a newly saved API key links only the selected features by account ID', async ({ page }) => {
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'save_agent_config_cmd') return { ...args.config, id: 'new-router-account' };
+      if (command === 'link_provider_capabilities_cmd') { (window as any).__linkPatch = args; return; }
+      return original(command, args);
+    };
+  });
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
+  await page.getByRole('button', { name: 'Add Provider' }).click();
+  await page.getByRole('button', { name: /^OpenRouter/ }).click();
+  await page.getByPlaceholder('sk-...').fill('sk-local-fixture');
+  await page.getByRole('button', { name: 'Refresh models' }).click();
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
+  await selectControl(model, 'account-only-model');
+  await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: /Link features/ });
+  await expect(dialog.getByRole('checkbox', { name: /Video generation/ })).toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Link selected' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Select All' }).click();
+  await dialog.getByRole('button', { name: 'Clear All' }).click();
+  await dialog.getByRole('checkbox', { name: /Knowledge embeddings/ }).check();
+  await dialog.getByRole('button', { name: 'Link selected' }).click();
+  await expect(dialog).toHaveCount(0);
+  const args = await page.evaluate(() => (window as any).__linkPatch);
+  expect(Object.keys(args.patch)).toEqual(['embedding']);
+  expect(args.patch.embedding).toMatchObject({ connectionId: 'new-router-account', apiKey: '', provider: 'api' });
+  expect(JSON.stringify(args)).not.toContain('sk-local-fixture');
+});
+
 test("provider refresh keeps account-discovered models selectable and cached", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "AI Providers" }).click();

@@ -144,7 +144,7 @@
     "apiStyle": "dashscope_audio_generation",
     "requiresApiKey": true,
     "baseUrl": "",
-    "description": "Text-directed audio generation (China Beijing). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
+    "description": "Text-directed audio generation (Beijing or Singapore). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
     "models": [
       {"id": "qwen-audio-3.1-tts-next", "name": "Qwen Audio 3.1 TTS Next", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 3000}
     ],
@@ -241,6 +241,41 @@
     "outputFormats": ["mp3", "wav", "opus"],
     "lastVerifiedAt": "2026-09-29",
     "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-speech-post"]
+  },
+  {
+    "id": "siliconflow-international",
+    "name": "SiliconFlow International Speech",
+    "provider": "siliconflow",
+    "apiStyle": "openai_speech",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.siliconflow.com/v1",
+    "description": "Synthesize speech through an international SiliconFlow account using a model-specific voice.",
+    "models": [
+      {"id": "FunAudioLLM/CosyVoice2-0.5B", "name": "CosyVoice2 0.5B", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-11-23"},
+      {"id": "fishaudio/fish-speech-1.5", "name": "Fish Speech 1.5", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-11-23"}
+    ],
+    "voices": [
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:alex", "name": "Alex", "recommended": true, "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:alex", "name": "Alex", "recommended": true, "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:anna", "name": "Anna", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:anna", "name": "Anna", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:bella", "name": "Bella", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:bella", "name": "Bella", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:benjamin", "name": "Benjamin", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:benjamin", "name": "Benjamin", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:charles", "name": "Charles", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:charles", "name": "Charles", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:claire", "name": "Claire", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:claire", "name": "Claire", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:david", "name": "David", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:david", "name": "David", "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "FunAudioLLM/CosyVoice2-0.5B:diana", "name": "Diana", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
+      {"id": "fishaudio/fish-speech-1.5:diana", "name": "Diana", "modelIds": ["fishaudio/fish-speech-1.5"]}
+    ],
+    "outputFormats": ["mp3", "wav", "opus"],
+    "speedRange": [0.25, 4.0],
+    "lastVerifiedAt": "2026-11-23",
+    "documentationUrls": ["https://docs.siliconflow.com/en/api-reference/audio/create-speech", "https://docs.siliconflow.com/en/userguide/capabilities/text-to-speech"]
   },
   {
     "id": "google-gemini",

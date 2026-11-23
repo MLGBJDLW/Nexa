@@ -1,4 +1,4 @@
-import { providerCredentialScope } from '../src/lib/providerCredentials';
+import { credentialFeatureEndpoint, findSharedProviderCredential, providerCredentialScope } from '../src/lib/providerCredentials';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -83,3 +83,14 @@ for (const [provider, chat, speech] of [
 ]) {
   assertEqual(providerCredentialScope(provider, chat), providerCredentialScope(provider, speech), `${provider} realtime speech reuses its official chat key`);
 }
+
+const sgWorkspace = 'https://ws-a.ap-southeast-1.maas.aliyuncs.com';
+const saved = { provider: 'alibaba_model_studio', baseUrl: sgWorkspace + '/compatible-mode/v1', apiKey: 'fixture', name: 'workspace' };
+const tts = credentialFeatureEndpoint(saved, 'tts', { id: 'qwen-audio-generation' });
+assertEqual(tts, sgWorkspace + '/api/v1/services/audio/tts/SpeechSynthesizer', 'audio generation keeps the selected workspace');
+assertEqual(findSharedProviderCredential([saved], 'qwen', tts), saved, 'the selected tenant owns both paths');
+assertEqual(findSharedProviderCredential([saved], 'qwen', tts?.replace('ws-a.', 'ws-b.')), null, 'workspaces do not share keys');
+assertEqual(credentialFeatureEndpoint(saved, 'systemOne', { id: 'alibaba-model-studio-cn' }), null, 'the selected region must match');
+assertEqual(credentialFeatureEndpoint({provider:'qwen', baseUrl:'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1'}, 'tts', {id:'qwen-audio-generation'}), null, 'Token Plan does not provide a PAYG workspace key');
+assertEqual(credentialFeatureEndpoint({provider:'custom',baseUrl:'https://proxy.example/v1'}, 'embedding', {id:'openai',baseUrl:'https://api.openai.com/v1'}), null, 'a proxy key stays with the proxy');
+assertEqual(credentialFeatureEndpoint({provider:'deep_seek',baseUrl:'https://api.deepseek.com'}, 'webSearch', {id:'deepseek',baseUrl:'https://api.deepseek.com/v1/tools/search'}), 'https://api.deepseek.com/v1/tools/search', 'DeepSeek Search accepts its native key');

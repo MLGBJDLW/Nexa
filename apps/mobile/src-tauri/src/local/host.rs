@@ -19,6 +19,7 @@ pub(crate) enum RunHost {
     #[cfg(target_os = "android")]
     Worker {
         connection: Option<Box<SharedModelConnection>>,
+        web_keys: Arc<dyn nexa_core::web_search::providers::deepseek::AccountKeys>,
         cancel: CancellationToken,
         finished: oneshot::Sender<Value>,
     },
@@ -45,6 +46,16 @@ impl RunHost {
                 .filter(|record| id.is_none_or(|id| record.id == id))
                 .cloned()
                 .ok_or_else(|| "Configure a model connection on this phone.".into()),
+        }
+    }
+
+    pub(super) fn web_account_keys(
+        &self,
+    ) -> Arc<dyn nexa_core::web_search::providers::deepseek::AccountKeys> {
+        match self {
+            Self::Foreground(app) => Arc::new(crate::web_settings::PhoneAccounts(app.clone())),
+            #[cfg(target_os = "android")]
+            Self::Worker { web_keys, .. } => web_keys.clone(),
         }
     }
 

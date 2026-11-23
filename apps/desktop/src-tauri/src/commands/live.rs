@@ -182,7 +182,10 @@ pub async fn start(
                 .unwrap_or_else(|| protocol.default_model().into()),
             api_key: cfg.api_key,
             base_url: if protocol == NativeLiveProtocol::QwenRealtime {
-                input.native_endpoint
+                Some(qwen_live_destination(
+                    cfg.base_url.as_deref(),
+                    input.native_endpoint.as_deref(),
+                )?)
             } else {
                 cfg.base_url
             },

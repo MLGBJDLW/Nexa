@@ -17,7 +17,7 @@ import { PhoneFiles } from './PhoneFiles';
 const LocalChat = lazy(() => import('./LocalChat').then(module => ({ default: module.LocalChat })));
 const ComputerChat = lazy(() => import('./ComputerChat'));
 const PhoneSettingsSheet = lazy(() => import('./PhoneSettingsSheet'));
-export interface PhoneConnection { id: string; name: string; provider: string; model: string; baseUrl: string | null }
+export interface PhoneConnection { id: string; name: string; provider: string; model: string; baseUrl: string | null; supportsDeepseekSearch?: boolean }
 export interface ConnectionSyncSummary { supported: boolean; checkedAt: string; connections: number; received: number; sent: number; conflicts: number; deviceOnly: number }
 export interface PhoneCapabilities { accessibility: boolean; accessibilityEnabled?: boolean; accessibilityStatus?: 'connected' | 'disconnected' | 'disabled'; notifications: boolean; restrictedSettingsMayApply?: boolean; batteryOptimized?: boolean; backgroundRestricted?: boolean; manufacturer?: string; androidVersion?: number; screenCapture?: boolean; assistantOverlay?: boolean; remoteControlHost?: string }
 export interface MobileState { appearance?: AppearanceRegistry; version: string; settings: PhoneSettings | null; activeConnectionId?: string | null; connections?: PhoneConnection[]; connectionSync?: Record<string, ConnectionSyncSummary>; hosts: NativeHost[]; capabilities: PhoneCapabilities }

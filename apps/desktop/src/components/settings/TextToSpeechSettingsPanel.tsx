@@ -8,7 +8,7 @@ import { clearSpeechCache, refreshTtsVoiceCatalog, synthesizeSpeechPreview } fro
 import { ProviderIcon } from '../../lib/providerIcons';
 import { isTextToSpeechConfigured } from '../../lib/autoSpeech';
 import {
-  findSharedProviderCredential,
+  featureCredential,
   providerCredentialScope,
 } from '../../lib/providerCredentials';
 import { defaultTtsItem, findTtsProviderPreset, TTS_PROVIDER_PRESETS, ttsSpeedRange, ttsVoiceForModel, ttsVoiceSupportsModel } from '../../lib/ttsProviderPresets';
@@ -104,7 +104,7 @@ export function TextToSpeechSettingsPanel({
   const [minSpeed, maxSpeed] = ttsSpeedRange(activePreset, config.baseUrl, config.model);
   const localFamilyNeedsVoices = config.model === 'kokoro' || config.model === 'kitten';
   const sharedKeySource = !localProvider
-    ? findSharedProviderCredential(agentConfigs, config.provider, config.baseUrl)
+    ? featureCredential(agentConfigs, 'tts', TTS_PROVIDER_PRESETS.filter(p => p.provider === config.provider && p.apiStyle === config.apiStyle), config.provider, config.baseUrl, config.connectionId)
     : null;
   const resolvedApiKey = config.apiKey.trim() || sharedKeySource?.apiKey.trim() || '';
   const materializedConfig = { ...config, apiKey: resolvedApiKey };
@@ -144,7 +144,7 @@ export function TextToSpeechSettingsPanel({
   }, [previewIdentity]);
 
   const update = (patch: Partial<TextToSpeechConfig>) => {
-    onChange({ ...appConfig, textToSpeech: { ...config, ...patch } });
+    onChange({ ...appConfig, textToSpeech: { ...config, ...(('baseUrl' in patch || 'apiKey' in patch || 'provider' in patch) && { connectionId: null }), ...patch } });
     onMarkDirty();
   };
 

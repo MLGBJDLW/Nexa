@@ -1,6 +1,9 @@
+#[path = "capability_links.rs"]
+mod capability_links;
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::web_search::{WebSearchProviderProfile, WebSearchReranker};
+pub use capability_links::CapabilityLinkPatch;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +25,8 @@ pub enum ImageGenerationSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenerationConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     #[serde(default)]
     pub source: ImageGenerationSource,
     #[serde(default = "default_image_provider")]
@@ -45,6 +50,7 @@ pub struct ImageGenerationConfig {
 impl Default for ImageGenerationConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             source: ImageGenerationSource::Auto,
             provider: default_image_provider(),
             api_style: default_image_api_style(),
@@ -527,6 +533,8 @@ impl WebSearchCustomProviderPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSearchCustomProviderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     pub id: String,
     pub preset: WebSearchCustomProviderPreset,
     pub name: String,
@@ -575,6 +583,7 @@ fn default_web_search_custom_providers() -> Vec<WebSearchCustomProviderConfig> {
     ]
     .into_iter()
     .map(|(preset, priority)| WebSearchCustomProviderConfig {
+        connection_id: None,
         id: preset.as_str().to_string(),
         preset,
         name: preset.display_name().to_string(),
@@ -1101,13 +1110,36 @@ fn encrypt_app_config_secrets(mut config: AppConfig) -> Result<AppConfig, CoreEr
     // Saving is an explicit choice. Only loading an unversioned legacy
     // configuration may upgrade the former microphone default.
     config.dictation_defaults_version = CURRENT_DICTATION_DEFAULTS_VERSION;
-    config.image_generation.api_key =
-        crate::crypto::encrypt_api_key(&config.image_generation.api_key)?;
-    config.text_to_speech.api_key = crate::crypto::encrypt_api_key(&config.text_to_speech.api_key)?;
-    config.speech_to_text.api_key = crate::crypto::encrypt_api_key(&config.speech_to_text.api_key)?;
-    config.system_one.api_key = crate::crypto::encrypt_api_key(&config.system_one.api_key)?;
+    for (binding, key) in [
+        (
+            &config.image_generation.connection_id,
+            &mut config.image_generation.api_key,
+        ),
+        (
+            &config.text_to_speech.connection_id,
+            &mut config.text_to_speech.api_key,
+        ),
+        (
+            &config.speech_to_text.connection_id,
+            &mut config.speech_to_text.api_key,
+        ),
+        (
+            &config.system_one.connection_id,
+            &mut config.system_one.api_key,
+        ),
+    ] {
+        if binding.is_some() {
+            key.clear();
+        } else {
+            *key = crate::crypto::encrypt_api_key(key)?;
+        }
+    }
     for provider in &mut config.web_search.custom_providers {
-        provider.api_key = crate::crypto::encrypt_api_key(&provider.api_key)?;
+        if provider.connection_id.is_some() {
+            provider.api_key.clear();
+        } else {
+            provider.api_key = crate::crypto::encrypt_api_key(&provider.api_key)?;
+        }
     }
     Ok(config)
 }
@@ -1136,6 +1168,41 @@ fn migrate_tool_visibility_defaults(mut config: AppConfig) -> (AppConfig, bool) 
     config.dynamic_tool_visibility = true;
     config.tool_visibility_defaults_version = CURRENT_TOOL_VISIBILITY_DEFAULTS_VERSION;
     (config, true)
+}
+
+fn write_app_config(
+    transaction: &rusqlite::Transaction<'_>,
+    config: &AppConfig,
+) -> Result<(), CoreError> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS app_config (
+                 key TEXT PRIMARY KEY NOT NULL,
+                 value TEXT NOT NULL,
+                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+             )",
+    )?;
+    let persisted_ui_locale = transaction
+        .query_row(
+            "SELECT value FROM app_config WHERE key = ?1",
+            params![UI_LOCALE_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let mut config = config.clone();
+    if let Some(locale) = persisted_ui_locale {
+        config.ui_locale = locale;
+    }
+    let json = serde_json::to_string(&encrypt_app_config_secrets(config)?)?;
+    transaction.execute(
+        "INSERT INTO app_config (key, value, updated_at)
+             VALUES (?1, ?2, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                            updated_at = excluded.updated_at",
+        params![APP_CONFIG_KEY, &json],
+    )?;
+    crate::settings_schema_v2::sync_legacy_app_config_in_transaction(transaction)?;
+    crate::capability_registry::sync_registry_in_transaction(transaction)?;
+    Ok(())
 }
 
 impl Database {
@@ -1196,34 +1263,7 @@ impl Database {
         let mut conn = self.conn();
         let transaction =
             conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        transaction.execute_batch(
-            "CREATE TABLE IF NOT EXISTS app_config (
-                 key TEXT PRIMARY KEY NOT NULL,
-                 value TEXT NOT NULL,
-                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-             )",
-        )?;
-        let persisted_ui_locale = transaction
-            .query_row(
-                "SELECT value FROM app_config WHERE key = ?1",
-                params![UI_LOCALE_KEY],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let mut config = config.clone();
-        if let Some(locale) = persisted_ui_locale {
-            config.ui_locale = locale;
-        }
-        let json = serde_json::to_string(&encrypt_app_config_secrets(config)?)?;
-        transaction.execute(
-            "INSERT INTO app_config (key, value, updated_at)
-             VALUES (?1, ?2, datetime('now'))
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-                                            updated_at = excluded.updated_at",
-            params![APP_CONFIG_KEY, &json],
-        )?;
-        crate::settings_schema_v2::sync_legacy_app_config_in_transaction(&transaction)?;
-        crate::capability_registry::sync_registry_in_transaction(&transaction)?;
+        write_app_config(&transaction, config)?;
         transaction.commit()?;
         Ok(())
     }

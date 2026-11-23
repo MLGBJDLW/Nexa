@@ -975,12 +975,19 @@ impl RawLegacyAppConfigSnapshot {
             else {
                 continue;
             };
-            let credential_ref = format!("legacy-app-config:{field}");
+            let connection_id = format!("legacy-app-config:{field}");
+            let credential_ref = config
+                .get("connectionId")
+                .and_then(Value::as_str)
+                .map_or_else(
+                    || connection_id.clone(),
+                    |id| format!("legacy-agent-config:{id}"),
+                );
             overrides.connections.insert(
                 capability.to_string(),
                 SettingOverrideV2::Set {
                     value: ConnectionReferenceV2 {
-                        id: credential_ref.clone(),
+                        id: connection_id.clone(),
                         provider_id: provider_id.to_string(),
                         endpoint_id: None,
                         base_url: config
@@ -997,7 +1004,7 @@ impl RawLegacyAppConfigSnapshot {
                 SettingOverrideV2::Set {
                     value: CapabilityBindingV2 {
                         primary: Some(ModelReferenceV2 {
-                            connection_id: Some(credential_ref.clone()),
+                            connection_id: Some(connection_id),
                             target_id: None,
                             target_revision: None,
                             provider_id: provider_id.to_string(),
@@ -1704,7 +1711,15 @@ fn verify_legacy_app_profile(
                         ));
                     }
                 };
-                if connection.provider_id != provider
+                let expected_ref = config
+                    .and_then(|value| value.get("connectionId"))
+                    .and_then(Value::as_str)
+                    .map_or_else(
+                        || format!("legacy-app-config:{field}"),
+                        |id| format!("legacy-agent-config:{id}"),
+                    );
+                if connection.credential_ref.as_deref() != Some(&expected_ref)
+                    || connection.provider_id != provider
                     || connection.base_url.as_deref()
                         != config
                             .and_then(|value| value.get("baseUrl"))

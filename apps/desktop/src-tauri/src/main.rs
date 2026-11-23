@@ -1184,6 +1184,7 @@ fn main() {
             // App Config
             commands::get_app_config_cmd,
             commands::save_app_config_cmd,
+            commands::link_provider_capabilities_cmd,
             commands::get_appearance_registry_cmd,
             commands::hydrate_appearance_registry_cmd,
             commands::apply_appearance_plugin_cmd,

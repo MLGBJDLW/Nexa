@@ -25,6 +25,7 @@ import { Input } from '../ui/Input';
 import { Section } from './SettingsSection';
 import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { PROVIDER_PRESETS } from '../../lib/providerPresets';
+import { deepSeekSearchProvider } from '../../lib/webSearchConnections';
 import type { NativeWebSearchCapability } from '../../lib/modelCatalog';
 
 interface WebSearchSettingsPanelProps {
@@ -44,7 +45,7 @@ const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   reranker: 'auto',
   providerMode: 'built_in_first',
   customProviders: [
-    { id: 'deepseek', preset: 'deepseek', name: 'DeepSeek Search & Fetch', enabled: false, apiKey: '', baseUrl: 'https://api.deepseek.com/v1/tools/search', priority: 15 },
+    deepSeekSearchProvider,
     {
       id: 'brave',
       preset: 'brave',
@@ -282,8 +283,9 @@ function healthClass(health: WebSearchProviderHealth): string {
   }
 }
 
-function isCustomProviderConfigured(provider: WebSearchCustomProviderConfig): boolean {
+function isCustomProviderConfigured(provider: WebSearchCustomProviderConfig, status?: WebSearchProviderStatus): boolean {
   if (!provider.enabled) return false;
+  if (provider.connectionId) return status?.configured ?? false;
   if (provider.preset === 'searxng') return Boolean(provider.baseUrl?.trim());
   if (provider.preset === 'anysearch') return true;
   return Boolean(provider.apiKey.trim());
@@ -322,7 +324,7 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange, mob
       <button type="button" onClick={onExpand} aria-expanded={expanded} aria-controls={`web-search-config-${provider.preset}`} className="min-w-0 flex-1 rounded py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <span className="block truncate text-sm font-medium text-text-primary">{label}</span>
         <span className="block truncate text-[11px] text-text-tertiary">
-          {provider.enabled && !isCustomProviderConfigured(provider)
+          {provider.enabled && !isCustomProviderConfigured(provider, status)
             ? t('settings.webSearchProviderNeedsConfig')
             : health ? t(HEALTH_LABEL_KEYS[health]) : t('settings.webSearchCredentials')}
         </span>
@@ -339,11 +341,11 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange, mob
       <p className="text-xs leading-relaxed text-text-tertiary">{t(CUSTOM_PROVIDER_DESC_KEYS[provider.preset])}</p>
       {provider.preset !== 'searxng' && <label className="block space-y-1.5 text-xs text-text-secondary">
         <span>{t('settings.webSearchProviderApiKey')}</span>
-        <Input type="password" autoComplete="off" value={provider.apiKey} placeholder={t('settings.webSearchProviderApiKeyPlaceholder')} onChange={event => onChange({ apiKey: event.target.value })} />
+        <Input type="password" autoComplete="off" value={provider.apiKey} placeholder={t(provider.connectionId ? 'providers.capabilityLinked' : 'settings.webSearchProviderApiKeyPlaceholder')} onChange={event => onChange({ apiKey: event.target.value, connectionId: null })} />
       </label>}
       <label className="block space-y-1.5 text-xs text-text-secondary">
         <span>{t('settings.webSearchProviderBaseUrl')}</span>
-        <Input value={provider.baseUrl ?? ''} placeholder={provider.preset === 'searxng' ? 'https://searx.example.org' : undefined} onChange={event => onChange({ baseUrl: event.target.value })} />
+        <Input value={provider.baseUrl ?? ''} placeholder={provider.preset === 'searxng' ? 'https://searx.example.org' : undefined} onChange={event => onChange({ baseUrl: event.target.value, connectionId: null })} />
       </label>
       {status?.lastErrorCode && <p className="text-xs text-text-tertiary">{t('settings.webSearchLastError')}: {status.lastErrorCode}{status.nextRetrySeconds ? `, ${t('settings.webSearchRetryIn', { seconds: status.nextRetrySeconds })}` : ''}</p>}
     </div>}
@@ -404,7 +406,7 @@ export function WebSearchSettingsPanel({
   };
 
   const statusById = new Map(status.map((provider) => [provider.id, provider]));
-  const configuredProviderCount = config.customProviders.filter(isCustomProviderConfigured).length;
+  const configuredProviderCount = config.customProviders.filter(provider => isCustomProviderConfigured(provider, statusById.get(provider.id))).length;
   const reorderProviders = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
     const from = orderedProviders.findIndex(provider => provider.id === active.id);

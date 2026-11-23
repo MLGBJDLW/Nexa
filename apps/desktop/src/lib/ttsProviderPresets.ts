@@ -111,9 +111,14 @@ export function ttsPresetEndpointMatches(preset: TtsProviderPreset, baseUrl: str
 export function findTtsProviderPreset(config: {
   provider: string;
   apiStyle: string;
+  baseUrl?: string | null;
 } | null | undefined): TtsProviderPreset | null {
   if (!config) return null;
-  return TTS_PROVIDER_PRESETS.find(
+  const matches = TTS_PROVIDER_PRESETS.filter(
     (preset) => preset.provider === config.provider && preset.apiStyle === config.apiStyle,
-  ) ?? null;
+  );
+  // An explicit proxy still uses this provider's protocol. The connection
+  // binding independently verifies its destination before supplying a key.
+  const endpoint = normalizeModelEndpointUrl(config.baseUrl);
+  return matches.find(preset => normalizeModelEndpointUrl(preset.baseUrl) === endpoint) ?? matches[0] ?? null;
 }

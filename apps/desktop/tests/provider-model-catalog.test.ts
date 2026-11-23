@@ -1,5 +1,6 @@
 import { catalogModelsForSnapshot, PROVIDER_PRESETS } from '../src/lib/providerPresets';
 import { selectImplicitDefault } from '../src/lib/modelCatalog';
+import { savedConnectionModelFeatures } from '../src/lib/connectionModelFeatures';
 import {
   bindProviderModelCatalogCredential,
   catalogMatchesProvider,
@@ -153,6 +154,30 @@ function testPreviousReleaseCatalog(): void {
 }
 
 testPreviousReleaseCatalog();
+
+{
+  const route = { provider: 'open_ai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6.2-sol' };
+  const descriptor = PROVIDER_PRESETS.find(preset => preset.id === 'openai')!.models.find(item => item.id === route.model)!.descriptor;
+  const ids = (connection: typeof route, platform: 'phone' | 'desktop', selected?: typeof descriptor) =>
+    savedConnectionModelFeatures(connection, platform, selected).map(feature => feature.id).sort();
+  assertDeepEqual(ids(route, 'phone'), ['chat', 'imageInput', 'nativeWebSearch'], 'standalone phone exposes its own model-backed operations');
+  assertDeepEqual(ids(route, 'desktop'), ['chat', 'conversationSummary', 'imageInput', 'incrementalLive', 'nativeLive', 'nativeWebSearch'],
+    'desktop exposes both Live paths and configurable summarization');
+  assertDeepEqual(ids(route, 'desktop', { ...descriptor, availableToCredential: false }), ['nativeLive'],
+    'a separate native Live model can be selected when the chat model is unavailable');
+  for (const baseUrl of ['https://relay.example/v1', 'https://user@api.openai.com/v1', 'https://api.openai.com/v1?']) {
+    assertDeepEqual(ids({ ...route, baseUrl }, 'phone', descriptor), ['chat'], 'an edited endpoint cannot inherit native search or vision');
+  }
+  assertDeepEqual(ids({ ...route, model: 'custom-chat' }, 'phone', descriptor), ['chat'], 'a different model cannot supply capabilities');
+  assert(ids({ ...route, baseUrl: 'https://openrouter.ai/api/v1', provider: 'openrouter', model: 'custom-chat' }, 'phone').includes('nativeWebSearch'),
+    'OpenRouter provides its server-side tool on the route');
+  assert(ids({ provider: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'models/gemini-4-hydrogen' }, 'phone').includes('nativeWebSearch'),
+    'the Google model resource prefix is supported by the adapter');
+  const workspace = { provider: 'qwen', baseUrl: 'https://ws-a.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen4-max' };
+  assert(ids(workspace, 'desktop').includes('nativeLive'), 'Singapore workspace PAYG connects to native Live');
+  assert(!ids({ ...workspace, baseUrl: workspace.baseUrl.replace('ap-southeast-1', 'cn-hongkong') }, 'desktop').includes('nativeLive'), 'Hong Kong has no native Live route');
+  assertDeepEqual(ids({ ...route, provider: 'openai_codex' }, 'desktop'), [], 'a subscription session cannot supply API-key features');
+}
 
 for (const preset of PROVIDER_PRESETS.filter(preset => !preset.runtime)) {
   const first = preset.models[0];

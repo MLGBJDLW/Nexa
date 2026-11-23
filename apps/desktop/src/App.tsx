@@ -76,7 +76,7 @@ function PageLoader({ errorKey, onRetry }: { errorKey?: TranslationKey; onRetry?
     >
       <div className="startup-splash__content">
         <div className="startup-splash__mark" aria-hidden="true">
-          <img className="startup-splash__logo" src="/logo-small.svg" alt="" />
+          <span className="startup-splash__logo nexa-loading-mark" />
         </div>
         <span className="startup-splash__wordmark">Nexa</span>
         {errorKey ? (

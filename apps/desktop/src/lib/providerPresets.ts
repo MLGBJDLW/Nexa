@@ -117,10 +117,10 @@ function normalizePresetBaseUrl(baseUrl: string | null | undefined): string {
 
 function providerKeyForPresetLookup(provider: string, normalizedBaseUrl: string): string {
   const isLegacyQwenPayg = provider === "qwen"
-    && PROVIDER_PRESETS.some(
+    && (alibabaWorkspaceRegion(normalizedBaseUrl) !== null || PROVIDER_PRESETS.some(
       (preset) => preset.provider === 'alibaba_model_studio'
         && normalizePresetBaseUrl(preset.baseUrl) === normalizedBaseUrl,
-    );
+    ));
   return isLegacyQwenPayg ? "alibaba_model_studio" : provider;
 }
 
@@ -144,6 +144,12 @@ export function findProviderPreset(input: {
   baseUrl?: string | null;
 }): ProviderPreset | null {
   const provider = input.provider.trim();
+  if (input.baseUrl?.trim()) {
+    try {
+      const url = new URL(input.baseUrl);
+      if (url.username || url.password || url.href.includes('?') || url.href.includes('#')) return null;
+    } catch { return null; }
+  }
   const normalizedBaseUrl = normalizePresetBaseUrl(input.baseUrl);
   const lookupProvider = providerKeyForPresetLookup(provider, normalizedBaseUrl);
 
@@ -182,9 +188,8 @@ export function findProviderPreset(input: {
   const providerMatches = PROVIDER_PRESETS.filter(
     (preset) => preset.provider === lookupProvider,
   );
-  const defaultMatch = providerMatches.find(
-    (preset) => preset.id === lookupProvider || preset.id.replace(/-/g, '_') === lookupProvider,
-  );
+  const compact = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const defaultMatch = providerMatches.find((preset) => compact(preset.id) === compact(lookupProvider));
   if (defaultMatch) {
     return defaultMatch;
   }

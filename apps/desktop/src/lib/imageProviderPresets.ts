@@ -1,3 +1,5 @@
+import type { ImageGenerationConfig } from '../types/conversation';
+import { providerCredentialScope } from './providerCredentials';
 import imageProviderPresets from "../../../../shared/image-provider-presets.json";
 import {
   normalizeModelEndpointUrl,
@@ -93,4 +95,25 @@ export function getImageSizeOptions(preset: ImageProviderPreset, model: string):
 
 export function getImageOutputFormats(preset: ImageProviderPreset, model: string): string[] {
   return preset.models.find(candidate => candidate.id === model)?.outputFormats ?? preset.outputFormats;
+}
+
+export function imageConfigFromPreset(
+  current: ImageGenerationConfig,
+  preset: ImageProviderPreset,
+): ImageGenerationConfig {
+  const model = getDefaultImageModel(preset);
+  const preservesCredential = providerCredentialScope(current.provider, current.baseUrl) ===
+    providerCredentialScope(preset.provider, preset.baseUrl);
+  return {
+    ...current,
+    provider: preset.provider,
+    apiStyle: preset.apiStyle,
+    baseUrl: preset.baseUrl,
+    connectionId: preservesCredential ? current.connectionId : null,
+    model,
+    size: getImageSizeOptions(preset, model)[0]?.value ?? null,
+    quality: getImageQualityOptions(preset, model)[0] ?? null,
+    outputFormat: getImageOutputFormats(preset, model)[0] ?? null,
+    apiKey: preservesCredential ? current.apiKey : "",
+  };
 }

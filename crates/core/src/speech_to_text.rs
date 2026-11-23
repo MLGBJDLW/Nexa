@@ -295,7 +295,9 @@ fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, 
     let mistral = config.provider == "mistral"
         && is_official_transcription_endpoint(config, "api.mistral.ai");
     if config.provider == "siliconflow"
-        && is_official_transcription_endpoint(config, "api.siliconflow.cn")
+        && ["api.siliconflow.cn", "api.siliconflow.com"]
+            .iter()
+            .any(|host| is_official_transcription_endpoint(config, host))
     {
         return fields;
     }

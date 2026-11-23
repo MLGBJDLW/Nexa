@@ -21,7 +21,7 @@ use std::{
 use tokio::sync::{broadcast, mpsc, watch, Notify};
 use tokio_util::sync::CancellationToken;
 
-pub use protocol::{NativeLiveConfig, NativeLiveProtocol};
+pub use protocol::{qwen_live_destination, NativeLiveConfig, NativeLiveProtocol};
 
 const MAX_ACTIVE_SESSIONS: usize = 4;
 const MAX_RETAINED_SESSIONS: usize = 16;

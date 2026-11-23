@@ -109,7 +109,7 @@ pub fn run_source(
     control: &dyn EmbeddingJobControl,
 ) -> Result<EmbedResult, CoreError> {
     control.checkpoint()?;
-    let config = db.get_embedder_config()?;
+    let config = db.runtime_embedder_config()?;
     let batch_size = limits.batch_size.max(1);
 
     let (model, embedder): (String, Box<dyn Embedder>) = if config.provider == "tfidf" {
@@ -166,7 +166,7 @@ pub fn rebuild_all(
     control: &dyn EmbeddingJobControl,
 ) -> Result<EmbedResult, CoreError> {
     control.checkpoint()?;
-    let config = db.get_embedder_config()?;
+    let config = db.runtime_embedder_config()?;
     let batch_size = limits.batch_size.max(1);
 
     let (model, embedder): (String, Box<dyn Embedder>) = if config.provider == "tfidf" {

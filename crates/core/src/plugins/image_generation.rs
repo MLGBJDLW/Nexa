@@ -167,6 +167,32 @@ fn resolve_config(
     db: &Database,
     request: &ImageGenerationRequest<'_>,
 ) -> Result<ResolvedImageConfig, CoreError> {
+    let app_config = db.load_app_config()?;
+    let mut image_config = app_config.image_generation;
+    if let Some(binding) = &image_config.connection_id {
+        if request
+            .provider_config_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .is_some_and(|id| id != binding)
+        {
+            return Err(CoreError::InvalidInput(
+                "The requested account does not match the selected image connection.".into(),
+            ));
+        }
+        db.resolve_image_credential(&mut image_config)?;
+        if !image_config.is_configured() {
+            return Err(CoreError::InvalidInput("The selected image connection is unavailable or has changed endpoint. Select a connection in Settings.".into()));
+        }
+        if requested_provider_hint(request)
+            .is_some_and(|provider| !image_config_matches_provider(&image_config, provider))
+        {
+            return Err(CoreError::InvalidInput(
+                "The requested image provider does not match the selected image connection.".into(),
+            ));
+        }
+        return Ok(image_config_to_resolved(image_config));
+    }
     if let Some(id) = request
         .provider_config_id
         .map(str::trim)
@@ -175,8 +201,6 @@ fn resolve_config(
         return db.get_agent_config(id).map(agent_config_to_resolved);
     }
 
-    let app_config = db.load_app_config()?;
-    let image_config = app_config.image_generation;
     if image_config.is_configured() {
         if image_config.api_style == "openrouter_images"
             && request.provider.is_none()
@@ -854,6 +878,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let mut config = AppConfig::default();
         config.image_generation = ImageGenerationConfig {
+            connection_id: None,
             source: Default::default(),
             provider: "openrouter".into(),
             api_style: "openrouter_images".into(),
@@ -899,6 +924,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let mut config = AppConfig::default();
         config.image_generation = ImageGenerationConfig {
+            connection_id: None,
             source: Default::default(),
             provider: "open_ai".to_string(),
             api_style: "xai_images".to_string(),
@@ -1110,6 +1136,7 @@ mod tests {
         let db = Database::open_memory().expect("open in-memory db");
         let mut config = AppConfig::default();
         config.image_generation = ImageGenerationConfig {
+            connection_id: None,
             source: Default::default(),
             provider: "google".to_string(),
             api_style: "gemini_generate_content".to_string(),

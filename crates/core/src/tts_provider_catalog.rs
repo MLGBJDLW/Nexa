@@ -256,12 +256,20 @@ pub fn build_tts_voice_catalog(
     discovered: Option<Vec<TtsVoiceCatalogEntry>>,
     refreshed_at: impl Into<String>,
 ) -> TtsVoiceCatalogSnapshot {
-    let presets = cached_tts_provider_presets().unwrap_or_default();
-    let curated = presets
+    let mut matches = cached_tts_provider_presets()
+        .unwrap_or_default()
         .iter()
-        .find(|preset| preset.provider == config.provider && preset.api_style == config.api_style)
-        .map(|preset| preset.voices.as_slice())
-        .unwrap_or_default();
+        .filter(|preset| {
+            preset.provider == config.provider && preset.api_style == config.api_style
+        });
+    let first = matches.next();
+    let curated = if matches.next().is_some() {
+        tts_catalog_preset_for_endpoint(config)
+    } else {
+        first
+    }
+    .map(|preset| preset.voices.as_slice())
+    .unwrap_or_default();
     let mut emitted = HashSet::new();
     let mut voices = Vec::new();
 

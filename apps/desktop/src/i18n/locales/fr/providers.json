@@ -13,5 +13,17 @@
   "tagFlagship": "Produit phare",
   "tagCode": "Code",
   "tagRecommended": "Recommandé",
-  "tagVision": "Vision"
+  "tagVision": "Vision",
+  "capabilityTitle": "Associer des fonctions à {name} ?",
+  "capabilityIntro": "Choisissez les fonctions qui utiliseront cette connexion. L’accès dépend du compte et du modèle. L’association ne lance aucune inférence.",
+  "capabilityApply": "Associer la sélection",
+  "capabilitySkip": "Terminé",
+  "capabilityAvailable": "Utilise cette connexion si sélectionnée",
+  "capabilityReplaces": "Remplace {name}",
+  "capabilityLinked": "Déjà associée",
+  "capabilityModel": "Choisir un modèle dans les paramètres",
+  "capabilityEmbedding": "Vecteurs de connaissances",
+  "capabilityVideo": "Génération vidéo",
+  "capabilityReindex": "Changer de modèle peut nécessiter une réindexation.",
+  "capabilityCatalogOnly": "Répertorié au catalogue. L’application ne soumet pas encore de tâches à ce fournisseur."
 }

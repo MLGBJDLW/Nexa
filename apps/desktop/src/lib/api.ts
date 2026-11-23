@@ -397,8 +397,8 @@ export const getEmbedderConfig = () =>
 export const saveEmbedderConfig = (config: EmbedderConfig) =>
   invoke<void>('save_embedder_config_cmd', { config });
 
-export const testApiConnection = (apiKey: string, baseUrl: string, model: string, dimensions: number) =>
-  invoke<boolean>('test_api_connection_cmd', { apiKey, baseUrl, model, dimensions });
+export const testApiConnection = (apiKey: string, baseUrl: string, model: string, dimensions: number, connectionId?: string | null) =>
+  invoke<boolean>('test_api_connection_cmd', { apiKey, baseUrl, model, dimensions, connectionId });
 
 export const checkLocalModel = (localModel?: string, modelPath?: string) =>
   invoke<boolean>('check_local_model_cmd', { localModel, modelPath });
@@ -2305,6 +2305,9 @@ export const consolidateModelStorage = (root?: string) =>
 
 export const getAppConfig = (resolveSpeech = false) =>
   invoke<AppConfig>('get_app_config_cmd', { resolveSpeech });
+
+export const linkProviderCapabilities = (connectionId: string, patch: import('./providerCapabilityLinks').CapabilityPatch) =>
+  invoke<void>('link_provider_capabilities_cmd', { connectionId, patch });
 
 export const saveAppConfig = (config: AppConfig) =>
   invoke<void>('save_app_config_cmd', { config });

@@ -8,6 +8,7 @@ import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell'
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
 import { hostLabel, type NativeHost } from './nativeClient';
+import { PhoneCapabilityLink } from './PhoneCapabilityLink';
 import { PhoneWebSettings } from './PhoneWebSettings';
 import { PhoneSpeechSettings } from './PhoneSpeechSettings';
 import { StorageUsageCard } from '../../desktop/src/components/settings/StorageUsageCard';
@@ -128,6 +129,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const [searchCollapsed, setSearchCollapsed] = useState<Record<string, boolean>>({});
   const [editingConnection, setEditingConnection] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savedKey, setSavedKey] = useState<{id: string; name: string} | null>(null);
   const [removeTarget, setRemoveTarget] = useState<PhoneConnection | null>(null);
   const savedPreset = presetFor(state.connections?.find(record => record.id === selectedId));
   const choices: PhonePreset[] = presets.filter(item => !item.retired || item.id === savedPreset.id);
@@ -145,6 +147,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   // Preserve an in-progress form while background sync updates the library.
   useEffect(() => {
     if (open) {
+      setSavedKey(null);
       loadRecord(state.connections?.find(record => record.id === state.activeConnectionId));
       setEditingConnection(null); setExpanded({}); setSearchCollapsed({}); setSearch(''); setTab('general');
     }
@@ -170,6 +173,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
       <ChevronRight size={17}/>
     </summary><div className="mobile-settings-group-body">{children}</div>
   </details>;
+  if (open && savedKey) return <PhoneCapabilityLink key={savedKey.id} {...savedKey} connections={state.connections ?? []}
+    onDismiss={() => { setSavedKey(null); onClose(); }}/>;
   return <>
     <MobileDialog open={open} title={t('remote.mobileSettings')} onClose={onClose}>
       <nav className="mobile-settings-tabs" aria-label={t('remote.mobileSettings')}>
@@ -190,8 +195,10 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         {t('common.edit')}<ChevronRight size={16}/>
       </summary>
       <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); if (!modelToSave) return; void action(async () => {
-        await invoke('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: modelToSave }, apiKey, name: name.trim() || modelToSave, createNew: !selectedId });
-        setApiKey(''); onClose();
+        const savedId = await invoke<string>('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: modelToSave }, apiKey, name: name.trim() || modelToSave, createNew: !selectedId });
+        setApiKey('');
+        if (apiKey) { setSelectedId(savedId); setSavedKey({ id: savedId, name: name.trim() || modelToSave }); }
+        else onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
         <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(selectImplicitDefault(next.models)?.id ?? ''); setCustomModel(false); setApiKey(''); }}/></label>

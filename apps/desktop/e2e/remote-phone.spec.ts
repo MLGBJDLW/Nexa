@@ -945,9 +945,6 @@ test("phone microphone and camera pause across a route change then resume the sa
   await page.goto("/phone.html#pair=123456&server=desktop-1");
   await page.getByRole("button", { name: "Live", exact: true }).click();
   await selectControl(page.getByRole("combobox", { name: "Analysis mode", exact: true }), "qwenRealtime");
-  await page
-    .getByLabel("Qwen workspace endpoint", { exact: true })
-    .fill("wss://test.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime");
   await selectControl(page.getByLabel("Visual input", { exact: true }), "camera");
   await page.getByRole("button", { name: "Start Live", exact: true }).click();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);

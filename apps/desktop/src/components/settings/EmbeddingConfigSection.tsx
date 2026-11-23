@@ -12,7 +12,7 @@ import {
 } from '../../lib/embeddingProviderPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
 import {
-  findSharedProviderCredential,
+  featureCredential,
   providerCredentialScope,
 } from '../../lib/providerCredentials';
 import type { EmbedderConfig } from '../../types/embedder';
@@ -73,7 +73,7 @@ export function EmbeddingConfigSection({
 
   const updateConfig = (patch: Partial<EmbedderConfig>) => {
     if (!embedConfig) return;
-    onConfigChange({ ...embedConfig, ...patch });
+    onConfigChange({ ...embedConfig, ...(('apiBaseUrl' in patch || 'apiKey' in patch || 'provider' in patch) && { connectionId: null }), ...patch });
     onMarkDirty();
   };
 
@@ -85,10 +85,10 @@ export function EmbeddingConfigSection({
   );
   const selectedModelDescriptor = selectedModel?.descriptor;
   const sharedKeySource = embedConfig && activeApiPreset
-    ? findSharedProviderCredential(
-        agentConfigs,
+    ? featureCredential(
+        agentConfigs, 'embedding', [activeApiPreset],
         activeApiPreset.provider,
-        embedConfig.apiBaseUrl,
+        embedConfig.apiBaseUrl, embedConfig.connectionId,
       )
     : null;
   const resolvedApiKey = embedConfig?.apiKey.trim() || sharedKeySource?.apiKey.trim() || '';
@@ -292,7 +292,7 @@ export function EmbeddingConfigSection({
                 size="sm"
                 icon={testLoading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
                 loading={testLoading}
-                onClick={() => onTestConnection(materializedConfig ?? undefined)}
+                onClick={() => onTestConnection((embedConfig?.connectionId ? embedConfig : materializedConfig) ?? undefined)}
                 disabled={(!resolvedApiKey && embeddingApiKeyRequired(embedConfig.apiBaseUrl)) || !embedConfig.apiBaseUrl.trim() || !embedConfig.apiModel.trim()}
               >
                 {t('settings.embeddingTestConnection')}
@@ -325,7 +325,7 @@ export function EmbeddingConfigSection({
                 size="sm"
                 icon={<Save size={16} />}
                 loading={embedSaveLoading}
-                onClick={() => onSave(materializedConfig ?? undefined)}
+                onClick={() => onSave((embedConfig?.connectionId ? embedConfig : materializedConfig) ?? undefined)}
               >
                 {t('settings.embeddingSave')}
               </Button>

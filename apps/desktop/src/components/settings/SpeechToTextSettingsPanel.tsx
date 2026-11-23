@@ -6,7 +6,7 @@ import { ChevronDown, Cloud, Eye, EyeOff, Laptop, Mic2, RefreshCw, Save } from '
 import { useTranslation } from '../../i18n';
 import { ProviderIcon } from '../../lib/providerIcons';
 import {
-  findSharedProviderCredential,
+  featureCredential,
   providerCredentialScope,
 } from '../../lib/providerCredentials';
 import {
@@ -99,7 +99,7 @@ export function SpeechToTextSettingsPanel({
   const isZipformer = isSherpa && config.sherpaModelFamily === 'zipformer';
   const runsOnDevice = isWhisper || isSherpa;
   const sharedKeySource = !runsOnDevice
-    ? findSharedProviderCredential(agentConfigs, config.provider, config.baseUrl)
+    ? featureCredential(agentConfigs, 'stt', STT_PROVIDER_PRESETS.filter(p => p.provider === config.provider && p.apiStyle === config.apiStyle), config.provider, config.baseUrl, config.connectionId)
     : null;
   const resolvedApiKey = config.apiKey.trim() || sharedKeySource?.apiKey.trim() || '';
   const configured = scopeActive && (isWhisper || (isSherpa
@@ -113,7 +113,7 @@ export function SpeechToTextSettingsPanel({
     : Boolean(resolvedApiKey && config.baseUrl?.trim() && config.model.trim())));
 
   const update = (patch: Partial<SpeechToTextConfig>) => {
-    onChange({ ...appConfig, speechToText: { ...config, ...patch } });
+    onChange({ ...appConfig, speechToText: { ...config, ...(('baseUrl' in patch || 'apiKey' in patch || 'provider' in patch) && { connectionId: null }), ...patch } });
     onMarkDirty();
   };
   const applyPreset = (id: string) => {

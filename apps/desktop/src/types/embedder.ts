@@ -1,6 +1,7 @@
 export type LocalModelId = 'MultilingualMiniLM' | 'MultilingualE5Base' | 'Qwen3Embedding06B';
 
 export interface EmbedderConfig {
+  connectionId?: string | null;
   provider: 'local' | 'api' | 'tfidf';
   apiKey: string;
   apiBaseUrl: string;

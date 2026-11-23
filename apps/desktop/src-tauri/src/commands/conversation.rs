@@ -1060,7 +1060,14 @@ pub fn list_capability_packages_cmd(
     app_handle: AppHandle,
     include_runtime_checks: Option<bool>,
 ) -> Result<Vec<nexa_core::plugins::CapabilityPackageView>, String> {
-    let mut config = state.db.load_app_config().map_err(|e| e.to_string())?;
+    let mut config = state
+        .db
+        .load_speech_app_config()
+        .map_err(|e| e.to_string())?;
+    state
+        .db
+        .resolve_image_credential(&mut config.image_generation)
+        .map_err(|e| e.to_string())?;
     state
         .db
         .resolve_system_one_credential(&mut config.system_one)

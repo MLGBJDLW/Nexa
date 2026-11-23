@@ -22,7 +22,7 @@ export function PhoneWebSettings({ connections = [] }: { connections?: PhoneConn
     catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   }
-  const deepseek = connections.filter(connection => { try { const url = new URL(connection.baseUrl ?? ''); return url.protocol === 'https:' && url.hostname === 'api.deepseek.com' && (!url.port || url.port === '443') && !url.username && !url.password; } catch { return false; } });
+  const deepseek = connections.filter(connection => connection.supportsDeepseekSearch);
   async function useConnection(connectionId: string) {
     if (!config || busy) return;
     const submitted = config;

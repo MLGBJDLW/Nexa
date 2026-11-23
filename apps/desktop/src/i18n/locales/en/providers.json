@@ -13,5 +13,17 @@
   "tagFlagship": "Flagship",
   "tagCode": "Code",
   "tagRecommended": "Recommended",
-  "tagVision": "Vision"
+  "tagVision": "Vision",
+  "capabilityTitle": "Link features to {name}?",
+  "capabilityIntro": "Choose which features should use this connection. Access depends on your provider account and model. Linking makes no inference requests.",
+  "capabilityApply": "Link selected",
+  "capabilitySkip": "Done",
+  "capabilityAvailable": "Uses this connection when selected",
+  "capabilityReplaces": "Replaces {name}",
+  "capabilityLinked": "Already linked",
+  "capabilityModel": "Choose a model in settings",
+  "capabilityEmbedding": "Knowledge embeddings",
+  "capabilityVideo": "Video generation",
+  "capabilityReindex": "Changing the embedding model may require reindexing.",
+  "capabilityCatalogOnly": "Listed in the catalog. This app has no submission route for this provider yet."
 }

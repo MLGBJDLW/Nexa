@@ -22,7 +22,7 @@ export function outputDefaults(preset = phoneOutputPresets[0]): PhoneSpeechOutpu
 }
 
 type PhoneSpeechConfig = PhoneSpeechInput | PhoneSpeechOutput;
-function selectPreset(config: PhoneSpeechConfig, preset: SttProviderPreset | TtsProviderPreset, baseUrl: string, connectionId?: string): PhoneSpeechConfig {
+export function selectPhoneSpeechRoute(config: PhoneSpeechConfig, preset: SttProviderPreset | TtsProviderPreset, baseUrl: string, connectionId?: string): PhoneSpeechConfig {
   const sameService = config.provider === preset.provider && config.apiStyle === preset.apiStyle;
   let next = config;
   if (!sameService) {
@@ -40,7 +40,7 @@ export function bindSpeechConnection(config: PhoneSpeechConfig, connection: Phon
   const previous = presets.find(item => item.provider === config.provider && item.apiStyle === config.apiStyle);
   const route = routes.find(item => item.presetId === previous?.id) ?? routes[0];
   const preset = presets.find(item => item.id === route?.presetId);
-  return preset ? selectPreset(config, preset, route.baseUrl, connection.id) : config;
+  return preset ? selectPhoneSpeechRoute(config, preset, route.baseUrl, connection.id) : config;
 }
 
 export function PhoneCloudSpeechFields({ output = false, config, connections, disabled, onChange }: {
@@ -69,7 +69,7 @@ export function PhoneCloudSpeechFields({ output = false, config, connections, di
     </select></label>}
     <label>{t('settings.provider')}<select aria-label={t('settings.provider')} value={available ? preset?.id ?? '' : ''} onChange={event => {
       const next = choices.find(item => item.id === event.target.value);
-      if (next) onChange(selectPreset(config, next, routes?.find(route => route.presetId === next.id)?.baseUrl ?? next.baseUrl, selected?.id));
+      if (next) onChange(selectPhoneSpeechRoute(config, next, routes?.find(route => route.presetId === next.id)?.baseUrl ?? next.baseUrl, selected?.id));
     }}>{(!preset || !available) && <option value="" disabled>{available ? config.provider : t('settings.shellUnavailable')}</option>}{choices.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
     <label>{t('settings.model')}<input list={`${id}-models`} value={config.model} autoCapitalize="none" spellCheck={false} onChange={event => {
       const model = event.target.value;

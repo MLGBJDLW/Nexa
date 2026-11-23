@@ -13,5 +13,17 @@
   "tagFlagship": "Principal",
   "tagCode": "Código",
   "tagRecommended": "Recomendado",
-  "tagVision": "Visión"
+  "tagVision": "Visión",
+  "capabilityTitle": "¿Vincular funciones a {name}?",
+  "capabilityIntro": "Elige las funciones que usarán esta conexión. El acceso depende de tu cuenta y del modelo. La vinculación no ejecuta modelos.",
+  "capabilityApply": "Vincular selección",
+  "capabilitySkip": "Listo",
+  "capabilityAvailable": "Usa esta conexión al seleccionarla",
+  "capabilityReplaces": "Sustituye a {name}",
+  "capabilityLinked": "Ya vinculada",
+  "capabilityModel": "Elige un modelo en los ajustes",
+  "capabilityEmbedding": "Embeddings de conocimiento",
+  "capabilityVideo": "Generación de vídeo",
+  "capabilityReindex": "Cambiar el modelo puede requerir volver a indexar.",
+  "capabilityCatalogOnly": "Figura en el catálogo. La aplicación aún no envía trabajos a este proveedor."
 }

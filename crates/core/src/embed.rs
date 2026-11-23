@@ -20,6 +20,8 @@ use crate::error::CoreError;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbedderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     /// `"local"` | `"api"` | `"tfidf"`
     pub provider: String,
     pub api_key: String,
@@ -32,9 +34,45 @@ pub struct EmbedderConfig {
     pub local_model: String,
 }
 
+pub(crate) fn write_embedder_config(
+    conn: &rusqlite::Connection,
+    config: &EmbedderConfig,
+) -> Result<(), CoreError> {
+    let pairs: &[(&str, String)] = &[
+        ("provider", config.provider.clone()),
+        (
+            "connection_id",
+            config.connection_id.clone().unwrap_or_default(),
+        ),
+        (
+            "api_key",
+            if config.connection_id.is_some() {
+                String::new()
+            } else {
+                crate::crypto::encrypt_api_key(&config.api_key)?
+            },
+        ),
+        ("api_base_url", config.api_base_url.clone()),
+        ("api_model", config.api_model.clone()),
+        ("model_path", config.model_path.clone()),
+        ("vector_dimensions", config.vector_dimensions.to_string()),
+        ("local_model", config.local_model.clone()),
+    ];
+    for (key, value) in pairs {
+        conn.execute(
+            "INSERT INTO embedder_config (key, value)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+    }
+    Ok(())
+}
+
 impl Default for EmbedderConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             provider: "local".into(),
             api_key: String::new(),
             api_base_url: "https://api.openai.com/v1".into(),
@@ -740,6 +778,7 @@ impl Database {
                 "api_key" => {
                     config.api_key = crate::crypto::decrypt_api_key(&value).unwrap_or(value);
                 }
+                "connection_id" if !value.is_empty() => config.connection_id = Some(value),
                 "api_base_url" => config.api_base_url = value,
                 "api_model" => config.api_model = value,
                 "model_path" => config.model_path = value,
@@ -755,25 +794,18 @@ impl Database {
 
     /// Persist an [`EmbedderConfig`] to the `embedder_config` key-value table.
     pub fn save_embedder_config(&self, config: &EmbedderConfig) -> Result<(), CoreError> {
-        let conn = self.conn();
-        let pairs: &[(&str, String)] = &[
-            ("provider", config.provider.clone()),
-            ("api_key", crate::crypto::encrypt_api_key(&config.api_key)?),
-            ("api_base_url", config.api_base_url.clone()),
-            ("api_model", config.api_model.clone()),
-            ("model_path", config.model_path.clone()),
-            ("vector_dimensions", config.vector_dimensions.to_string()),
-            ("local_model", config.local_model.clone()),
-        ];
-        for (key, value) in pairs {
-            conn.execute(
-                "INSERT INTO embedder_config (key, value)
-                 VALUES (?1, ?2)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                params![key, value],
-            )?;
-        }
+        let mut conn = self.conn();
+        let transaction = conn.transaction()?;
+        write_embedder_config(&transaction, config)?;
+        transaction.commit()?;
         Ok(())
+    }
+
+    /// Construct an execution copy without materializing a connection key in settings.
+    pub fn runtime_embedder_config(&self) -> Result<EmbedderConfig, CoreError> {
+        let mut config = self.get_embedder_config()?;
+        self.resolve_embedder_credential(&mut config)?;
+        Ok(config)
     }
 
     /// Persist the embedder's vocabulary and IDF so it can be restored later.

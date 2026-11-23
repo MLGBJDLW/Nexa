@@ -13,5 +13,17 @@
   "tagFlagship": "フラッグシップ",
   "tagCode": "コード",
   "tagRecommended": "おすすめ",
-  "tagVision": "視覚"
+  "tagVision": "視覚",
+  "capabilityTitle": "{name} に機能を関連付けますか？",
+  "capabilityIntro": "この接続を使う機能を選択してください。利用権限はアカウントとモデルに依存します。関連付け時に推論は実行されません。",
+  "capabilityApply": "選択した機能を関連付ける",
+  "capabilitySkip": "完了",
+  "capabilityAvailable": "選択時にこの接続を使用",
+  "capabilityReplaces": "{name} を置き換えます",
+  "capabilityLinked": "関連付け済み",
+  "capabilityModel": "設定でモデルを選択してください",
+  "capabilityEmbedding": "ナレッジの埋め込み",
+  "capabilityVideo": "動画生成",
+  "capabilityReindex": "モデルを変更すると再インデックスが必要な場合があります。",
+  "capabilityCatalogOnly": "カタログに掲載されています。このアプリからはまだジョブを送信できません。"
 }

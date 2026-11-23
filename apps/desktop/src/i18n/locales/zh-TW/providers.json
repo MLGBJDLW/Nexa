@@ -13,5 +13,17 @@
   "tagFlagship": "旗艦",
   "tagCode": "程式碼",
   "tagRecommended": "推薦",
-  "tagVision": "視覺"
+  "tagVision": "視覺",
+  "capabilityTitle": "要將哪些功能連結至 {name}？",
+  "capabilityIntro": "選擇要使用此連線的功能。實際權限取決於供應商帳號和模型。連結時不會呼叫模型。",
+  "capabilityApply": "連結所選功能",
+  "capabilitySkip": "完成",
+  "capabilityAvailable": "選用時使用此連線",
+  "capabilityReplaces": "將取代 {name}",
+  "capabilityLinked": "已連結",
+  "capabilityModel": "請在設定中選擇模型",
+  "capabilityEmbedding": "知識庫向量嵌入",
+  "capabilityVideo": "影片生成",
+  "capabilityReindex": "更換嵌入模型後可能需要重新建立索引。",
+  "capabilityCatalogOnly": "目錄已收錄此供應商，目前應用程式尚未接入其任務提交介面。"
 }

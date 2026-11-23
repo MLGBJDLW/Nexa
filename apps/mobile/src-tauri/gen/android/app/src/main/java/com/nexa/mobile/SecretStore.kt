@@ -29,6 +29,11 @@ class SecretStore(context: Context) {
         val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
         check(preferences.edit().putString(name, Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).commit())
     }
+    @androidx.annotation.Keep
+    fun readConnection(id: String): String? = read("local-provider")?.let {
+        org.json.JSONObject(it).optJSONObject("connections")?.optJSONObject(id)?.toString()
+    }
+
     @Synchronized fun read(name: String): String? {
         require(name == "local-provider" || name == "remote-hosts" || name == "settings-key")
         val encoded = preferences.getString(name, null) ?: return null

@@ -27,7 +27,7 @@ export function SystemOneSettingsPanel({ appConfig, agentConfigs, loading, onCha
   const preset = SYSTEM_ONE_PROVIDERS.find(item => item.id === config.provider);
   const credential = systemOneCredential(config, agentConfigs);
   const update = (patch: Partial<SystemOneConfig>) => {
-    onChange({ ...appConfig, systemOne: { ...config, ...patch } });
+    onChange({ ...appConfig, systemOne: { ...config, ...(('baseUrl' in patch || 'apiKey' in patch || 'provider' in patch) && { connectionId: null }), ...patch } });
     onMarkDirty();
   };
   return <div data-provider-category="structured-decisions" data-testid="system-one-settings">

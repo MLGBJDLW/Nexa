@@ -9,12 +9,16 @@ import { useTranslation } from '../../i18n';
 import { PROVIDER_PRESETS, type ProviderPreset } from '../../lib/providerPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
 import * as api from '../../lib/api';
-import type { SaveAgentConfigInput } from '../../types/conversation';
+import { ProviderCapabilityPrompt } from '../settings/ProviderCapabilityPrompt';
+import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import type { ConnectionTestResult } from './useWizardState';
+import { saveProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { resolveExplicitModelSelection } from '../../lib/modelCatalog';
 import { CatalogModelPicker } from '../settings/CatalogModelPicker';
 
 interface Step3ProviderProps {
+  savedAccount: AgentConfig | null;
+  onSavedAccount: (account: AgentConfig) => void;
   onNext: () => void;
   onPrev: () => void;
   onSkip: () => void;
@@ -37,6 +41,8 @@ const WIZARD_PROVIDER_IDS = ['openai', 'anthropic', 'google', 'ollama'] as const
  * the config persisted here is immediately available on the Settings page.
  */
 export function Step3Provider({
+  savedAccount,
+  onSavedAccount,
   onNext,
   onPrev,
   onSkip,
@@ -50,6 +56,7 @@ export function Step3Provider({
 }: Step3ProviderProps) {
   const { t } = useTranslation();
   const [showApiKey, setShowApiKey] = useState(false);
+  const [linkSource, setLinkSource] = useState<AgentConfig | null>(null);
   const [testing, setTesting] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('');
 
@@ -67,8 +74,10 @@ export function Step3Provider({
     try {
       const selectedModel = resolveExplicitModelSelection(selectedPreset.models, selectedModelId);
       if (!selectedModel) return;
+      const previous = savedAccount?.provider === selectedPreset.provider && savedAccount.baseUrl === selectedPreset.baseUrl
+        ? savedAccount : null;
       const config: SaveAgentConfigInput = {
-        id: null,
+        id: previous?.id ?? null,
         name: selectedPreset.name,
         provider: selectedPreset.provider,
         apiKey: apiKey.trim(),
@@ -91,7 +100,12 @@ export function Step3Provider({
       };
       const catalog = await api.testAgentConnection(config);
       if (catalog.models.length > 0) {
-        await api.saveAgentConfig(config);
+        const saved = await api.saveAgentConfig(config);
+        saveProviderModelCatalog(catalog, config.apiKey);
+        if (saved?.id) {
+          onSavedAccount(saved);
+          if (config.apiKey.trim() && previous?.apiKey !== config.apiKey) setLinkSource(saved);
+        }
         onTestResult('success', true);
         toast.success(t('wizard.connectionSuccess'));
       } else {
@@ -104,7 +118,7 @@ export function Step3Provider({
     } finally {
       setTesting(false);
     }
-  }, [selectedPreset, selectedModelId, apiKey, onTestResult, t]);
+  }, [selectedPreset, selectedModelId, apiKey, savedAccount, onSavedAccount, onTestResult, t]);
 
   const needsKey = selectedPreset?.requiresApiKey ?? false;
   const canTest = Boolean(selectedPreset && selectedModelId)
@@ -119,6 +133,7 @@ export function Step3Provider({
       transition={{ duration: 0.2 }}
       className="flex flex-col items-center text-center"
     >
+      {linkSource && <ProviderCapabilityPrompt source={linkSource} onDismiss={() => setLinkSource(null)} />}
       <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-6">
         <Brain size={28} className="text-accent" />
       </div>

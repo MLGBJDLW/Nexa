@@ -207,7 +207,23 @@ test('reveals the native window onto a branded startup surface', async ({ page }
 
   const splash = page.getByTestId('startup-splash');
   await expect(splash).toBeVisible();
-  await expect(splash.locator('.startup-splash__logo')).toBeVisible();
+  const mark = page.getByRole('status', { name: 'Loading...', exact: true }).locator('.startup-splash__logo');
+  await expect(mark).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(mark).toHaveCSS('animation-name', /nexa-loading-shape/);
+  const positions = await mark.evaluate(element => {
+    const shape = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-shape')!;
+    shape.pause();
+    return [300, 2100, 3900, 5700].map(time => {
+      shape.currentTime = time;
+      return getComputedStyle(element).maskPosition;
+    });
+  });
+  expect(new Set(positions).size).toBe(3);
+  expect(positions[0]).toBe(positions[3]);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(mark).toHaveCSS('animation-name', 'none');
+  await expect(mark).toHaveCSS('mask-position', positions[1]);
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__,
   )).toContain('plugin:window|show');

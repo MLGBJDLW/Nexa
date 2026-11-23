@@ -941,7 +941,7 @@ fn spawn_learned_success_capture(
             }
         };
 
-        match db_bg.get_embedder_config() {
+        match db_bg.runtime_embedder_config() {
             Ok(cfg) => match nexa_core::embed::create_embedder(&cfg) {
                 Ok(embedder) => {
                     if embedder.dimensions() == 0 {
@@ -1192,14 +1192,34 @@ pub async fn save_embedder_config_cmd(
 }
 
 #[tauri::command]
-pub fn test_api_connection_cmd(
+pub async fn test_api_connection_cmd(
+    state: tauri::State<'_, AppState>,
+    connection_id: Option<String>,
     api_key: String,
     base_url: String,
     model: String,
     dimensions: u32,
 ) -> Result<bool, String> {
-    nexa_core::embed::test_api_connection(&api_key, &base_url, &model, dimensions)
-        .map_err(|e| e.to_string())
+    let mut config = EmbedderConfig {
+        provider: "api".into(),
+        connection_id,
+        api_key,
+        api_base_url: base_url,
+        ..Default::default()
+    };
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.resolve_embedder_credential(&mut config)?;
+        nexa_core::embed::test_api_connection(
+            &config.api_key,
+            &config.api_base_url,
+            &model,
+            dimensions,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

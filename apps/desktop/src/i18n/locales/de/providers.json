@@ -13,5 +13,17 @@
   "tagFlagship": "Flaggschiff",
   "tagCode": "Code",
   "tagRecommended": "Empfohlen",
-  "tagVision": "Vision"
+  "tagVision": "Vision",
+  "capabilityTitle": "Funktionen mit {name} verknüpfen?",
+  "capabilityIntro": "Wähle die Funktionen für diese Verbindung. Der Zugriff hängt von Konto und Modell ab. Beim Verknüpfen wird kein Modell aufgerufen.",
+  "capabilityApply": "Auswahl verknüpfen",
+  "capabilitySkip": "Fertig",
+  "capabilityAvailable": "Verwendet bei Auswahl diese Verbindung",
+  "capabilityReplaces": "Ersetzt {name}",
+  "capabilityLinked": "Bereits verknüpft",
+  "capabilityModel": "Modell in den Einstellungen wählen",
+  "capabilityEmbedding": "Wissenseinbettungen",
+  "capabilityVideo": "Videogenerierung",
+  "capabilityReindex": "Ein Modellwechsel kann eine Neuindizierung erfordern.",
+  "capabilityCatalogOnly": "Im Katalog enthalten. Diese App kann bei diesem Anbieter noch keine Aufträge einreichen."
 }
