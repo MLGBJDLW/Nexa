@@ -144,7 +144,7 @@
     "apiStyle": "dashscope_audio_generation",
     "requiresApiKey": true,
     "baseUrl": "",
-    "description": "Text-directed audio generation (China Beijing). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
+    "description": "Text-directed audio generation (Beijing or Singapore). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
     "models": [
       {"id": "qwen-audio-3.1-tts-next", "name": "Qwen Audio 3.1 TTS Next", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 3000}
     ],
