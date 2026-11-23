@@ -115,3 +115,29 @@ test('Riverflow fallback matches its raster editing contract and Gemini keeps de
   assert.equal(gemini.descriptor.lifecycle, 'deprecated');
   assert.equal(gemini.recommended, false);
 });
+
+test('OpenRouter image sunsets preserve exact selections and never point free at paid', () => {
+  const items = JSON.parse(readFileSync(new URL('../../../shared/image-provider-presets.json', import.meta.url), 'utf8'));
+  const catalogs = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
+  const router = catalogs.find(preset => preset.id === 'openrouter-images')!;
+  for (const [id, deadline] of [
+    ['recraft/recraft-v4.1-flash-v2:free', '2026-11-28'],
+    ['openai/gpt-image-1-mini', '2026-12-01'],
+    ['openai/gpt-5-image-mini', '2026-12-01'],
+    ['openai/gpt-5-image', '2026-12-11'],
+    ['openai/gpt-image-2', '2027-02-10'],
+  ]) {
+    const model = router.models.find(row => row.id === id)!;
+    assert.equal(model.descriptor.id, id);
+    assert.equal(model.descriptor.lifecycle, 'deprecated');
+    assert.equal(model.descriptor.deprecationDate, deadline);
+    assert.equal(model.descriptor.replacementModelId, null);
+    assert.equal(model.descriptor.recommended, false);
+  }
+  const free = router.models.find(row => row.id === 'recraft/recraft-v4.1-flash-v2:free')!;
+  const paid = router.models.find(row => row.id === 'recraft/recraft-v4.1-flash-v2')!;
+  assert.deepEqual(free.descriptor.inputModalities, ['text']);
+  assert.deepEqual(free.descriptor.outputModalities, ['image']);
+  assert.equal(paid.descriptor.lifecycle, 'active');
+  assert.equal(paid.descriptor.deprecationDate, null);
+});

@@ -243,6 +243,32 @@ mod tests {
     }
 
     #[test]
+    fn image_refresh_preserves_sunset_metadata_without_rewriting_the_request_route() {
+        for (id, date) in [
+            ("openai/gpt-image-1-mini", "2026-12-01"),
+            ("openai/gpt-5-image-mini", "2026-12-01"),
+            ("openai/gpt-5-image", "2026-12-11"),
+            ("openai/gpt-image-2", "2027-02-10"),
+            ("recraft/recraft-v4.1-flash-v2:free", "2026-11-28"),
+        ] {
+            let models = parse_models(&json!({"data":[{
+                "id": id,
+                "architecture": {"output_modalities": ["image"]},
+                "supported_parameters": {"aspect_ratio": {"values": ["1:1"]}}
+            }]}));
+            assert_eq!(models.len(), 1);
+            let model = &models[0];
+            assert_eq!(model.id, id);
+            assert_eq!(model.metadata["status"], "deprecated");
+            assert_eq!(model.metadata["deprecationDate"], date);
+            assert!(!model.metadata.contains_key("replacementModelId"));
+            assert!(!model.recommended);
+            let selected = generation_body(model, "fixture", Some("1:1"), None, "png").unwrap();
+            assert_eq!(selected["model"], id);
+        }
+    }
+
+    #[test]
     fn image_discovery_filters_unsupported_outputs_and_drives_request_options() {
         let mut source = json!({"id":"vendor/new-image", "name":"New image", "architecture":{"output_modalities":["image"]},"supported_parameters":{"resolution":{"type":"enum","values":["2K"]},"quality":{"type":"enum","values":["high"]}}});
         let models = parse_models(&json!({"data":[source]}));
