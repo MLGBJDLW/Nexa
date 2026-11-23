@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { CapabilityLinkDialog, type CapabilityLinkOption } from '../../desktop/src/components/settings/CapabilityLinkDialog';
 import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
 import { useTranslation } from '../../desktop/src/i18n';
-import { findProviderPreset } from '../../desktop/src/lib/providerPresets';
+import { savedConnectionModelFeatures } from '../../desktop/src/lib/connectionModelFeatures';
 import type { WebSearchExecutionMode, WebSearchProviderMode } from '../../desktop/src/types/conversation';
 import type { PhoneConnection } from './MobileApp';
 import { phoneInputPresets, phoneOutputPresets, selectPhoneSpeechRoute,
@@ -42,17 +42,10 @@ export function PhoneCapabilityLink({ id, name, connections, onDismiss }: {
   </MobileDialog>;
 
   const accountName = (accountId?: string | null) => connections.find(c => c.id === accountId)?.name;
-  const options: CapabilityLinkOption[] = [{ id: 'chat', label: t('remote.chat'), detail: caps.model, linked: true }];
-  const model = findProviderPreset(caps)?.models.find(model => model.id === caps.model || model.descriptor.aliases.includes(caps.model));
-  if (model?.descriptor.capabilities.vision || model?.descriptor.inputModalities.includes('image')) {
-    options.push({ id: 'vision', label: t('providers.tagVision'), detail: t('chat.attachImage'), linked: true });
-  }
-  if (model?.descriptor.capabilities.reasoning) {
-    options.push({ id: 'reasoning', label: t('chat.contextReasoningLabel'), detail: t('providers.capabilityAvailable'), linked: true });
-  }
-  if (model?.descriptor.capabilities.toolCalling) {
-    options.push({ id: 'tools', label: t('chat.contextSegmentTools'), detail: t('providers.capabilityAvailable'), linked: true });
-  }
+  const options: CapabilityLinkOption[] = savedConnectionModelFeatures(caps, 'phone')
+    .filter(feature => feature.id !== 'nativeWebSearch')
+    .map(feature => ({ id: feature.id, label: t(feature.labelKey),
+      detail: feature.detailKey ? t(feature.detailKey) : caps.model, linked: true }));
   if (caps.nativeSearch) options.push({
     id: 'native', label: t('settings.webSearchNativeSupport'), linked: caps.nativeSearchActive, group: 'web',
     detail: caps.nativeSearchActive ? t('providers.capabilityAvailable') : t('providers.capabilityReplaces', { name: t('settings.webSearchExecutionMode.nexaRouter') }),

@@ -147,6 +147,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   // Preserve an in-progress form while background sync updates the library.
   useEffect(() => {
     if (open) {
+      setSavedKey(null);
       loadRecord(state.connections?.find(record => record.id === state.activeConnectionId));
       setEditingConnection(null); setExpanded({}); setSearchCollapsed({}); setSearch(''); setTab('general');
     }

@@ -39,45 +39,55 @@ fn retry() -> Value {
     json!({"status":"error","nextWakeAt":(chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()})
 }
 
+#[derive(Clone)]
 struct WorkerAccounts {
-    vm: JavaVM,
+    vm: Arc<JavaVM>,
     store: GlobalRef,
 }
 
 impl WorkerAccounts {
     fn read_account(&self, id: &str) -> Option<SharedModelConnection> {
         let mut env = self.vm.attach_current_thread().ok()?;
-        let id = env.new_string(id).ok()?;
-        let record = match env.call_method(
-            self.store.as_obj(),
-            "readConnection",
-            "(Ljava/lang/String;)Ljava/lang/String;",
-            &[JValue::Object(&id)],
-        ) {
-            Ok(result) => result.l().ok()?,
-            Err(_) => {
-                let _ = env.exception_clear();
-                return None;
+        let lookup = env.with_local_frame(4, |env| -> jni::errors::Result<_> {
+            let id = env.new_string(id)?;
+            let record = env
+                .call_method(
+                    self.store.as_obj(),
+                    "readConnection",
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[JValue::Object(&id)],
+                )?
+                .l()?;
+            if record.is_null() {
+                return Ok(None);
             }
-        };
-        if record.is_null() {
-            return None;
-        }
-        let raw = string(&mut env, &JString::from(record))?;
-        serde_json::from_str(&raw).ok()
+            let raw: String = env.get_string(&JString::from(record))?.into();
+            Ok(serde_json::from_str(&raw).ok())
+        });
+        lookup.unwrap_or_else(|_| {
+            let _ = env.exception_clear();
+            None
+        })
     }
 }
 
 #[async_trait::async_trait]
 impl nexa_core::web_search::providers::deepseek::AccountKeys for WorkerAccounts {
     async fn deepseek_key(&self, id: &str) -> Option<String> {
-        let source = self.read_account(id)?;
-        (source.id == id
-            && nexa_core::web_search::providers::deepseek::supports_connection(
-                &source.provider,
-                source.base_url.as_deref(),
-            ))
-        .then_some(source.api_key)
+        let accounts = self.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let source = accounts.read_account(&id)?;
+            (source.id == id
+                && nexa_core::web_search::providers::deepseek::supports_connection(
+                    &source.provider,
+                    source.base_url.as_deref(),
+                ))
+            .then_some(source.api_key)
+        })
+        .await
+        .ok()
+        .flatten()
     }
 }
 
@@ -146,7 +156,7 @@ pub extern "system" fn Java_com_nexa_mobile_PhoneScheduleBridge_tick(
         let key = string(&mut env, &key)?;
         let connection = string(&mut env, &connection)?;
         let web_keys = WorkerAccounts {
-            vm: env.get_java_vm().ok()?,
+            vm: Arc::new(env.get_java_vm().ok()?),
             store: env.new_global_ref(secrets).ok()?,
         };
         let cancel = worker(&id);

@@ -4,7 +4,7 @@ use crate::app_settings::{
     WebSearchConfig, WebSearchCustomProviderConfig, WebSearchCustomProviderPreset,
     WebSearchProviderMode,
 };
-use crate::llm::{native_search::SearchExecutionMode, ProviderType};
+use crate::llm::native_search::SearchExecutionMode;
 use crate::web_search::{SearchEngine, SearchProviderFailure, SearchRequest, SearchResultItem};
 use futures::StreamExt;
 use serde_json::{json, Value};
@@ -15,31 +15,10 @@ use std::time::Duration;
 /// Compatible chat protocols may share the official account, but a proxy or
 /// an unrelated provider's implicit endpoint never qualifies.
 pub fn supports_connection(provider: &str, base: Option<&str>) -> bool {
-    let kind = crate::provider_registry::provider_type_from_key(provider);
-    let Some(base) = base.filter(|s| !s.trim().is_empty()) else {
-        return kind == Some(ProviderType::DeepSeek);
-    };
-    matches!(
-        kind,
-        Some(
-            ProviderType::DeepSeek
-                | ProviderType::OpenAi
-                | ProviderType::Anthropic
-                | ProviderType::Custom
-        )
-    ) && official_origin(base)
-}
-
-fn official_origin(base: &str) -> bool {
-    reqwest::Url::parse(base).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str() == Some("api.deepseek.com")
-            && url.port_or_known_default() == Some(443)
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.query().is_none()
-            && url.fragment().is_none()
-    })
+    crate::provider_registry::provider_type_from_key(provider).is_some()
+        && !crate::external_agent::is_agent_runtime(provider)
+        && !matches!(provider, "bedrock" | "vertex" | "github_copilot_api")
+        && crate::provider_credentials::scope(provider, base).as_deref() == Some("deepseek")
 }
 
 pub fn bind_connection(config: &mut WebSearchConfig, id: &str) {
@@ -83,10 +62,7 @@ pub async fn resolve_bound_keys(
         let Some(id) = &p.connection_id else { continue };
         p.api_key.clear();
         if p.preset != WebSearchCustomProviderPreset::Deepseek
-            || !p
-                .effective_base_url()
-                .as_deref()
-                .is_some_and(official_origin)
+            || p.effective_base_url() != p.preset.default_base_url()
         {
             continue;
         }
