@@ -1,6 +1,12 @@
 //! Resolve public skill packages without borrowing an unrelated asset tool.
 
-use std::{collections::HashMap, fs, io::Cursor, path::PathBuf, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::Cursor,
+    path::PathBuf,
+    time::Duration,
+};
 
 use super::{fetch_url_tool, path_utils, ToolExecutionContext};
 use crate::{
@@ -268,13 +274,49 @@ pub(super) fn validate_sources(
     Ok(())
 }
 
-fn filter_github_archive(bytes: &[u8], directory: &str) -> Result<Vec<u8>, CoreError> {
+fn filter_github_archive(
+    bytes: &[u8],
+    directory: &str,
+    names: &[String],
+) -> Result<Vec<u8>, CoreError> {
     let mut source = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| invalid(format!("Invalid GitHub archive: {error}")))?;
     if source.len() > 100_000 {
         return Err(invalid(
             "GitHub archive exceeds 100,000 entries; use a local checkout of the skill directory",
         ));
+    }
+    // Narrow a named install before parsing resources. Large repositories can
+    // contain unrelated skills, symlinks and files outside the package limits.
+    let mut roots = HashSet::new();
+    if !names.is_empty() {
+        let requested: HashSet<_> = names.iter().map(String::as_str).collect();
+        let mut matched = HashSet::new();
+        let mut root_skill = false;
+        for entry in source.file_names() {
+            let entry = entry.map_err(|error| invalid(error.to_string()))?;
+            let Some((_, relative)) = entry.split_once('/') else {
+                continue;
+            };
+            if relative == "SKILL.md" {
+                root_skill = true;
+            }
+            if let Some(dir) = relative.strip_suffix("/SKILL.md") {
+                let name = dir.rsplit('/').next().unwrap_or(dir);
+                if requested.contains(name) {
+                    matched.insert(name.to_owned());
+                    roots.insert(dir.to_owned());
+                }
+            }
+        }
+        if matched.len() != requested.len() {
+            if root_skill {
+                // A repository-root bundle declares its name in frontmatter.
+                roots.clear();
+            } else {
+                return Err(invalid("A requested skill was not found in the repository"));
+            }
+        }
     }
     let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let mut found = false;
@@ -295,7 +337,12 @@ fn filter_github_archive(bytes: &[u8], directory: &str) -> Result<Vec<u8>, CoreE
         if entry.is_dir() || relative.is_empty() {
             continue;
         }
-        if directory.is_empty() || relative.starts_with(&format!("{directory}/")) {
+        let selected = roots.is_empty()
+            || std::path::Path::new(relative)
+                .ancestors()
+                .filter_map(std::path::Path::to_str)
+                .any(|dir| roots.contains(dir));
+        if selected && (directory.is_empty() || relative.starts_with(&format!("{directory}/"))) {
             output
                 .raw_copy_file_rename(entry, relative)
                 .map_err(|error| invalid(error.to_string()))?;
@@ -352,11 +399,12 @@ async fn download(spec: &DownloadSpec) -> Result<Vec<u8>, CoreError> {
 fn persist_download(
     bytes: &[u8],
     spec: &DownloadSpec,
+    names: &[String],
     base: PathBuf,
 ) -> Result<PathBuf, CoreError> {
     if let Some(directory) = &spec.github_directory {
         let path = base.with_extension("zip");
-        fs::write(&path, filter_github_archive(bytes, directory)?)?;
+        fs::write(&path, filter_github_archive(bytes, directory, names)?)?;
         return Ok(path);
     }
     let (extension, body) = if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")
@@ -401,11 +449,12 @@ pub(super) async fn prepare(
         }
         crate::privacy::runtime::ensure_invocation_current()?;
         let remote = remote_source(source, github_ref)?;
-        let path = if let Some((spec, _)) = &remote {
+        let path = if let Some((spec, names)) = &remote {
             let bytes = download(spec).await?;
             persist_download(
                 &bytes,
                 spec,
+                names,
                 result._temporary.path().join(format!("source-{index}")),
             )?
         } else {
@@ -586,17 +635,29 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let spec =
             download_spec("https://github.com/acme/repo/tree/main/skills/demo", None).unwrap();
-        let path = persist_download(&bytes, &spec, temp.path().join("download")).unwrap();
+        let path = persist_download(&bytes, &spec, &[], temp.path().join("download")).unwrap();
         let previews = crate::skills::inspect_skill_install_source(&path).unwrap();
         assert_eq!(previews.len(), 1);
         assert_eq!(previews[0].name, "demo");
         assert_eq!(previews[0].resources[0].path, "templates/report.md");
+        let (repo, names) = remote_source("npx skills add acme/repo@demo", None)
+            .unwrap()
+            .unwrap();
+        let selected =
+            persist_download(&bytes, &repo, &names, temp.path().join("selected")).unwrap();
+        assert_eq!(
+            crate::skills::inspect_skill_install_source(&selected)
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(persist_download(
             b"<html>Sign in</html>",
             &DownloadSpec {
                 url: reqwest::Url::parse("https://example.com/skill.md").unwrap(),
                 github_directory: None
             },
+            &[],
             temp.path().join("html")
         )
         .is_err());
