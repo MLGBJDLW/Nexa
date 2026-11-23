@@ -1,3 +1,4 @@
+import { ProviderCapabilityPrompt } from '../../components/settings/ProviderCapabilityPrompt';
 import { useReducedMotionPreference as useReducedMotion } from '../../lib/uiMotion';
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -375,6 +376,7 @@ export function SettingsPage() {
         config.apiBaseUrl,
         config.apiModel,
         config.vectorDimensions,
+        config.connectionId,
       );
       if (ok) {
         toast.success(t('settings.embeddingTestSuccess'));
@@ -1486,6 +1488,7 @@ export function SettingsPage() {
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   const [providerView, setProviderView] = useState<ProviderView>('list');
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
+  const [linkSource, setLinkSource] = useState<AgentConfig | null>(null);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
   const [agentSaveLoading, setAgentSaveLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AgentConfig | null>(null);
@@ -1515,7 +1518,12 @@ export function SettingsPage() {
     setAgentSaveLoading(true);
     try {
       if (launch) await saveExternalAgentProfile(input, launch);
-      else await api.saveAgentConfig(input);
+      else {
+        const saved = await api.saveAgentConfig(input);
+        const credentialsChanged = input.apiKey.trim() !== editingConfig?.apiKey.trim()
+          || input.provider !== editingConfig?.provider || input.baseUrl !== editingConfig?.baseUrl;
+        if (saved?.id && input.apiKey.trim() && credentialsChanged) setLinkSource(saved);
+      }
       toast.success(t('settings.providerSaved'));
       setProviderFormDirty(false);
       setProviderView('list');
@@ -1573,6 +1581,14 @@ export function SettingsPage() {
       className="settings-page mx-auto w-full max-w-5xl space-y-4 p-3 sm:p-5"
       data-testid="settings-page"
     >
+      {linkSource && <ProviderCapabilityPrompt source={linkSource} onDismiss={() => setLinkSource(null)}
+        onLinked={({ embedding, deepSeekSearch, nativeSearch, ...appChanges }) => {
+          if (embedding) setEmbedConfig(embedding);
+          setAppConfig(current => current && { ...current, ...appChanges });
+          if (deepSeekSearch || nativeSearch) void api.getAppConfig().then(({ webSearch }) => {
+            setAppConfig(current => current && { ...current, webSearch });
+          }).catch(() => setAppConfigReadFailed(true));
+        }} />}
       {/* Header */}
       <motion.div
         initial={reduceMotion ? false : { opacity: 0, y: -8 }}

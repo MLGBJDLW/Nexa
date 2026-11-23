@@ -2,6 +2,7 @@ import credentialScopes from '../../../../shared/provider-credential-scopes.json
 import { alibabaWorkspaceRegion, normalizeModelEndpointUrl } from './modelCatalog';
 
 export interface ProviderCredentialConfig {
+  id?: string;
   provider: string;
   baseUrl?: string | null;
   apiKey: string;
@@ -132,4 +133,18 @@ export function findSharedProviderCredential<T extends ProviderCredentialConfig>
     return providerCredentialScope(config.provider, config.baseUrl) === targetScope;
   });
   return candidates.find((config) => config.isDefault) ?? candidates[0] ?? null;
+}
+
+/** A saved binding names one account. Re-check its route after key rotation or endpoint edits. */
+export function featureCredential<T extends ProviderCredentialConfig>(configs: T[], feature: CredentialFeature,
+  presets: CredentialFeaturePreset[], provider: string, baseUrl: string | null | undefined, connectionId?: string | null): T | null {
+  if (!connectionId) return findSharedProviderCredential(configs, provider, baseUrl);
+  const source = configs.find(config => config.id === connectionId);
+  if (!source?.apiKey.trim() || !baseUrl?.trim()) return null;
+  const url = endpointUrl(baseUrl);
+  if (!url || !cleanCredentialUrl(url)) return null;
+  return presets.some(preset => {
+    const target = credentialFeatureEndpoint(source, feature, preset);
+    return target && normalizedUrl(target) === normalizedUrl(baseUrl);
+  }) ? source : null;
 }

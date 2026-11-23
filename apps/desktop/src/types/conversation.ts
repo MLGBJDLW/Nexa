@@ -662,6 +662,7 @@ export interface AppConfig {
 }
 
 export interface SystemOneConfig {
+  connectionId?: string | null;
   enabled: boolean;
   provider: string;
   apiKey: string;
@@ -795,6 +796,7 @@ export interface WebSearchProviderStatus {
 }
 
 export interface ImageGenerationConfig {
+  connectionId?: string | null;
   source?: 'auto' | 'subscription' | 'apiKey';
   provider: string;
   apiStyle: string;
@@ -807,6 +809,7 @@ export interface ImageGenerationConfig {
 }
 
 export interface TextToSpeechConfig {
+  connectionId?: string | null;
   provider: string;
   apiStyle: string;
   apiKey: string;
@@ -826,6 +829,7 @@ export interface TextToSpeechConfig {
 }
 
 export interface SpeechToTextConfig {
+  connectionId?: string | null;
   provider: string;
   apiStyle: 'local_whisper' | 'openai_transcription' | 'sherpa_onnx' | string;
   apiKey: string;

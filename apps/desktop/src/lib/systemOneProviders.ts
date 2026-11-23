@@ -1,7 +1,7 @@
 import catalog from '../../../../shared/system-one-provider-presets.json';
 import type { SystemOneConfig } from '../types/conversation';
 import { alibabaWorkspaceRegion, normalizeModelEndpointUrl } from './modelCatalog';
-import { findSharedProviderCredential, type ProviderCredentialConfig } from './providerCredentials';
+import { featureCredential, type ProviderCredentialConfig } from './providerCredentials';
 
 export const SYSTEM_ONE_PROVIDERS = catalog;
 export const DEFAULT_SYSTEM_ONE_CONFIG: SystemOneConfig = {
@@ -41,12 +41,12 @@ export function changeSystemOneProvider(config: SystemOneConfig, provider: strin
     ? connections.filter(source => source.apiKey.trim() && alibabaWorkspaceRegion(source.baseUrl ?? '') === workspaceRegions[preset.id]) : [];
   const workspace = workspaces.find(source => source.isDefault)
     ?? (new Set(workspaces.map(source => normalizeModelEndpointUrl(source.baseUrl))).size === 1 ? workspaces[0] : null);
-  return { ...config, provider: preset.id, model: model?.id ?? '', baseUrl: preset.baseUrl || workspace?.baseUrl || null, apiKey: '' };
+  return { ...config, provider: preset.id, connectionId: null, model: model?.id ?? '', baseUrl: preset.baseUrl || workspace?.baseUrl || null, apiKey: '' };
 }
 
 export function systemOneCredential(config: SystemOneConfig, connections: ProviderCredentialConfig[]) {
   const endpoint = systemOneBaseUrl(config);
-  return endpoint ? findSharedProviderCredential(connections, config.provider, endpoint) : null;
+  return endpoint ? featureCredential(connections, 'systemOne', catalog.filter(p => p.id === config.provider), config.provider, endpoint, config.connectionId) : null;
 }
 
 export function systemOneConfigured(config: SystemOneConfig, inheritedKey: boolean): boolean {

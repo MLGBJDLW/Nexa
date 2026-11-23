@@ -9,8 +9,10 @@ import { useTranslation } from '../../i18n';
 import { PROVIDER_PRESETS, type ProviderPreset } from '../../lib/providerPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
 import * as api from '../../lib/api';
-import type { SaveAgentConfigInput } from '../../types/conversation';
+import { ProviderCapabilityPrompt } from '../settings/ProviderCapabilityPrompt';
+import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import type { ConnectionTestResult } from './useWizardState';
+import { saveProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { resolveExplicitModelSelection } from '../../lib/modelCatalog';
 import { CatalogModelPicker } from '../settings/CatalogModelPicker';
 
@@ -50,6 +52,7 @@ export function Step3Provider({
 }: Step3ProviderProps) {
   const { t } = useTranslation();
   const [showApiKey, setShowApiKey] = useState(false);
+  const [linkSource, setLinkSource] = useState<AgentConfig | null>(null);
   const [testing, setTesting] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('');
 
@@ -91,7 +94,9 @@ export function Step3Provider({
       };
       const catalog = await api.testAgentConnection(config);
       if (catalog.models.length > 0) {
-        await api.saveAgentConfig(config);
+        const saved = await api.saveAgentConfig(config);
+        saveProviderModelCatalog(catalog, config.apiKey);
+        if (saved?.id && config.apiKey.trim()) setLinkSource(saved);
         onTestResult('success', true);
         toast.success(t('wizard.connectionSuccess'));
       } else {
@@ -119,6 +124,7 @@ export function Step3Provider({
       transition={{ duration: 0.2 }}
       className="flex flex-col items-center text-center"
     >
+      {linkSource && <ProviderCapabilityPrompt source={linkSource} onDismiss={() => setLinkSource(null)} />}
       <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-6">
         <Brain size={28} className="text-accent" />
       </div>

@@ -32,7 +32,8 @@ export function CapabilityLinkDialog({ providerName, options, onApply, onDismiss
       : [...current.filter(id => !option.group || !options.some(other => other.id === id && other.group === option.group)), option.id]);
   }
   function selectAll() {
-    const groups = new Set<string>();
+    const groups = new Set(options.filter(option => option.linked && option.group
+      && !available.some(other => other.group === option.group && selected.includes(other.id))).map(option => option.group));
     const result: string[] = [];
     // Keep a previously chosen alternative for each single-provider setting.
     for (const option of [...available.filter(row => selected.includes(row.id)), ...available]) {
@@ -72,7 +73,7 @@ export function CapabilityLinkDialog({ providerName, options, onApply, onDismiss
     <ul className="divide-y divide-border">
       {options.map(option => <li key={option.id}>
         <label className="flex items-start gap-3 py-2.5">
-          <input type="checkbox" className="mt-1 accent-accent" checked={!!option.linked || selected.includes(option.id)}
+          <input type="checkbox" className="mt-1 accent-accent" checked={selected.includes(option.id) || (!!option.linked && !available.some(other => option.group && other.group === option.group && selected.includes(other.id)))}
             disabled={busy || option.disabled || option.linked} onChange={() => toggle(option)} />
           <span className="min-w-0"><span className="block text-sm font-medium">{option.label}</span>
             {option.detail && <span className="block break-words text-xs text-text-secondary">{option.detail}</span>}</span>
