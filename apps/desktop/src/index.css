@@ -1270,8 +1270,10 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 .markdown-draft-editor .draft-link { color: var(--color-accent); text-decoration: underline; }
 .markdown-draft-editor .draft-quote { color: var(--color-text-secondary); }
 .markdown-draft-editor :is(.draft-delimiter, .draft-destination) { font-size: 0; }
-.markdown-draft-editor .cm-focused .cm-activeLine :is(.draft-delimiter, .draft-destination) {
-  font-size: inherit; color: var(--color-text-tertiary);
+.markdown-draft-editor .draft-reveal:is(.draft-delimiter, .draft-destination),
+.markdown-draft-editor .draft-reveal :is(.draft-delimiter, .draft-destination),
+.markdown-draft-editor :is(.draft-delimiter, .draft-destination) .draft-reveal {
+  font-size: 1rem; color: var(--color-text-tertiary);
 }
 .user-markdown { line-height: 1.5rem; }
 .user-markdown p { white-space: pre-wrap; margin-block: 0.5em; }

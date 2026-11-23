@@ -36,6 +36,14 @@ test('live Markdown and local slash commands keep original text and never send a
   await expect(input.locator('.draft-strong').filter({hasText: '中文输入'})).toContainText('中文输入');
   await expectDraft(input, source);
   await expect(input).toBeFocused();
+  await input.fill('');
+  await input.pressSequentially('**bold**');
+  await expect(input.locator('.draft-strong').filter({hasText: 'bold'})).toHaveCSS('font-weight', '700');
+  await expect(input.locator('.draft-delimiter').last()).toHaveCSS('font-size', '0px');
+  await input.press('ArrowLeft');
+  await input.press('ArrowLeft');
+  await page.keyboard.insertText('er');
+  await expectDraft(input, '**bolder**');
   await input.fill('Setext heading\n=============');
   await expect(input.locator('.draft-heading').filter({hasText: /Draft|Setext heading/})).toContainText('Setext heading');
   await input.fill('https://example.invalid/guide');

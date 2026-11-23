@@ -1,8 +1,8 @@
 import { useCallback, useImperativeHandle, useLayoutEffect, useRef, type Ref, type HTMLAttributes } from 'react';
 import { EditorState, Compartment } from '@codemirror/state';
-import { EditorView, highlightActiveLine, keymap } from '@codemirror/view';
+import { Decoration, EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap, insertNewline } from '@codemirror/commands';
 import { styleTags, Tag, tags } from '@lezer/highlight';
 
@@ -26,8 +26,25 @@ const markdownStyle = HighlightStyle.define([
   { tag: delimiter, class: 'draft-delimiter' },
   { tag: linkDestination, class: 'draft-destination' },
 ]);
+// Keep completed markup rendered while typing. Expose the original syntax
+// when the caret moves into a delimiter or link destination to edit it.
+function cursorMarkup(view: EditorView) {
+  const selection = view.state.selection.main;
+  if (!view.hasFocus || !selection.empty) return Decoration.none;
+  const token = syntaxTree(view.state).resolveInner(selection.head, 1);
+  if (!/^(HeaderMark|EmphasisMark|StrikethroughMark|CodeMark|LinkMark|URL|LinkTitle)$/.test(token.name)) return Decoration.none;
+  return Decoration.set([Decoration.mark({ class: 'draft-reveal' }).range(token.from, token.to)]);
+}
+const editableMarkup = ViewPlugin.fromClass(class {
+  decorations;
+  constructor(view: EditorView) { this.decorations = cursorMarkup(view); }
+  update(update: ViewUpdate) {
+    if (update.docChanged || update.selectionSet || update.focusChanged ||
+        syntaxTree(update.startState) !== syntaxTree(update.state)) this.decorations = cursorMarkup(update.view);
+  }
+}, { decorations: plugin => plugin.decorations });
 const format = [draftMarkdown, syntaxHighlighting(markdownStyle), EditorView.lineWrapping,
-  highlightActiveLine(), history(), keymap.of([{ key: 'Shift-Enter', run: insertNewline }, ...historyKeymap, ...defaultKeymap])];
+  editableMarkup, history(), keymap.of([{ key: 'Shift-Enter', run: insertNewline }, ...historyKeymap, ...defaultKeymap])];
 
 export interface DraftEditorHandle {
   focus(): void;
