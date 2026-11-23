@@ -17,6 +17,8 @@ import { resolveExplicitModelSelection } from '../../lib/modelCatalog';
 import { CatalogModelPicker } from '../settings/CatalogModelPicker';
 
 interface Step3ProviderProps {
+  savedAccount: AgentConfig | null;
+  onSavedAccount: (account: AgentConfig) => void;
   onNext: () => void;
   onPrev: () => void;
   onSkip: () => void;
@@ -39,6 +41,8 @@ const WIZARD_PROVIDER_IDS = ['openai', 'anthropic', 'google', 'ollama'] as const
  * the config persisted here is immediately available on the Settings page.
  */
 export function Step3Provider({
+  savedAccount,
+  onSavedAccount,
   onNext,
   onPrev,
   onSkip,
@@ -70,8 +74,10 @@ export function Step3Provider({
     try {
       const selectedModel = resolveExplicitModelSelection(selectedPreset.models, selectedModelId);
       if (!selectedModel) return;
+      const previous = savedAccount?.provider === selectedPreset.provider && savedAccount.baseUrl === selectedPreset.baseUrl
+        ? savedAccount : null;
       const config: SaveAgentConfigInput = {
-        id: null,
+        id: previous?.id ?? null,
         name: selectedPreset.name,
         provider: selectedPreset.provider,
         apiKey: apiKey.trim(),
@@ -96,7 +102,10 @@ export function Step3Provider({
       if (catalog.models.length > 0) {
         const saved = await api.saveAgentConfig(config);
         saveProviderModelCatalog(catalog, config.apiKey);
-        if (saved?.id && config.apiKey.trim()) setLinkSource(saved);
+        if (saved?.id) {
+          onSavedAccount(saved);
+          if (config.apiKey.trim() && previous?.apiKey !== config.apiKey) setLinkSource(saved);
+        }
         onTestResult('success', true);
         toast.success(t('wizard.connectionSuccess'));
       } else {
@@ -109,7 +118,7 @@ export function Step3Provider({
     } finally {
       setTesting(false);
     }
-  }, [selectedPreset, selectedModelId, apiKey, onTestResult, t]);
+  }, [selectedPreset, selectedModelId, apiKey, savedAccount, onSavedAccount, onTestResult, t]);
 
   const needsKey = selectedPreset?.requiresApiKey ?? false;
   const canTest = Boolean(selectedPreset && selectedModelId)

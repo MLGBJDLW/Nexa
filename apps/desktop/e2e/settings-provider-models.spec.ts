@@ -1585,7 +1585,10 @@ test('setup offers matching features after saving and can continue without linki
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
     host.invoke = async (command: string, args: any) => {
-      if (command === 'save_agent_config_cmd') return { ...args.config, id: 'wizard-account' };
+      if (command === 'save_agent_config_cmd') {
+        ((window as any).__wizardSaveIds ??= []).push(args.config.id);
+        return { ...args.config, id: 'wizard-account' };
+      }
       if (command === 'link_provider_capabilities_cmd') (window as any).__unexpectedWizardLink = true;
       return original(command, args);
     };
@@ -1600,6 +1603,9 @@ test('setup offers matching features after saving and can continue without linki
   const dialog = page.getByRole('dialog', { name: /Link features/ });
   await expect(dialog.getByRole('checkbox', { name: /Text to Speech/ }).first()).toBeVisible();
   await dialog.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Connection successful' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__wizardSaveIds)).toEqual([null, 'wizard-account']);
+  await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Add your first knowledge folder' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__unexpectedWizardLink)).toBeUndefined();
