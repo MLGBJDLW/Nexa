@@ -109,6 +109,13 @@ overdeep packages explicitly; the importer never silently drops their tails.
 
 ## Import and installation
 
+Paste a public GitHub install command into chat and ask Nexa to install it. For example,
+`Install this skill: npx skills add vercel-labs/skills --skill find-skills`.
+The built-in **Install Skills** workflow also accepts `owner/repo@skill` in this command,
+a skills.sh listing, or a local directory created by the CLI such as
+`.agents/skills/find-skills`. Nexa inspects the selected bundle, verifies its digest,
+and adds it to the user's library. A Node.js installation is optional.
+
 Skills settings accepts multiple Markdown files, packages, or directories in a
 single picker selection. ZIP/`.skill` collections can contain multiple skill
 directories. The preview lets the user select individual skills, inspect their
