@@ -88,6 +88,35 @@ fn native_live_protocols_keep_credentials_and_modalities_scoped() {
         .unwrap()
         .headers()
         .contains_key("Authorization"));
+    let workspace = "https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1";
+    let socket = "wss://workspace.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime";
+    assert_eq!(
+        qwen_live_destination(Some(workspace), None).unwrap(),
+        socket
+    );
+    assert!(qwen_live_destination(
+        Some(workspace),
+        Some(&socket.replace("workspace.", "other."))
+    )
+    .is_err());
+    assert!(qwen_live_destination(
+        Some(workspace),
+        Some(&socket.replace("ap-southeast-1", "cn-beijing"))
+    )
+    .is_err());
+    assert_eq!(
+        qwen_live_destination(
+            Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            None
+        )
+        .unwrap(),
+        "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
+    );
+    assert!(qwen_live_destination(
+        Some("https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"),
+        None
+    )
+    .is_err());
     for url in [
         "wss://evil.cn-beijing.maas.aliyuncs.com.attacker.test/api-ws/v1/realtime",
         "ws://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",

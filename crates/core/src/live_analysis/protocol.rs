@@ -29,7 +29,11 @@ impl NativeLiveProtocol {
         if is_google_public_endpoint(provider, base_url) {
             result.push(Self::GeminiLive);
         }
-        if provider == crate::llm::ProviderType::Qwen {
+        if matches!(
+            provider,
+            crate::llm::ProviderType::Qwen | crate::llm::ProviderType::AlibabaModelStudio
+        ) && qwen_connection_socket(base_url).is_some()
+        {
             result.push(Self::QwenRealtime);
         }
         result
@@ -64,7 +68,16 @@ impl NativeLiveConfig {
         }
         let mut url = match self.protocol {
             NativeLiveProtocol::QwenRealtime => {
-                qwen_endpoint(self.base_url.as_deref().unwrap_or_default())?
+                let url = qwen_endpoint(self.base_url.as_deref().unwrap_or_default())?;
+                if self.model.starts_with("qwen3.8-omni-")
+                    && matches!(
+                        url.host_str(),
+                        Some("dashscope.aliyuncs.com" | "dashscope-intl.aliyuncs.com")
+                    )
+                {
+                    return Err("Qwen3.8 Omni Realtime requires a workspace-specific Model Studio connection".into());
+                }
+                url
             }
             NativeLiveProtocol::OpenAiRealtime => {
                 if !crate::llm::provider_boundary::is_openai_public_endpoint(
@@ -145,36 +158,60 @@ impl NativeLiveConfig {
 
 /// A workspace-scoped endpoint must be entered explicitly. Never send a saved
 /// credential to a host inferred from a model's name or an arbitrary URL.
-pub fn qwen_endpoint(value: &str) -> Result<url::Url, String> {
-    let url = url::Url::parse(value)
-        .map_err(|_| "Enter the Qwen workspace WebSocket endpoint from Model Studio")?;
-    let host = url.host_str().unwrap_or_default();
-    let trusted = [
-        ".cn-beijing.maas.aliyuncs.com",
-        ".ap-southeast-1.maas.aliyuncs.com",
-    ]
-    .iter()
-    .any(|suffix| {
-        host.strip_suffix(suffix).is_some_and(|workspace| {
-            !workspace.is_empty()
-                && workspace
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        })
-    });
-    if !trusted
-        || url.scheme() != "wss"
-        || url.port().is_some_and(|p| p != 443)
-        || url.path() != "/api-ws/v1/realtime"
+const QWEN_REALTIME_PATH: &str = "/api-ws/v1/realtime";
+
+fn qwen_connection_socket(base_url: Option<&str>) -> Option<url::Url> {
+    let base = base_url
+        .map(str::trim)
+        .filter(|base| !base.is_empty())
+        .unwrap_or("https://dashscope.aliyuncs.com/compatible-mode/v1");
+    let mut url = url::Url::parse(base).ok()?;
+    let workspace = crate::provider_catalog::alibaba_workspace_region(base);
+    let regional = matches!(
+        url.host_str(),
+        Some("dashscope.aliyuncs.com" | "dashscope-intl.aliyuncs.com")
+    );
+    if !(regional || matches!(workspace, Some("cn-beijing" | "ap-southeast-1")))
+        || url.scheme() != "https"
         || !url.username().is_empty()
         || url.password().is_some()
+        || url.port().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
+        || url.path().trim_end_matches('/') != "/compatible-mode/v1"
     {
-        return Err(
-            "Use the exact Beijing or Singapore workspace WSS endpoint without query parameters"
-                .into(),
-        );
+        return None;
+    }
+    url.set_scheme("wss").ok()?;
+    url.set_path(QWEN_REALTIME_PATH);
+    Some(url)
+}
+
+/// Keep the live handshake on the authority that owns this saved credential.
+pub fn qwen_live_destination(
+    base_url: Option<&str>,
+    requested: Option<&str>,
+) -> Result<String, String> {
+    let expected = qwen_connection_socket(base_url)
+        .ok_or("Select a Beijing or Singapore Model Studio connection for Qwen Live")?;
+    if let Some(requested) = requested.map(str::trim).filter(|value| !value.is_empty()) {
+        if url::Url::parse(requested).ok().as_ref() != Some(&expected) {
+            return Err(
+                "Qwen Live must use the workspace and region of the selected connection".into(),
+            );
+        }
+    }
+    Ok(expected.into())
+}
+
+pub fn qwen_endpoint(value: &str) -> Result<url::Url, String> {
+    let url = url::Url::parse(value).map_err(|_| "Invalid Qwen Live WebSocket URL")?;
+    let mut chat = url.clone();
+    chat.set_scheme("https")
+        .map_err(|_| "Invalid Qwen Live scheme")?;
+    chat.set_path("/compatible-mode/v1");
+    if qwen_connection_socket(Some(chat.as_str())).as_ref() != Some(&url) {
+        return Err("Use the exact Beijing or Singapore Model Studio WebSocket endpoint".into());
     }
     Ok(url)
 }
