@@ -914,6 +914,7 @@ pub trait Tool: Send + Sync {
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
+    web_account_keys: Option<Arc<dyn crate::web_search::providers::deepseek::AccountKeys>>,
     file_change_owner: Option<crate::turn_file_changes::FileChangeOwner>,
     workspace: Option<crate::workspace::Workspace>,
     workspace_rules: Arc<crate::workspace_rules::WorkspaceRuleState>,
@@ -927,6 +928,14 @@ fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefi
 const RESIDENT_DISCOVERY_TOOL_NAMES: &[&str] = &["tool_search"];
 
 impl ToolRegistry {
+    pub fn with_web_account_keys(
+        mut self,
+        keys: Arc<dyn crate::web_search::providers::deepseek::AccountKeys>,
+    ) -> Self {
+        self.web_account_keys = Some(keys);
+        self
+    }
+
     pub fn with_workspace(mut self, workspace: Option<crate::workspace::Workspace>) -> Self {
         self.workspace = workspace;
         self
@@ -1058,6 +1067,7 @@ impl ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
             workspace_rules: Arc::clone(&self.workspace_rules),
+            web_account_keys: self.web_account_keys.clone(),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -1102,6 +1112,7 @@ impl ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
             workspace_rules: Arc::clone(&self.workspace_rules),
+            web_account_keys: self.web_account_keys.clone(),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -1125,6 +1136,7 @@ impl ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
             workspace_rules: Arc::clone(&self.workspace_rules),
+            web_account_keys: self.web_account_keys.clone(),
             ..ToolRegistry::new()
         };
         let empty_args = serde_json::json!({});

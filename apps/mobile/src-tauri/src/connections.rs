@@ -108,6 +108,7 @@ pub async fn public_state(app: &AppHandle) -> Result<Value, String> {
     Ok(
         json!({"settings":active.map(settings),"activeConnectionId":store.active_id,
         "connections":records.into_iter().map(|record|json!({"id":record.id,"name":record.name,"provider":record.provider,"model":record.model,"baseUrl":record.base_url,
+            "supportsDeepseekSearch":nexa_core::web_search::providers::deepseek::supports_connection(&record.provider,record.base_url.as_deref()) && !record.api_key.trim().is_empty(),
             "defaultSelection":nexa_core::conversation::TurnModelSelection::from(record)})).collect::<Vec<_>>(),
         "connectionSync":store.sync}),
     )
@@ -169,7 +170,7 @@ pub async fn save_settings(
     api_key: String,
     name: Option<String>,
     create_new: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
     if input.model.trim().is_empty() {
         return Err("Enter a model ID.".into());
     }
@@ -234,7 +235,7 @@ pub async fn save_settings(
     store.ignored_ids.remove(&id);
     save(app, &store).await?;
     let _ = app.emit("mobile:connections", json!({"changed":true}));
-    Ok(())
+    Ok(id)
 }
 
 pub async fn select(app: &AppHandle, id: &str) -> Result<(), String> {

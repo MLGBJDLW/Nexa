@@ -527,6 +527,8 @@ impl WebSearchCustomProviderPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSearchCustomProviderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     pub id: String,
     pub preset: WebSearchCustomProviderPreset,
     pub name: String,
@@ -575,6 +577,7 @@ fn default_web_search_custom_providers() -> Vec<WebSearchCustomProviderConfig> {
     ]
     .into_iter()
     .map(|(preset, priority)| WebSearchCustomProviderConfig {
+        connection_id: None,
         id: preset.as_str().to_string(),
         preset,
         name: preset.display_name().to_string(),
@@ -1107,7 +1110,11 @@ fn encrypt_app_config_secrets(mut config: AppConfig) -> Result<AppConfig, CoreEr
     config.speech_to_text.api_key = crate::crypto::encrypt_api_key(&config.speech_to_text.api_key)?;
     config.system_one.api_key = crate::crypto::encrypt_api_key(&config.system_one.api_key)?;
     for provider in &mut config.web_search.custom_providers {
-        provider.api_key = crate::crypto::encrypt_api_key(&provider.api_key)?;
+        if provider.connection_id.is_some() {
+            provider.api_key.clear();
+        } else {
+            provider.api_key = crate::crypto::encrypt_api_key(&provider.api_key)?;
+        }
     }
     Ok(config)
 }

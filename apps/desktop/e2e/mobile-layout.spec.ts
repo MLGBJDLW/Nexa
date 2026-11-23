@@ -204,6 +204,34 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(page.locator('form.mobile-settings-form')).toBeVisible();
 });
 
+test('phone links the selected speech routes to the newly saved account and retries without creating it again', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=all&link=1');
+  await page.locator('.mobile-settings-group > summary').filter({hasText:'Model connections'}).click();
+  await page.locator('.mobile-add-connection').click();
+  await page.getByRole('button', {name:'Provider', exact:true}).click();
+  await page.locator('[role="option"][data-value="alibaba-model-studio"]').click();
+  await page.locator('form input[type=password]').fill('fixture-account-key');
+  await page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true}).click();
+  const alternatives = page.getByRole('checkbox', {name:/Speech to Text/});
+  await expect(alternatives).toHaveCount(2);
+  await expect(alternatives.first()).toHaveAccessibleName(/Replaces prior-model/);
+  await page.getByRole('button', {name:'Select All', exact:true}).click();
+  await alternatives.nth(1).check();
+  await expect(alternatives.first()).not.toBeChecked();
+  const apply = page.getByRole('button', {name:'Link selected'});
+  await apply.click();
+  await expect(page.getByRole('alert')).toContainText('speech_busy');
+  await apply.click();
+  await expect(apply).toHaveCount(0);
+  const calls = await page.evaluate(() => (window as any).__MOBILE_SETTINGS__);
+  expect(calls.filter((call: any) => call.command === 'mobile_save_settings')).toHaveLength(1);
+  expect(calls.findLast((call: any) => call.args?.action === 'configure').args).toMatchObject({
+    mode:'cloud', outputMode:'cloud', speechToText:{connectionId:'new-account',apiStyle:'dashscope_audio_asr',apiKey:''},
+    textToSpeech:{connectionId:'new-account',apiKey:''},
+  });
+});
+
 test('phone model defaults skip gated models and preserve saved selections', async ({page}) => {
   await page.setViewportSize({width:360,height:780});
   await page.goto('/e2e/fixtures/mobile-shell.html?kind=all&gated=1');

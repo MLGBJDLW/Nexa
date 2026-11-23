@@ -29,10 +29,25 @@ export function renderMobileSettings(kind = 'web') {
     speech.textToSpeech = { ...speech.textToSpeech, provider: 'qwen', apiStyle: 'dashscope_speech',
       baseUrl: connections[0].output[0].baseUrl, model: 'private-tts', voice: 'private-voice' };
   }
+  let failLink = true;
+  let savedAccount: Record<string, unknown> = {};
   let finish: ((value: {text:string})=>void) | null = null;
   (window as any).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      if (command === 'mobile_save_settings') {
+        savedAccount = { id: 'new-account', name: args.name, provider: args.settings.providerType, baseUrl: args.settings.baseUrl, model: args.settings.model };
+        return savedAccount.id;
+      }
+      if (command === 'mobile_connection' && args.action === 'capabilities') {
+        if (args.id !== savedAccount.id) throw new Error('Incorrect saved account');
+        return { ...savedAccount, mode: 'cloud', outputMode: 'system', speechToText: { ...inputDefaults(), connectionId: 'previous', model: 'prior-model' },
+          textToSpeech: outputDefaults(), speech: { ...connections[1], id: savedAccount.id, input: [...connections[1].input,
+            { presetId: 'alibaba-qwen-audio', baseUrl: connections[1].input[0].baseUrl }] } };
+      }
+      if (new URLSearchParams(location.search).has('link') && args?.action === 'configure' && failLink) {
+        failLink = false; throw new Error('speech_busy');
+      }
       if (command === 'mobile_storage' && args.action === 'locations') return {data:'/phone/data',cache:'/phone/cache'};
       if (command === 'mobile_storage') return {totalBytes:1024,categories:[{id:'chats',bytes:1024}],activeConversations:1,archivedConversations:0};
       if (command === 'mobile_speech') {

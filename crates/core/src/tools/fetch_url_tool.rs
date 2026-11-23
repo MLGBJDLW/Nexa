@@ -2088,10 +2088,7 @@ impl Tool for FetchUrlTool {
             args.max_length
         };
 
-        let search = db
-            .load_app_config()
-            .map(|config| config.web_search)
-            .unwrap_or_default();
+        let search = super::web_search_tool::execution_web_config(db, context.tool_registry).await;
         let deepseek = search
             .custom_providers
             .iter()

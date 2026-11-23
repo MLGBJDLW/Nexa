@@ -1752,14 +1752,29 @@ async fn execute_with_singleflight(
     Ok(execution)
 }
 
-pub(crate) async fn run_web_search(
-    args: WebSearchArgs,
+pub(super) async fn execution_web_config(
     db: &Database,
-) -> Result<SearchExecution, CoreError> {
-    let web_config = db
+    registry: Option<&super::ToolRegistry>,
+) -> WebSearchConfig {
+    let mut config = db
         .load_app_config()
         .map(|config| config.web_search)
         .unwrap_or_default();
+    crate::web_search::providers::deepseek::resolve_bound_keys(
+        &mut config,
+        db,
+        registry.and_then(|r| r.web_account_keys.as_deref()),
+    )
+    .await;
+    config
+}
+
+pub(crate) async fn run_web_search(
+    args: WebSearchArgs,
+    db: &Database,
+    registry: Option<&super::ToolRegistry>,
+) -> Result<SearchExecution, CoreError> {
+    let web_config = execution_web_config(db, registry).await;
     let args = apply_app_config_defaults(args, &web_config);
     let request = build_search_request(args).map_err(CoreError::InvalidInput)?;
     let runtime = runtime_config_from_app_config(&web_config);
@@ -1890,7 +1905,7 @@ impl Tool for WebSearchTool {
                 ));
             }
         };
-        let execution = match run_web_search(args, db).await {
+        let execution = match run_web_search(args, db, context.tool_registry).await {
             Ok(execution) => execution,
             Err(CoreError::InvalidInput(message)) => {
                 return Ok(tool_contract_error_result(
@@ -1988,6 +2003,7 @@ mod tests {
             preset: WebSearchCustomProviderPreset::AnySearch,
             name: "AnySearch".to_string(),
             enabled: true,
+            connection_id: None,
             api_key: String::new(),
             base_url: WebSearchCustomProviderPreset::AnySearch.default_base_url(),
             priority: 1,
@@ -2148,6 +2164,7 @@ mod tests {
                 preset: WebSearchCustomProviderPreset::Brave,
                 name: "Missing".to_string(),
                 enabled: true,
+                connection_id: None,
                 api_key: String::new(),
                 base_url: WebSearchCustomProviderPreset::Brave.default_base_url(),
                 priority: 1,
@@ -2157,6 +2174,7 @@ mod tests {
                 preset: WebSearchCustomProviderPreset::Tavily,
                 name: "Tavily".to_string(),
                 enabled: true,
+                connection_id: None,
                 api_key: "secret".to_string(),
                 base_url: WebSearchCustomProviderPreset::Tavily.default_base_url(),
                 priority: 20,
@@ -2166,6 +2184,7 @@ mod tests {
                 preset: WebSearchCustomProviderPreset::Brave,
                 name: "Brave".to_string(),
                 enabled: true,
+                connection_id: None,
                 api_key: "secret".to_string(),
                 base_url: WebSearchCustomProviderPreset::Brave.default_base_url(),
                 priority: 10,
@@ -2240,6 +2259,7 @@ mod tests {
                 preset: WebSearchCustomProviderPreset::Tavily,
                 name: "Tavily".to_string(),
                 enabled: true,
+                connection_id: None,
                 api_key: "secret".to_string(),
                 base_url: WebSearchCustomProviderPreset::Tavily.default_base_url(),
                 priority: 20,
@@ -2281,6 +2301,7 @@ mod tests {
                 preset: WebSearchCustomProviderPreset::Tavily,
                 name: "Tavily".to_string(),
                 enabled: true,
+                connection_id: None,
                 api_key: "secret".to_string(),
                 base_url: WebSearchCustomProviderPreset::Tavily.default_base_url(),
                 priority: 20,
@@ -2304,6 +2325,7 @@ mod tests {
             preset: WebSearchCustomProviderPreset::Brave,
             name: "Brave".to_string(),
             enabled: true,
+            connection_id: None,
             api_key: String::new(),
             base_url: WebSearchCustomProviderPreset::Brave.default_base_url(),
             priority: 10,
@@ -2328,6 +2350,7 @@ mod tests {
             preset: WebSearchCustomProviderPreset::AnySearch,
             name: "AnySearch".to_string(),
             enabled: true,
+            connection_id: None,
             api_key: String::new(),
             base_url: WebSearchCustomProviderPreset::AnySearch.default_base_url(),
             priority: 25,
@@ -2352,6 +2375,7 @@ mod tests {
             preset: WebSearchCustomProviderPreset::Tavily,
             name: "Tavily".to_string(),
             enabled: true,
+            connection_id: None,
             api_key: "tvly-dev-old".to_string(),
             base_url: WebSearchCustomProviderPreset::Tavily.default_base_url(),
             priority: 20,

@@ -5,16 +5,16 @@ use crate::{
     PHONE_RUNTIME,
 };
 use jni::{
-    objects::{JClass, JString},
+    objects::{GlobalRef, JClass, JObject, JString, JValue},
     sys::jstring,
-    JNIEnv,
+    JNIEnv, JavaVM,
 };
 use nexa_core::{agent::CancellationToken, connection_sync::SharedModelConnection};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{LazyLock, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::oneshot;
@@ -39,10 +39,53 @@ fn retry() -> Value {
     json!({"status":"error","nextWakeAt":(chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()})
 }
 
+struct WorkerAccounts {
+    vm: JavaVM,
+    store: GlobalRef,
+}
+
+impl WorkerAccounts {
+    fn read_account(&self, id: &str) -> Option<SharedModelConnection> {
+        let mut env = self.vm.attach_current_thread().ok()?;
+        let id = env.new_string(id).ok()?;
+        let record = match env.call_method(
+            self.store.as_obj(),
+            "readConnection",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&id)],
+        ) {
+            Ok(result) => result.l().ok()?,
+            Err(_) => {
+                let _ = env.exception_clear();
+                return None;
+            }
+        };
+        if record.is_null() {
+            return None;
+        }
+        let raw = string(&mut env, &JString::from(record))?;
+        serde_json::from_str(&raw).ok()
+    }
+}
+
+#[async_trait::async_trait]
+impl nexa_core::web_search::providers::deepseek::AccountKeys for WorkerAccounts {
+    async fn deepseek_key(&self, id: &str) -> Option<String> {
+        let source = self.read_account(id)?;
+        (source.id == id
+            && nexa_core::web_search::providers::deepseek::supports_connection(
+                &source.provider,
+                source.base_url.as_deref(),
+            ))
+        .then_some(source.api_key)
+    }
+}
+
 async fn tick(
     directory: PathBuf,
     key: String,
     connection: String,
+    web_keys: WorkerAccounts,
     cancel: CancellationToken,
 ) -> Value {
     if !directory.join("nexa-mobile.db").is_file() {
@@ -66,6 +109,7 @@ async fn tick(
     let (finished, result) = oneshot::channel();
     let host = RunHost::Worker {
         connection,
+        web_keys: Arc::new(web_keys),
         cancel,
         finished,
     };
@@ -93,6 +137,7 @@ pub extern "system" fn Java_com_nexa_mobile_PhoneScheduleBridge_tick(
     directory: JString,
     key: JString,
     connection: JString,
+    secrets: JObject,
     id: JString,
 ) -> jstring {
     let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -100,9 +145,18 @@ pub extern "system" fn Java_com_nexa_mobile_PhoneScheduleBridge_tick(
         let directory = string(&mut env, &directory)?;
         let key = string(&mut env, &key)?;
         let connection = string(&mut env, &connection)?;
+        let web_keys = WorkerAccounts {
+            vm: env.get_java_vm().ok()?,
+            store: env.new_global_ref(secrets).ok()?,
+        };
         let cancel = worker(&id);
-        let result =
-            tauri::async_runtime::block_on(tick(directory.into(), key, connection, cancel));
+        let result = tauri::async_runtime::block_on(tick(
+            directory.into(),
+            key,
+            connection,
+            web_keys,
+            cancel,
+        ));
         WORKERS
             .lock()
             .unwrap_or_else(|e| e.into_inner())

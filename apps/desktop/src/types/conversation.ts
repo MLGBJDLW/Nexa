@@ -769,6 +769,7 @@ export interface WebSearchConfig {
 }
 
 export interface WebSearchCustomProviderConfig {
+  connectionId?: string | null;
   id: string;
   preset: WebSearchCustomProviderPreset;
   name: string;

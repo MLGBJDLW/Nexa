@@ -1,55 +1,54 @@
 use nexa_core::{
-    app_settings::{WebSearchConfig, WebSearchCustomProviderPreset, WebSearchProviderMode},
+    app_settings::WebSearchConfig,
     connection_sync::SharedModelConnection,
-    llm::native_search::SearchExecutionMode,
+    web_search::providers::deepseek::{self, AccountKeys},
 };
 
-/// Explicitly requested credential reuse, restricted to the official account
-/// origin. Hosted DeepSeek models do not grant access to DeepSeek's web API.
 pub fn use_deepseek_connection(
     config: &mut WebSearchConfig,
     connection: &SharedModelConnection,
 ) -> Result<(), String> {
-    let base = connection.base_url.as_deref().unwrap_or("");
-    let url = reqwest::Url::parse(base)
-        .map_err(|_| "Choose an official DeepSeek connection.".to_string())?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("api.deepseek.com")
-        || url.port_or_known_default() != Some(443)
-        || !url.username().is_empty()
-        || url.password().is_some()
+    if !deepseek::supports_connection(&connection.provider, connection.base_url.as_deref())
         || connection.api_key.trim().is_empty()
     {
         return Err("Choose a configured official DeepSeek connection.".into());
     }
-    let mut provider = config
-        .custom_providers
-        .iter()
-        .find(|provider| provider.preset == WebSearchCustomProviderPreset::Deepseek)
-        .cloned()
-        .unwrap_or_else(|| {
-            WebSearchConfig::default()
-                .custom_providers
-                .into_iter()
-                .find(|provider| provider.preset == WebSearchCustomProviderPreset::Deepseek)
-                .unwrap()
-        });
-    provider.enabled = true;
-    provider.api_key = connection.api_key.clone();
-    provider.base_url = Some("https://api.deepseek.com/v1/tools/search".into());
-    provider.priority = 0;
-    config
-        .custom_providers
-        .retain(|provider| provider.preset != WebSearchCustomProviderPreset::Deepseek);
-    config.custom_providers.insert(0, provider);
-    config.provider_mode = WebSearchProviderMode::CustomFirst;
-    config.execution_mode = SearchExecutionMode::NexaRouter;
+    deepseek::bind_connection(config, &connection.id);
     Ok(())
+}
+
+pub fn native_search_plan(
+    account: &SharedModelConnection,
+    config: &WebSearchConfig,
+) -> Result<nexa_core::llm::native_search::NativeSearchPlan, String> {
+    let provider = nexa_core::provider_registry::provider_type_from_key(&account.provider)
+        .ok_or("Unsupported provider")?;
+    Ok(
+        nexa_core::llm::native_search::NativeSearchPlan::resolve_with_engine(
+            config.execution_mode,
+            provider,
+            account.base_url.as_deref(),
+            &account.model,
+            config.provider_native_engine,
+        ),
+    )
+}
+
+pub struct PhoneAccounts(pub tauri::AppHandle);
+
+#[async_trait::async_trait]
+impl AccountKeys for PhoneAccounts {
+    async fn deepseek_key(&self, id: &str) -> Option<String> {
+        let account = crate::connections::get(&self.0, Some(id)).await.ok()?;
+        deepseek::supports_connection(&account.provider, account.base_url.as_deref())
+            .then_some(account.api_key)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexa_core::{app_settings::WebSearchProviderMode, llm::native_search::SearchExecutionMode};
     use serde_json::json;
 
     #[test]
@@ -63,8 +62,11 @@ mod tests {
         let count = config.custom_providers.len();
         use_deepseek_connection(&mut config, &connection).unwrap();
         assert_eq!(config.custom_providers.len(), count);
-        assert_eq!(config.custom_providers[0].api_key, "fixture-key");
-        assert!(config.custom_providers[0].is_configured());
+        assert!(config.custom_providers[0].api_key.is_empty());
+        assert_eq!(
+            config.custom_providers[0].connection_id.as_deref(),
+            Some("deepseek-account")
+        );
         assert_eq!(config.provider_mode, WebSearchProviderMode::CustomFirst);
         assert_eq!(config.execution_mode, SearchExecutionMode::NexaRouter);
         for base in [
@@ -76,6 +78,6 @@ mod tests {
             connection.base_url = Some(base.into());
             assert!(use_deepseek_connection(&mut config, &connection).is_err());
         }
-        assert_eq!(config.custom_providers[0].api_key, "fixture-key");
+        assert!(config.custom_providers[0].api_key.is_empty());
     }
 }

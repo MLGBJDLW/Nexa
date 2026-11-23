@@ -609,17 +609,18 @@ pub fn garbage_collect_theme_assets_cmd(
 }
 
 #[tauri::command]
-pub fn get_web_search_status_cmd(
+pub async fn get_web_search_status_cmd(
     state: tauri::State<'_, AppState>,
     web_search: Option<nexa_core::app_settings::WebSearchConfig>,
 ) -> Result<Vec<nexa_core::web_search::WebSearchProviderStatus>, String> {
-    let config = match web_search {
+    let mut config = match web_search {
         Some(config) => config,
         None => {
             let config = state.db.load_app_config().map_err(|e| e.to_string())?;
             config.web_search
         }
     };
+    nexa_core::web_search::providers::deepseek::resolve_bound_keys(&mut config, &state.db, None).await;
     Ok(nexa_core::tools::web_search_tool::provider_status_snapshot(
         &config,
     ))

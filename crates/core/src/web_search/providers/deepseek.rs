@@ -1,12 +1,108 @@
 //! DeepSeek's standalone Search/Fetch API. Both use the configured search
 //! account; neither borrows an unrelated model provider's credentials.
-use crate::app_settings::WebSearchCustomProviderConfig;
+use crate::app_settings::{
+    WebSearchConfig, WebSearchCustomProviderConfig, WebSearchCustomProviderPreset,
+    WebSearchProviderMode,
+};
+use crate::llm::{native_search::SearchExecutionMode, ProviderType};
 use crate::web_search::{SearchEngine, SearchProviderFailure, SearchRequest, SearchResultItem};
 use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
+
+/// Compatible chat protocols may share the official account, but a proxy or
+/// an unrelated provider's implicit endpoint never qualifies.
+pub fn supports_connection(provider: &str, base: Option<&str>) -> bool {
+    let kind = crate::provider_registry::provider_type_from_key(provider);
+    let Some(base) = base.filter(|s| !s.trim().is_empty()) else {
+        return kind == Some(ProviderType::DeepSeek);
+    };
+    matches!(
+        kind,
+        Some(
+            ProviderType::DeepSeek
+                | ProviderType::OpenAi
+                | ProviderType::Anthropic
+                | ProviderType::Custom
+        )
+    ) && official_origin(base)
+}
+
+fn official_origin(base: &str) -> bool {
+    reqwest::Url::parse(base).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some("api.deepseek.com")
+            && url.port_or_known_default() == Some(443)
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+    })
+}
+
+pub fn bind_connection(config: &mut WebSearchConfig, id: &str) {
+    let preset = WebSearchCustomProviderPreset::Deepseek;
+    let mut provider = config
+        .custom_providers
+        .iter()
+        .find(|p| p.preset == preset)
+        .cloned()
+        .unwrap_or_else(|| {
+            WebSearchConfig::default()
+                .custom_providers
+                .into_iter()
+                .find(|p| p.preset == preset)
+                .expect("bundled DeepSeek preset")
+        });
+    provider.connection_id = Some(id.into());
+    provider.api_key.clear();
+    provider.base_url = preset.default_base_url();
+    provider.enabled = true;
+    provider.priority = 0;
+    config.custom_providers.retain(|p| p.preset != preset);
+    config.custom_providers.insert(0, provider);
+    config.provider_mode = WebSearchProviderMode::CustomFirst;
+    config.execution_mode = SearchExecutionMode::NexaRouter;
+}
+
+/// Phone hosts resolve the ID through AndroidKeyStore, including when the
+/// scheduler runs without an Activity. Desktop uses the database by default.
+#[async_trait::async_trait]
+pub trait AccountKeys: Send + Sync {
+    async fn deepseek_key(&self, id: &str) -> Option<String>;
+}
+
+pub async fn resolve_bound_keys(
+    config: &mut WebSearchConfig,
+    db: &crate::db::Database,
+    phone: Option<&dyn AccountKeys>,
+) {
+    for p in &mut config.custom_providers {
+        let Some(id) = &p.connection_id else { continue };
+        p.api_key.clear();
+        if p.preset != WebSearchCustomProviderPreset::Deepseek
+            || !p
+                .effective_base_url()
+                .as_deref()
+                .is_some_and(official_origin)
+        {
+            continue;
+        }
+        let key = match phone {
+            Some(source) => source.deepseek_key(id).await,
+            None => db
+                .get_agent_config(id)
+                .ok()
+                .filter(|account| {
+                    supports_connection(&account.provider, account.base_url.as_deref())
+                })
+                .map(|account| account.api_key),
+        };
+        p.api_key = key.unwrap_or_default();
+    }
+}
 
 fn failure(code: &str, message: impl Into<String>) -> SearchProviderFailure {
     SearchProviderFailure::new(SearchEngine::Deepseek, code, message)
@@ -277,6 +373,40 @@ pub(crate) async fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bound_search_uses_current_exact_account_and_never_forwards_it_to_a_proxy() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let save = |id: Option<&str>, key: &str| {
+            db.save_agent_config(&serde_json::from_value(json!({
+                "id":id, "name":key, "provider":"deep_seek", "model":"deepseek-flash", "apiKey":key,
+                "baseUrl":"https://api.deepseek.com/v1"
+            })).unwrap()).unwrap()
+        };
+        let first = save(None, "first");
+        let account = save(None, "second");
+        let mut saved = db.load_app_config().unwrap();
+        bind_connection(&mut saved.web_search, &account.id);
+        db.save_app_config(&saved).unwrap();
+        let raw = db.load_app_config().unwrap().web_search;
+        assert_eq!(
+            raw.custom_providers[0].connection_id.as_deref(),
+            Some(account.id.as_str())
+        );
+        assert!(raw.custom_providers[0].api_key.is_empty());
+        save(Some(&account.id), "rotated");
+        let mut execution = raw.clone();
+        resolve_bound_keys(&mut execution, &db, None).await;
+        assert_eq!(execution.custom_providers[0].api_key, "rotated");
+        execution.custom_providers[0].base_url = Some("https://proxy.example/v1".into());
+        resolve_bound_keys(&mut execution, &db, None).await;
+        assert!(execution.custom_providers[0].api_key.is_empty());
+        db.delete_agent_config(&account.id).unwrap();
+        let mut removed = raw;
+        resolve_bound_keys(&mut removed, &db, None).await;
+        assert!(removed.custom_providers[0].api_key.is_empty());
+        assert!(db.get_agent_config(&first.id).is_ok());
+    }
     #[tokio::test]
     async fn transport_failures_retry_and_stop_after_three_attempts() {
         use std::sync::{
@@ -332,6 +462,7 @@ mod tests {
                     preset: crate::app_settings::WebSearchCustomProviderPreset::Deepseek,
                     name: "Test".into(),
                     enabled: true,
+                    connection_id: None,
                     api_key: "transport-test-key".into(),
                     base_url: None,
                     priority: 0,
@@ -425,6 +556,7 @@ mod tests {
                 preset: crate::app_settings::WebSearchCustomProviderPreset::Deepseek,
                 name: "Test".into(),
                 enabled: true,
+                connection_id: None,
                 api_key: "test-search-key".into(),
                 base_url: None,
                 priority: 0,

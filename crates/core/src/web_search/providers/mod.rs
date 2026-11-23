@@ -14,7 +14,7 @@ use super::model::{
 
 pub mod baidu;
 pub mod bing;
-pub(crate) mod deepseek;
+pub mod deepseek;
 pub mod duckduckgo;
 pub mod google;
 pub mod sogou;

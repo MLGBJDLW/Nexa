@@ -461,7 +461,9 @@ impl LocalRuntime {
             return serde_json::to_value(launch).map_err(err);
         }
         let (steering, receiver) = mpsc::unbounded_channel();
-        let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
+        let mut tools = ToolRegistry::new()
+            .with_workspace(Some(self.workspace.clone()))
+            .with_web_account_keys(host.web_account_keys());
         tools.register(Box::new(self.skills.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
