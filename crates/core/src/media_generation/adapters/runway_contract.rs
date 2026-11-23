@@ -155,10 +155,13 @@ mod tests {
                         .unwrap()
                         .iter()
                         .any(|field| field == "promptText");
+                    // A shipped operation can be stricter than the publisher's optional
+                    // prompt contract when it excludes all reference inputs.
+                    assert!(!required_prompt || wire.prompt_required);
                     for prompt in ["", "x", "ab"] {
                         request.prompt = prompt.into();
                         let expected = if prompt.is_empty() {
-                            !required_prompt
+                            !wire.prompt_required
                         } else {
                             conforms(&json!(prompt), &contract["fields"]["promptText"])
                         };
@@ -243,6 +246,85 @@ mod tests {
                 assert!(!adapter.validate(&request).valid);
                 assert!(payload(&request).is_err());
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn seedance25_flash_is_text_only_with_verified_bounds_and_output_cost() {
+        let adapter = RunwayVideoAdapter::for_test("http://127.0.0.1");
+        let mut request = NormalizedVideoRequest {
+            idempotency_key: "seedance25-flash-fixture".into(),
+            model_id: "seedance2_5_flash".into(),
+            operation: MediaOperation::TextToVideo,
+            prompt: "A quiet ocean at dawn".into(),
+            duration_seconds: 4,
+            resolution: "480P".into(),
+            aspect_ratio: "16:9".into(),
+            input_assets: vec![],
+            seed: Some(u32::MAX),
+            generate_audio: Some(false),
+            callback_url: None,
+        };
+        for (resolution, ratio, seconds, amount_micros) in [
+            ("480P", "854:480", 4, 520_000),
+            ("480P", "854:480", 30, 3_900_000),
+            ("720P", "1280:720", 4, 800_000),
+            ("720P", "1280:720", 30, 6_000_000),
+        ] {
+            request.resolution = resolution.into();
+            request.duration_seconds = seconds;
+            assert!(adapter.validate(&request).valid);
+            assert_eq!(
+                payload(&request).unwrap(),
+                json!({
+                    "model": "seedance2_5_flash",
+                    "promptText": "A quiet ocean at dawn",
+                    "ratio": ratio,
+                    "duration": seconds,
+                    "seed": u32::MAX,
+                    "audio": false,
+                })
+            );
+            let estimate = adapter.estimate_cost(&request).await.unwrap();
+            assert_eq!(estimate.amount_micros, Some(amount_micros));
+            assert_eq!(estimate.currency.as_deref(), Some("USD"));
+            assert_eq!(estimate.kind, CostEstimateKind::Exact);
+        }
+        for duration in [3, 31] {
+            request.duration_seconds = duration;
+            assert!(!adapter.validate(&request).valid);
+            assert!(adapter.estimate_cost(&request).await.is_err());
+        }
+        request.duration_seconds = 4;
+        request.resolution = "1080P".into();
+        assert!(!adapter.validate(&request).valid);
+        request.resolution = "720P".into();
+        request.prompt = "🌊".repeat(7500);
+        assert!(adapter.validate(&request).valid);
+        request.prompt.push('文');
+        assert!(!adapter.validate(&request).valid);
+        request.prompt.clear();
+        assert!(!adapter.validate(&request).valid);
+        request.prompt = "A quiet ocean at dawn".into();
+        for role in [
+            VideoInputRole::ReferenceImage,
+            VideoInputRole::ReferenceVideo,
+            VideoInputRole::ReferenceAudio,
+        ] {
+            request.input_assets = vec![input(role, 4)];
+            assert!(!adapter.validate(&request).valid);
+        }
+        request.input_assets.clear();
+        for operation in [
+            MediaOperation::ImageToVideo,
+            MediaOperation::FirstLastFrame,
+            MediaOperation::VideoToVideo,
+            MediaOperation::Extend,
+            MediaOperation::Edit,
+        ] {
+            request.operation = operation;
+            assert!(!adapter.validate(&request).valid);
+            assert!(payload(&request).is_err());
         }
     }
 

@@ -3322,9 +3322,9 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.6-flash",
-        "contextTokens": 1050000,
+        "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "inputModalities": [
           "text",
@@ -3377,9 +3377,9 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.6-pro",
-        "contextTokens": 1050000,
+        "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "inputModalities": [
           "text",
@@ -9184,12 +9184,11 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
           "include_reasoning",
           "max_tokens",
           "reasoning",
-          "response_format",
           "seed",
           "stop",
           "temperature",
@@ -9198,9 +9197,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/minimax/minimax-m2.7",
-        "maxOutputTokens": 176947
+        "lastVerifiedAt": "2026-11-22",
+        "documentationRef": "https://openrouter.ai/api/v1/models/minimax/minimax-m2.7/endpoints",
+        "maxOutputTokens": 131072
       },
       {
         "id": "openai/gpt-5.4-nano",
@@ -17973,6 +17972,66 @@
         "recommended": false
       },
       {
+        "id": "radixark/daisyrose-27b",
+        "name": "RadixArk: DaisyRose 27B",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-22",
+        "documentationRef": "https://openrouter.ai/api/v1/models/radixark/daisyrose-27b/endpoints",
+        "contextTokens": 262144,
+        "maxOutputTokens": 235929,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "defaultEffort": "xhigh",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "mistralai/pixtral-large-2502",
         "name": "Mistral: Pixtral Large 2502",
         "source": "official",
@@ -20099,9 +20158,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-vision-exp",
-        "maxOutputTokens": 943717,
+        "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -24041,6 +24100,70 @@
         }
       },
       {
+        "id": "thinkingmachines/inkling-2-mini",
+        "name": "Thinking Machines: Inkling 2 Mini",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-22",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-mini/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "thinkingmachines/inkling-2-small",
         "name": "Thinking Machines: Inkling 2 Small",
         "source": "official",
@@ -25455,7 +25578,7 @@
         "maxOutputTokens": 65536,
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-21",
         "modalities": [
           "text",
           "image",
@@ -25493,7 +25616,7 @@
           "text"
         ],
         "deprecationDate": "2027-01-28",
-        "replacementModelId": "gemini-3.8-flash"
+        "replacementModelId": "gemini-4-hydrogen"
       },
       {
         "id": "gemini-3.6-flash",
@@ -25512,7 +25635,7 @@
         "maxOutputTokens": 65536,
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-21",
         "modalities": [
           "text",
           "image",
@@ -25550,8 +25673,8 @@
         "outputModalities": [
           "text"
         ],
-        "deprecationDate": "2026-11-19",
-        "replacementModelId": "gemini-3.8-flash"
+        "deprecationDate": "2027-01-28",
+        "replacementModelId": "gemini-4-hydrogen"
       },
       {
         "id": "gemini-2.5-pro",
@@ -28112,7 +28235,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "source": "official",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-22",
+        "deprecationDate": "2026-11-19",
+        "documentationRef": "https://docs.x.ai/developers/release-notes#grok-build-01-end-of-life"
       },
       {
         "id": "grok-4.20-0309-reasoning",
@@ -28199,8 +28328,7 @@
         "source": "official",
         "lastVerifiedAt": "2026-09-12",
         "deprecationDate": "2026-05-15",
-        "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement",
-        "replacementModelId": "grok-build-0.1"
+        "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement"
       },
       {
         "id": "grok-3",
@@ -34131,6 +34259,36 @@
         "maxOutputTokens": 1048576
       },
       {
+        "id": "mindlab/macaron-v1.1-venti-pro",
+        "name": "mindlab/macaron-v1.1-venti-pro",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-21",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/macaron-v1-1-venti-pro-by-mindlab",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": null
+        }
+      },
+      {
         "id": "mindlab/macaron-v1.1-venti",
         "name": "mindlab/macaron-v1.1-venti",
         "source": "official",
@@ -36519,7 +36677,7 @@
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "contextTokens": 1024000,
         "maxOutputTokens": 384000,
@@ -36534,7 +36692,8 @@
           "vision": false,
           "reasoning": null
         },
-        "deprecationDate": "2026-11-24"
+        "deprecationDate": "2026-11-24",
+        "replacementModelId": "deepseek-v4-1-flash-261017"
       },
       {
         "id": "doubao-seed-2-0-code-preview-260215",
@@ -36544,7 +36703,7 @@
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "contextTokens": 256000,
         "maxOutputTokens": 128000,
@@ -36560,7 +36719,8 @@
           "vision": true,
           "reasoning": null
         },
-        "deprecationDate": "2026-11-24"
+        "deprecationDate": "2026-11-24",
+        "replacementModelId": "doubao-seed-evolving"
       },
       {
         "id": "glm-5-1-260428",
@@ -36570,7 +36730,7 @@
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-21",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "inputModalities": [
           "text"
@@ -36583,7 +36743,8 @@
           "vision": false,
           "reasoning": null
         },
-        "deprecationDate": "2026-11-24"
+        "deprecationDate": "2026-11-24",
+        "replacementModelId": "doubao-seed-evolving"
       },
       {
         "id": "doubao-seed-translation-250915",
