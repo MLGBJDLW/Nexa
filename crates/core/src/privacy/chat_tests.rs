@@ -488,6 +488,7 @@ fn privacy_update_masks_derived_memory_and_trace_but_preserves_authored_content(
         )
         .unwrap();
     let archive = crate::context_history::ContextHistoryArchive::prepare(
+        &ChatPrivacyPolicy::load(&db.conn()).unwrap(),
         &cid,
         None,
         &[crate::llm::Message::text(
@@ -544,11 +545,11 @@ fn privacy_update_masks_derived_memory_and_trace_but_preserves_authored_content(
         0
     );
     drop(conn);
-    // A stale archive cannot pass its original digest check and drop live history.
+    // A policy change invalidates even an archive prepared before the change.
     {
         let mut conn = db.conn();
         let tx = conn.transaction().unwrap();
-        assert!(archive.commit(&tx).is_err());
+        assert!(matches!(archive.commit(&tx), Err(CoreError::Cancelled(_))));
     }
     assert_eq!(
         db.conn()

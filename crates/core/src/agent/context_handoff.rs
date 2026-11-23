@@ -43,16 +43,26 @@ impl AgentExecutor {
             .get_agent_scratchpad(conversation_id)?
             .map(|notes| notes.content)
             .unwrap_or_default();
-        let mut archive =
-            ContextHistoryArchive::prepare(conversation_id, run.turn_id, messages, &notes)?;
+        let privacy = crate::privacy::ChatPrivacyPolicy::load(&run.db.conn())?;
+        let mut archive = ContextHistoryArchive::prepare(
+            &privacy,
+            conversation_id,
+            run.turn_id,
+            messages,
+            &notes,
+        )?;
         if self.config.context_management_mode == ContextManagementMode::Seamless {
             archive = archive.with_continuity(
+                &privacy,
                 (self.config.context_window.unwrap_or(8192) as usize / 4).clamp(512, 6000),
             );
         }
         let next = plan.replacement(
             messages,
-            Message::text(Role::System, archive.checkpoint_text()),
+            Message::text(
+                Role::System,
+                privacy.redact_text(&archive.checkpoint_text()),
+            ),
         );
         let before_tokens = metrics
             .messages
@@ -260,6 +270,15 @@ mod tests {
     async fn seamless_checkpoint_keeps_recent_progress_and_restores_the_same_durable_window() {
         let (mut executor, db, id) = setup();
         executor.config.context_management_mode = ContextManagementMode::Seamless;
+        db.save_privacy_config(&crate::privacy::PrivacyConfig {
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "mark evidence".into(),
+                pattern: "evidence".into(),
+                replacement: "evidence!".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
         let mut messages = history();
         messages.push(Message::text(
             Role::User,
@@ -313,7 +332,8 @@ mod tests {
             .find(|m| m.text_content().contains("Recent progress:"))
             .unwrap()
             .text_content();
-        assert!(checkpoint.contains("Exact historical evidence"));
+        assert!(checkpoint.contains("Exact historical evidence!"));
+        assert!(!checkpoint.contains("evidence!!"));
         assert!(messages
             .iter()
             .any(|m| m.role == Role::User && m.text_content().contains("123.45")));
@@ -423,6 +443,61 @@ mod tests {
         assert!(messages
             .iter()
             .any(|message| message.parts == request.parts));
+    }
+
+    #[test]
+    fn manual_fork_verifies_privacy_projected_tool_output_and_preserves_user_text() {
+        let (mut executor, db, id) = setup();
+        executor.config.context_management_mode = ContextManagementMode::Seamless;
+        db.save_privacy_config(&crate::privacy::PrivacyConfig {
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "expand once".into(),
+                pattern: "probe".into(),
+                replacement: "probe!".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        let request = Message::text(Role::User, "Contact reader@example.test");
+        let mut messages = vec![
+            request.clone(),
+            Message::text(Role::Tool, "The probe contacted reader@example.test"),
+            Message::text(
+                Role::Tool,
+                format!("{}private-contact@long.example.test", "header ".repeat(97)),
+            ),
+        ];
+        let changed = executor
+            .handoff_context_with_intent(
+                &mut messages,
+                "test",
+                context_compaction::CompactionRunContext {
+                    db: &db,
+                    conversation_id: Some(&id),
+                    turn_id: None,
+                    active_request: Some(&request),
+                },
+                true,
+                &CancellationToken::new(),
+            )
+            .unwrap();
+        assert!(changed);
+        let windows = db.list_context_history(&id, None, 1).unwrap();
+        let window = windows["windows"][0]["windowId"].as_str().unwrap();
+        let read = |ordinal| {
+            db.read_context_history(&id, window, ordinal, 0, 200)
+                .unwrap()["text"]
+                .clone()
+        };
+        assert_eq!(read(0), "Contact reader@example.test");
+        assert_eq!(read(1), "The probe! contacted [EMAIL]");
+        let checkpoint = messages
+            .iter()
+            .find(|message| message.role == Role::System)
+            .unwrap()
+            .text_content();
+        assert!(checkpoint.contains("The probe! contacted [EMAIL]"));
+        assert!(!checkpoint.contains("private-contact"));
     }
 
     #[test]
@@ -604,7 +679,14 @@ mod tests {
                     .unwrap();
                 }
             }
-            let archive = ContextHistoryArchive::prepare(&id, None, &messages, "").unwrap();
+            let archive = ContextHistoryArchive::prepare(
+                &crate::privacy::ChatPrivacyPolicy::load(&db.conn()).unwrap(),
+                &id,
+                None,
+                &messages,
+                "",
+            )
+            .unwrap();
             let parent = CancellationToken::new();
             let manual = CancellationToken::new();
             let blocked = db.conn();

@@ -407,6 +407,7 @@ impl ContextCompactionService {
                 .await?
                 .value;
             let archive = ContextHistoryArchive::prepare(
+                privacy,
                 &job.request.conversation_id,
                 None,
                 &plan.summary_messages,
@@ -416,7 +417,7 @@ impl ContextCompactionService {
                     .unwrap_or_default(),
             )?;
             let archive = if job.mode == ContextManagementMode::Seamless {
-                archive.with_continuity(2048)
+                archive.with_continuity(privacy, 2048)
             } else {
                 archive
             };

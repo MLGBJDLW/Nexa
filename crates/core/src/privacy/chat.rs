@@ -10,6 +10,7 @@ use crate::llm::{ContentPart, Message, ToolCallRequest};
 use regex::Regex;
 use rusqlite::{functions::FunctionFlags, Connection};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 struct Redactor {
@@ -48,13 +49,17 @@ impl Redactor {
     }
 
     fn text(&self, text: &str) -> String {
-        self.rules
-            .iter()
-            .fold(text.to_owned(), |text, (pattern, replacement)| {
-                pattern
-                    .replace_all(&text, replacement.as_str())
-                    .into_owned()
-            })
+        self.project_text(text).into_owned()
+    }
+
+    fn project_text<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        let mut projected = Cow::Borrowed(text);
+        for (pattern, replacement) in &self.rules {
+            if let Cow::Owned(updated) = pattern.replace_all(&projected, replacement.as_str()) {
+                projected = Cow::Owned(updated);
+            }
+        }
+        projected
     }
 
     fn arguments(&self, arguments: &str) -> String {
@@ -342,11 +347,10 @@ impl ChatPrivacyPolicy {
         &self.redactor.fingerprint
     }
     pub fn redact_text(&self, text: &str) -> String {
-        if self.config.enabled {
-            self.redactor.text(text)
-        } else {
-            text.to_owned()
-        }
+        self.project_text(text).into_owned()
+    }
+    pub(crate) fn project_text<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        self.redactor.project_text(text)
     }
     pub fn redact_context_messages(&self, messages: &mut [Message]) {
         redact_context_messages(self, messages);
