@@ -1,0 +1,26 @@
+/* One shared image, three masks. The shape changes at the narrowest point of the turn. */
+.nexa-loading-mark,
+svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) {
+  background-color: currentColor;
+  mask: url("./loadingMarks.svg") center top / 100% 300% no-repeat;
+  animation: nexa-loading-turn 1.8s infinite, nexa-loading-shape 5.4s steps(1, end) infinite;
+}
+svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) > * { visibility: hidden; }
+@keyframes nexa-loading-turn {
+  0% { transform: rotate(0deg) scaleX(.12); animation-timing-function: ease-out; }
+  12% { transform: rotate(0deg) scaleX(1); animation-timing-function: cubic-bezier(.56,.03,.95,.55); }
+  60% { transform: rotate(115deg) scaleX(1); animation-timing-function: cubic-bezier(.15,.54,.38,1); }
+  100% { transform: rotate(360deg) scaleX(.12); }
+}
+@keyframes nexa-loading-shape {
+  0% { mask-position: center top; }
+  33.333333% { mask-position: center center; }
+  66.666667% { mask-position: center bottom; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nexa-loading-mark,
+  svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) {
+    animation: none;
+    mask-position: center center;
+  }
+}

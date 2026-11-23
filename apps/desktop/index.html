@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <title>Nexa</title>
+    <link rel="stylesheet" href="/src/components/ui/loadingMark.css" />
     <script>
       (() => {
         try {
@@ -68,34 +69,11 @@
         height: 88px;
         place-items: center;
       }
-      .startup-splash__mark::before {
-        position: absolute;
-        inset: 0;
-        content: "";
-        border: 1px solid color-mix(in srgb, var(--startup-muted) 28%, transparent);
-        border-top-color: color-mix(in srgb, var(--startup-accent) 90%, var(--startup-text));
-        border-radius: 999px;
-        filter: drop-shadow(0 0 18px color-mix(in srgb, var(--startup-accent) 35%, transparent));
-        animation: nexa-startup-orbit 1.8s linear infinite;
-      }
-      .startup-splash__mark::after {
-        position: absolute;
-        inset: 14px;
-        content: "";
-        border-radius: 24px;
-        background: color-mix(in srgb, var(--startup-accent) 14%, transparent);
-        animation: nexa-startup-breathe 1.8s ease-in-out infinite;
-      }
       .startup-splash__logo {
-        z-index: 1;
-        width: 46px;
-        height: 46px;
-        color: var(--startup-text);
-        filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--startup-accent) 28%, transparent));
+        width: 58px;
+        height: 58px;
+        color: var(--startup-accent);
       }
-      .startup-splash__logo-orbit { stroke: var(--startup-muted); opacity: 0.62; }
-      .startup-splash__logo-accent { stroke: var(--startup-accent); }
-      .startup-splash__logo-accent-fill { fill: var(--startup-accent); }
       .startup-splash__wordmark {
         font: 600 15px/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
         letter-spacing: 0.22em;
@@ -110,15 +88,6 @@
         text-align: center;
       }
       .startup-splash__tagline:empty { display: none; }
-      @keyframes nexa-startup-orbit { to { transform: rotate(360deg); } }
-      @keyframes nexa-startup-breathe {
-        0%, 100% { opacity: 0.55; transform: scale(0.9); }
-        50% { opacity: 1; transform: scale(1.04); }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .startup-splash__mark::before,
-        .startup-splash__mark::after { animation: none; }
-      }
     </style>
   </head>
   <body>
@@ -126,16 +95,7 @@
       <div class="startup-splash" data-testid="startup-splash" role="status" aria-label="Starting Nexa">
         <div class="startup-splash__content">
           <div class="startup-splash__mark" aria-hidden="true">
-            <svg class="startup-splash__logo" viewBox="0 0 32 32" aria-hidden="true">
-              <path class="startup-splash__logo-orbit" d="M5.8 16C8.3 9.2 12.4 5.8 16 5.8S23.7 9.2 26.2 16C23.7 22.8 19.6 26.2 16 26.2S8.3 22.8 5.8 16Z" fill="none" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M9.2 23.4V8.6l13.6 14.8V8.6" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" />
-              <circle cx="16" cy="16" r="4.15" fill="var(--startup-canvas)" />
-              <circle class="startup-splash__logo-accent" cx="16" cy="16" r="2.55" fill="none" stroke-width="1.35" />
-              <path class="startup-splash__logo-accent" d="M17.85 14.25c.9.75 1.2 1.85.82 2.95" fill="none" stroke-width="1.1" stroke-linecap="round" />
-              <circle class="startup-splash__logo-accent-fill" cx="16" cy="16" r="0.58" />
-              <circle cx="9.2" cy="8.6" r="1" fill="currentColor" />
-              <circle cx="22.8" cy="23.4" r="1" fill="currentColor" />
-            </svg>
+            <span class="startup-splash__logo nexa-loading-mark"></span>
           </div>
           <span class="startup-splash__wordmark">Nexa</span>
           <span class="startup-splash__tagline"></span>
