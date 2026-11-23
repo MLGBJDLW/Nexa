@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.20.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1) (2026-11-23)
+
+### Features
+
+- Type or paste Markdown directly into the chat composer. Formatting appears inline, with a single editable copy and support for selection, undo and IME composition.
+- Ask the agent to install skills using an `npx skills add` command. Nexa imports the selected skills into its library and makes approved skills available to the agent.
+- After saving a provider API key in setup or settings, choose which compatible features can use the same account. Nexa lists available connections for the selected endpoint, region and model, including speech, embeddings, image generation, web search and structured decisions.
+- Loading indicators cycle through a vortex, the Nexa logo and a DNA double helix with an accelerating turn. Reduced motion displays the stationary logo.
+
+### Bug Fixes
+
+- Fork a conversation that contains privacy-protected tool output or notes. The live handoff and the reopened checkpoint agree, and a failed archive verification preserves the working context.
+- Keep long Markdown drafts intact and discover models across every returned Codex catalog page.
+- Add OpenRouter Perplexity retrieval and Recraft Flash routes, update DashScope regional image and speech models, and record published retirement dates without changing saved model IDs. International SiliconFlow accounts now have separate speech routes, and Qwen Live uses the configured account's workspace.
+- Move embedding connection checks off the UI thread, reuse the saved account when retesting in setup, and preserve explicit proxy settings for regional speech providers.
+- Update the native URL parser to version 2.5.9.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 0a318d53fef86e119a4915cdef19e1d650a9ff78 -->
+
+### What's Changed
+* fix(catalog): reconcile lifecycle notices and scoped routes by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/589
+* fix(catalog): record OpenRouter image route sunsets by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/591
+* feat(chat): edit Markdown inline and install agent skills from npx commands by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/592
+* feat(providers): link API keys to compatible features and refresh loading indicators by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/593
+* fix(context): verify forked history against its privacy projection by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/595
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.18...nexa-monorepo-v0.20.0) (2026-11-20)
 
 ### Features
