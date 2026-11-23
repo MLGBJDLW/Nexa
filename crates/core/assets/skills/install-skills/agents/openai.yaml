@@ -1,0 +1,6 @@
+interface:
+  display_name: "Install Skills"
+  short_description: "Install selected agent skills from npx commands, repositories, or local bundles"
+  default_prompt: "Install the requested skill in Nexa and report its name and ID."
+policy:
+  allow_implicit_invocation: true

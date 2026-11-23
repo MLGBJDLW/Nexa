@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
@@ -207,13 +208,13 @@ test(`chat task tools open on demand at ${width}px on ${route}`, async ({ page }
   await input.fill('/task-center');
   await input.press('Enter');
   await expect(panel).toBeVisible();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await page.screenshot({ path: `../../.artifacts/chat-task-quickfix/task-tools-${width}.png`, animations: 'disabled' });
   await page.keyboard.press('Escape');
   await input.fill('/workflow');
   await input.press('Enter');
   await expect(page.getByTestId('workflow-catalog-panel')).toBeVisible();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
 });
 }
 }
@@ -257,10 +258,10 @@ test('workflow catalog can prefill the chat composer', async ({ page }) => {
   await catalog.getByRole('button', { name: /Meeting Summary/ }).click();
 
   const composer = page.getByTestId('chat-input-textarea');
-  await expect(composer).toHaveValue(/spawn_subagent_batch/);
-  await expect(composer).toHaveValue(/workflow_template: meeting_summary/);
-  await expect(composer).toHaveValue(/batch_goal:/);
-  await expect(composer).toHaveValue(/Run the Meeting Summary workflow/);
+  await expectDraft(composer, /spawn_subagent_batch/);
+  await expectDraft(composer, /workflow_template: meeting_summary/);
+  await expectDraft(composer, /batch_goal:/);
+  await expectDraft(composer, /Run the Meeting Summary workflow/);
   await expect(catalog).toHaveCount(0);
 });
 

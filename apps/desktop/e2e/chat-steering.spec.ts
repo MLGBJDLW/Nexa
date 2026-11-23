@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
@@ -663,7 +664,7 @@ test('does not send stale restored running chats as steering messages', async ({
 
 test('keeps pasted images in the draft while the current reply is streaming', async ({ page }) => {
   await page.goto('/chat/conv-steering');
-  const input = page.locator('textarea').first();
+  const input = page.getByTestId('chat-input-textarea').first();
   await input.fill('Work on the first request');
   await input.press('Enter');
   await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
@@ -677,7 +678,7 @@ test('keeps pasted images in the draft while the current reply is streaming', as
     element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
   });
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
-  await expect(input).toHaveValue('Use this screenshot next');
+  await expectDraft(input, 'Use this screenshot next');
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Steering message', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('chat-stop')).toBeEnabled();

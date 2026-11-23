@@ -111,7 +111,7 @@
     "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpJson", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
       {"id": "qwen3-asr-flash", "name": "Qwen3 ASR Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "qwen3-asr-flash-2026-02-10", "name": "Qwen3 ASR Flash (2026-02-10)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "qwen3-asr-flash-2026-02-10", "name": "Qwen3 ASR Flash (2026-02-10)", "lastVerifiedAt": "2026-11-23", "status": "removed", "deprecationDate": "2026-10-10", "recommended": false, "documentationRef": "https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4", "source": "official", "productReadiness": "known"}
     ],
     "lastVerifiedAt": "2026-09-29",
     "documentationUrls": ["https://docs.modelstudio.console.alibabacloud.com/en/model-studio/asr-model"]
@@ -127,7 +127,7 @@
     "transcription": {"audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "replaceSnapshot", "finalization": "sessionFinish", "transport": "websocket", "sampleRateHz": 16000, "engineStreamingCapable": true},
     "models": [
       {"id": "qwen3-asr-flash-realtime", "name": "Qwen3 ASR Flash Realtime", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "qwen3-asr-flash-realtime-2026-02-10", "name": "Qwen3 ASR Flash Realtime (2026-02-10)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "qwen3-asr-flash-realtime-2026-02-10", "name": "Qwen3 ASR Flash Realtime (2026-02-10)", "lastVerifiedAt": "2026-11-23", "status": "removed", "deprecationDate": "2026-10-10", "recommended": false, "documentationRef": "https://www.alibabacloud.com/en/notice/model_studio_notice_of_retirement_for_selected_legacy_longtail_models_7d4", "source": "official", "productReadiness": "known"}
     ],
     "lastVerifiedAt": "2026-09-29",
     "documentationUrls": ["https://help.aliyun.com/en/model-studio/real-time-speech-recognition-user-guide"]

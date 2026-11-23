@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
@@ -543,7 +544,7 @@ test('a monitor screenshot is captured once, stays in the draft and produces a r
 test('a new chat captures into its draft without creating a conversation or starting a run', async ({ page }) => {
   await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
   await page.goto('/chat');
-  await page.getByPlaceholder('Type a message...').fill('Please check this screen');
+  await page.getByRole('textbox', { name: 'Type a message...', exact: true }).fill('Please check this screen');
   await page.getByTestId('screen-capture-toggle').click();
   await page.getByRole('button', { name: /Screen 1.*1920/ }).click();
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
@@ -551,7 +552,7 @@ test('a new chat captures into its draft without creating a conversation or star
   expect(state.conversationsCreated).toEqual([]);
   expect(state.shareConversations).toEqual([]);
   expect(state.agentCalls).toBe(0);
-  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('Please check this screen');
+  await expectDraft(page.getByRole('textbox', { name: 'Type a message...', exact: true }), 'Please check this screen');
 });
 
 test('native window screenshots use the selected window without a browser stream', async ({ page }) => {

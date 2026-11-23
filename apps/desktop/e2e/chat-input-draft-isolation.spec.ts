@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, type Locator, test } from './timeline-test';
 
 async function paintedSurfaceStyle(locator: Locator, includeSelf = true) {
@@ -321,12 +322,12 @@ test('drops multiple files into the textarea and keeps attachments in their conv
   await expect(page.getByTestId('chat-input').getByText('résumé.pdf', { exact: true })).toBeVisible();
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
   await expect(page.getByTestId('chat-input').getByText('unsupported.exe')).toHaveCount(0);
-  await expect(input).toHaveValue('Review these files');
+  await expectDraft(input, 'Review these files');
   await page.getByRole('button', { name: /Draft B/ }).click();
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(0);
   await page.getByRole('button', { name: /Draft A/ }).click();
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
-  await expect(input).toHaveValue('Review these files');
+  await expectDraft(input, 'Review these files');
   await transfer.dispose();
 });
 
@@ -364,15 +365,15 @@ test('a slow dropped file stays with its original draft when switching conversat
   });
   await input.fill('A edited during the read');
   await page.getByRole('button', { name: /Draft B/ }).click();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await expect(input).toBeEnabled();
   await input.fill('B must stay separate');
   await page.evaluate(() => (window as unknown as { finishAttachmentRead: () => void }).finishAttachmentRead());
   await page.getByRole('button', { name: /Draft A/ }).click();
-  await expect(input).toHaveValue('A edited during the read');
+  await expectDraft(input, 'A edited during the read');
   await expect(page.getByTestId('chat-input').getByText('slow-report.txt', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Draft B/ }).click();
-  await expect(input).toHaveValue('B must stay separate');
+  await expectDraft(input, 'B must stay separate');
   await expect(page.getByTestId('chat-input').getByText('slow-report.txt', { exact: true })).toHaveCount(0);
 });
 
@@ -394,7 +395,7 @@ test('context settings preview the real budget, persist, and reset without chang
   await panel.getByTestId('context-policy-save').click();
   await expect(panel.getByRole('status')).toHaveText('Saved. Ready for the next turn.');
   await panel.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(input).toHaveValue('Keep my draft');
+  await expectDraft(input, 'Keep my draft');
   await page.reload();
   await page.getByTestId('chat-context-trigger').click();
   await expect(panel.getByTestId('context-policy-capacity')).toHaveValue('128000');
@@ -474,15 +475,15 @@ test('keeps input drafts scoped to each conversation', async ({ page }) => {
   await input.fill('draft for A');
 
   await page.getByRole('button', { name: /Draft B/ }).click();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
 
   await input.fill('draft for B');
 
   await page.getByRole('button', { name: /Draft A/ }).click();
-  await expect(input).toHaveValue('draft for A');
+  await expectDraft(input, 'draft for A');
 
   await page.getByRole('button', { name: /Draft B/ }).click();
-  await expect(input).toHaveValue('draft for B');
+  await expectDraft(input, 'draft for B');
 });
 
 test('keeps an input draft after leaving and returning to chat', async ({ page }) => {
@@ -498,7 +499,7 @@ test('keeps an input draft after leaving and returning to chat', async ({ page }
   await expect(page).toHaveURL(/\/chat$/);
 
   await page.getByRole('button', { name: /Draft A/ }).click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('draft survives page switch');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'draft survives page switch');
 });
 
 test('centers only the composer for an empty chat and moves it to the bottom after the first send', async ({ page }) => {
@@ -818,16 +819,16 @@ test('navigates previous user inputs from the textarea boundary and restores the
   await input.fill('draft before history');
 
   await input.press('ArrowUp');
-  await expect(input).toHaveValue('second saved prompt');
+  await expectDraft(input, 'second saved prompt');
 
   await input.press('ArrowUp');
-  await expect(input).toHaveValue('first saved prompt');
+  await expectDraft(input, 'first saved prompt');
 
   await input.press('ArrowDown');
-  await expect(input).toHaveValue('second saved prompt');
+  await expectDraft(input, 'second saved prompt');
 
   await input.press('ArrowDown');
-  await expect(input).toHaveValue('draft before history');
+  await expectDraft(input, 'draft before history');
 });
 
 test('does not draw a focus halo around the composer after a pointer click', async ({ page }) => {

@@ -20,8 +20,8 @@ use nexa_core::{
     tools::{
         create_file_tool::CreateFileTool, edit_file_tool::EditFileTool,
         fetch_url_tool::FetchUrlTool, file_tool::FileTool, list_dir_tool::ListDirTool,
-        web_research_context_tool::WebResearchContextTool, web_search_tool::WebSearchTool,
-        ToolRegistry,
+        manage_skill_tool::ManageSkillTool, web_research_context_tool::WebResearchContextTool,
+        web_search_tool::WebSearchTool, ToolRegistry,
     },
     workspace::Workspace,
 };
@@ -133,6 +133,7 @@ pub struct LocalRuntime {
     pub db: Database,
     pub db_executor: DatabaseExecutor,
     workspace: Workspace,
+    skills: ManageSkillTool,
     outboxes: AgentRunEventOutboxes,
     // Admission spans idempotent persistence and spawning. One phone task at a
     // time avoids competing cross-app actions and keeps Stop unambiguous.
@@ -160,6 +161,9 @@ impl LocalRuntime {
         Ok(Arc::new(Self {
             db_executor,
             db,
+            skills: ManageSkillTool::Phone {
+                app_data: directory,
+            },
             workspace: Workspace::validate(&[workspace_dir.to_string_lossy().into_owned()])
                 .map_err(err)?,
             outboxes,
@@ -458,6 +462,7 @@ impl LocalRuntime {
         }
         let (steering, receiver) = mpsc::unbounded_channel();
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
+        tools.register(Box::new(self.skills.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
         tools.register(Box::new(nexa_core::tools::appearance_tool::AppearanceTool));
@@ -536,20 +541,24 @@ impl LocalRuntime {
         let confirmation_runtime = self.clone();
         let approve_app = host.app().cloned();
         let confirm_app = host.app().cloned();
-        // This bundle needs only the shared chat renderer. Keep desktop-only
-        // skill runtimes out of the phone host and honor persisted enablement.
+        let has_skill_tool = tools.contains("manage_skill");
         let skills = self
-            .db
-            .list_builtin_skills()
+            .skills
+            .catalog(&self.db)
             .unwrap_or_default()
             .into_iter()
-            .filter(|skill| skill.enabled && skill.canonical_name == "visual-explanations")
+            .filter(|skill| {
+                skill.enabled && (has_skill_tool || skill.canonical_name == "visual-explanations")
+            })
             .collect::<Vec<_>>();
-        let mut loaded_skills =
-            nexa_core::skills::select_skills_from_pool(skills.clone(), &text, 1);
+        let visual_skills = skills
+            .iter()
+            .filter(|skill| skill.canonical_name == "visual-explanations")
+            .cloned()
+            .collect();
+        let mut loaded_skills = nexa_core::skills::select_skills_from_pool(visual_skills, &text, 1);
         for skill in &mut loaded_skills {
-            // Mobile has no shell/skill-management runtime. Supply the same
-            // bundled format references directly when this skill is selected.
+            // Preserve rendering guidance even for scheduled runs with a restricted tool list.
             for reference in ["references/structured-ui.md", "references/html.md"] {
                 if let Some(resource) = skill
                     .resource_bundle
@@ -821,8 +830,8 @@ impl LocalRuntime {
         message: &str,
     ) -> Result<(), String> {
         let message = message.trim();
-        if message.is_empty() || message.chars().count() > 64_000 {
-            return Err("Enter a steering message of 1 to 64000 characters.".into());
+        if message.is_empty() {
+            return Err("Enter a nonempty steering message.".into());
         }
         let active = self.active.lock().await;
         let turn = active

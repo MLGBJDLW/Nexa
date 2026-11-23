@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const fixture = '/e2e/fixtures/mobile-shell.html?kind=chat&projects';
@@ -131,10 +132,10 @@ test('opening a Project finds older chats and retrying a first send preserves th
   await expect(drawer).not.toBeVisible();
   const composer = page.getByRole('textbox', {name:'Message',exact:true});
   await composer.fill('Save this in the project');
-  await expect(composer).toHaveValue('Save this in the project');
+  await expectDraft(composer, 'Save this in the project');
   await button(page, 'Send').click();
   await expect(page.getByRole('alert').filter({hasText:'Project move interrupted'})).toBeVisible();
-  await expect(composer).toHaveValue('Save this in the project');
+  await expectDraft(composer, 'Save this in the project');
   const launches = () => page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions
     .map((event: {method:string}) => event.method).filter((method:string) => method === 'chat.start' || method === 'chat.create'));
   expect(await launches()).toEqual(['chat.create']);

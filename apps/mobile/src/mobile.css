@@ -83,7 +83,8 @@
 .mobile-app .remote-run-status { display: flex; align-items: center; gap: 8px; padding: 0; font-size: 11px; }
 .mobile-app .native-composer { flex: none; position: static; margin: 0 12px; padding: 10px 10px 8px; border: 1px solid var(--color-border); border-radius: 24px; background: var(--color-surface-0); box-shadow: none !important; outline: none !important; background-image: none; }
 .mobile-app .native-composer-input { display: block; width: 100%; min-height: 36px; max-height: 160px; resize: none; overflow-y: auto; background: transparent; border: none; outline: none; box-shadow: none; padding: 6px 8px 9px; font-size: 16px; line-height: 24px; color: var(--color-text-primary); }
-.native-composer-input::placeholder { color: var(--color-text-tertiary); }
+.native-composer-input .cm-scroller { max-height: 144px; }
+.native-composer-input .cm-content { padding: 0; }
 .native-composer-actions { display: flex; align-items: center; gap: 3px; }
 .native-composer-actions .mobile-icon-button { width: 44px; height: 44px; }
 .mobile-model-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 200px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 18px; border-radius: 14px; padding: 7px 9px; color: var(--color-text-secondary); }

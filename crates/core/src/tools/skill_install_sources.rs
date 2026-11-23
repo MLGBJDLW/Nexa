@@ -1,6 +1,12 @@
 //! Resolve public skill packages without borrowing an unrelated asset tool.
 
-use std::{collections::HashMap, fs, io::Cursor, path::PathBuf, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::Cursor,
+    path::PathBuf,
+    time::Duration,
+};
 
 use super::{fetch_url_tool, path_utils, ToolExecutionContext};
 use crate::{
@@ -173,14 +179,90 @@ fn download_spec(source: &str, github_ref: Option<&str>) -> Result<DownloadSpec,
     })
 }
 
+/// Interpret the public GitHub install notation as data. No npm process or package
+/// lifecycle script runs, and ordinary relative paths retain their local meaning.
+fn remote_source(
+    source: &str,
+    github_ref: Option<&str>,
+) -> Result<Option<(DownloadSpec, Vec<String>)>, CoreError> {
+    let mut words = source.split_ascii_whitespace().peekable();
+    if words.peek() != Some(&"npx") {
+        return if source.contains("://") {
+            Ok(Some((download_spec(source, github_ref)?, Vec::new())))
+        } else {
+            Ok(None)
+        };
+    }
+    words.next();
+    if matches!(words.peek(), Some(&"-y" | &"--yes")) {
+        words.next();
+    }
+    if !matches!(words.next(), Some("skills" | "skills@latest")) || words.next() != Some("add") {
+        return Err(invalid("Use npx skills add OWNER/REPO [--skill NAME ...]"));
+    }
+    let source = words
+        .next()
+        .ok_or_else(|| invalid("Missing skills repository"))?;
+    let (repository, selector) = source
+        .split_once('@')
+        .map_or((source, None), |(repo, skill)| (repo, Some(skill)));
+    let repository = repository
+        .strip_prefix("https://github.com/")
+        .unwrap_or(repository)
+        .trim_end_matches('/');
+    let parts = repository.split('/').collect::<Vec<_>>();
+    if parts.len() != 2
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || matches!(*part, "." | "..")
+                || !part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+        })
+    {
+        return Err(invalid(
+            "Use a public GitHub owner/repository or pass a local path directly in sources",
+        ));
+    }
+    let mut skills = selector.into_iter().map(str::to_owned).collect::<Vec<_>>();
+    while let Some(option) = words.next() {
+        match option {
+            "--yes" | "-y" | "--global" | "-g" => {}
+            "--skill" | "-s" => {
+                let count = skills.len();
+                while words.peek().is_some_and(|name| !name.starts_with('-')) {
+                    skills.push(words.next().unwrap().to_owned());
+                }
+                if skills.len() == count {
+                    return Err(invalid("--skill requires one or more skill names"));
+                }
+            }
+            _ => return Err(invalid(format!("Unsupported skills add option: {option}"))),
+        }
+    }
+    if skills.iter().any(|name| {
+        name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    }) {
+        return Err(invalid(
+            "Use exact skill names or omit --skill to inspect the collection",
+        ));
+    }
+    Ok(Some((
+        download_spec(&format!("https://github.com/{repository}"), github_ref)?,
+        skills,
+    )))
+}
+
 pub(super) fn validate_sources(
     sources: &[String],
     github_ref: Option<&str>,
 ) -> Result<(), CoreError> {
     let mut github = false;
     for source in sources {
-        if source.contains("://") {
-            let spec = download_spec(source, github_ref)?;
+        if let Some((spec, _)) = remote_source(source, github_ref)? {
             github |= spec.github_directory.is_some();
         }
     }
@@ -192,13 +274,49 @@ pub(super) fn validate_sources(
     Ok(())
 }
 
-fn filter_github_archive(bytes: &[u8], directory: &str) -> Result<Vec<u8>, CoreError> {
+fn filter_github_archive(
+    bytes: &[u8],
+    directory: &str,
+    names: &[String],
+) -> Result<Vec<u8>, CoreError> {
     let mut source = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| invalid(format!("Invalid GitHub archive: {error}")))?;
     if source.len() > 100_000 {
         return Err(invalid(
             "GitHub archive exceeds 100,000 entries; use a local checkout of the skill directory",
         ));
+    }
+    // Narrow a named install before parsing resources. Large repositories can
+    // contain unrelated skills, symlinks and files outside the package limits.
+    let mut roots = HashSet::new();
+    if !names.is_empty() {
+        let requested: HashSet<_> = names.iter().map(String::as_str).collect();
+        let mut matched = HashSet::new();
+        let mut root_skill = false;
+        for entry in source.file_names() {
+            let entry = entry.map_err(|error| invalid(error.to_string()))?;
+            let Some((_, relative)) = entry.split_once('/') else {
+                continue;
+            };
+            if relative == "SKILL.md" {
+                root_skill = true;
+            }
+            if let Some(dir) = relative.strip_suffix("/SKILL.md") {
+                let name = dir.rsplit('/').next().unwrap_or(dir);
+                if requested.contains(name) {
+                    matched.insert(name.to_owned());
+                    roots.insert(dir.to_owned());
+                }
+            }
+        }
+        if matched.len() != requested.len() {
+            if root_skill {
+                // A repository-root bundle declares its name in frontmatter.
+                roots.clear();
+            } else {
+                return Err(invalid("A requested skill was not found in the repository"));
+            }
+        }
     }
     let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let mut found = false;
@@ -219,7 +337,12 @@ fn filter_github_archive(bytes: &[u8], directory: &str) -> Result<Vec<u8>, CoreE
         if entry.is_dir() || relative.is_empty() {
             continue;
         }
-        if directory.is_empty() || relative.starts_with(&format!("{directory}/")) {
+        let selected = roots.is_empty()
+            || std::path::Path::new(relative)
+                .ancestors()
+                .filter_map(std::path::Path::to_str)
+                .any(|dir| roots.contains(dir));
+        if selected && (directory.is_empty() || relative.starts_with(&format!("{directory}/"))) {
             output
                 .raw_copy_file_rename(entry, relative)
                 .map_err(|error| invalid(error.to_string()))?;
@@ -276,11 +399,12 @@ async fn download(spec: &DownloadSpec) -> Result<Vec<u8>, CoreError> {
 fn persist_download(
     bytes: &[u8],
     spec: &DownloadSpec,
+    names: &[String],
     base: PathBuf,
 ) -> Result<PathBuf, CoreError> {
     if let Some(directory) = &spec.github_directory {
         let path = base.with_extension("zip");
-        fs::write(&path, filter_github_archive(bytes, directory)?)?;
+        fs::write(&path, filter_github_archive(bytes, directory, names)?)?;
         return Ok(path);
     }
     let (extension, body) = if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")
@@ -307,11 +431,19 @@ pub(super) async fn prepare(
     context: &ToolExecutionContext<'_>,
     sources: &[String],
     github_ref: Option<&str>,
+    host: &super::manage_skill_tool::ManageSkillTool,
 ) -> Result<PreparedSources, CoreError> {
-    let policy = super::file_access_policy_for_context(context)?;
-    let temporary = tempfile::Builder::new()
-        .prefix("nexa-skill-download-")
-        .tempdir()?;
+    use super::manage_skill_tool::ManageSkillTool;
+    let mut policy = super::file_access_policy_for_context(context)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("nexa-skill-download-");
+    let temporary = match host {
+        ManageSkillTool::Phone { app_data } => {
+            policy.allow_unregistered_absolute_paths = false;
+            builder.tempdir_in(app_data)?
+        }
+        ManageSkillTool::Desktop => builder.tempdir()?,
+    };
     let mut result = PreparedSources {
         _temporary: temporary,
         paths: Vec::new(),
@@ -324,13 +456,13 @@ pub(super) async fn prepare(
             continue;
         }
         crate::privacy::runtime::ensure_invocation_current()?;
-        let remote = source.starts_with("https://") || source.starts_with("http://");
-        let path = if remote {
-            let spec = download_spec(source, github_ref)?;
-            let bytes = download(&spec).await?;
+        let remote = remote_source(source, github_ref)?;
+        let path = if let Some((spec, names)) = &remote {
+            let bytes = download(spec).await?;
             persist_download(
                 &bytes,
-                &spec,
+                spec,
+                names,
                 result._temporary.path().join(format!("source-{index}")),
             )?
         } else {
@@ -344,9 +476,21 @@ pub(super) async fn prepare(
             .map_err(invalid)?
         };
         let mut previews = crate::skills::inspect_skill_install_source(&path)?;
+        if let Some((_, names)) = &remote {
+            for name in names {
+                if !previews.iter().any(|preview| &preview.name == name) {
+                    return Err(invalid(format!(
+                        "Skill '{name}' was not found in the repository"
+                    )));
+                }
+            }
+            if !names.is_empty() {
+                previews.retain(|preview| names.contains(&preview.name));
+            }
+        }
         for preview in &mut previews {
             let original = preview.skill_file.clone();
-            if remote {
+            if remote.is_some() {
                 let suffix = original
                     .split_once("!/")
                     .map(|(_, suffix)| format!("!/{suffix}"))
@@ -376,16 +520,40 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    #[test]
+    fn skills_cli_selectors_use_the_existing_github_installer() {
+        let (source, names) = remote_source(
+            "npx -y skills@latest add vercel-labs/skills@find-skills --skill one two -g",
+            Some("main"),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            source.url.as_str(),
+            "https://codeload.github.com/vercel-labs/skills/zip/main"
+        );
+        assert_eq!(names, ["find-skills", "one", "two"]);
+        assert!(remote_source("local/skills", None).unwrap().is_none());
+        for bad in [
+            "npx other add owner/repo",
+            "npx skills add ../repo",
+            "npx skills add owner/repo --skill",
+            "npx skills add owner/repo && echo",
+        ] {
+            assert!(remote_source(bad, None).is_err(), "{bad}");
+        }
+    }
+
     #[tokio::test]
     #[ignore = "Live public GitHub probe; explicitly run without account credentials"]
     async fn public_github_skill_roundtrips_through_install_activation_and_resource_readback() {
         use super::super::{manage_skill_tool::ManageSkillTool, Tool};
         let db = crate::db::Database::open_memory().unwrap();
-        let sources = vec![
-            "https://github.com/openai/skills/tree/main/skills/.system/skill-installer".to_string(),
-        ];
+        let sources = vec!["npx skills add openai/skills@skill-installer".to_string()];
         let context = ToolExecutionContext::new("probe", "{}", &db, &[]);
-        let prepared = prepare(&context, &sources, None).await.unwrap();
+        let prepared = prepare(&context, &sources, None, &ManageSkillTool::Desktop)
+            .await
+            .unwrap();
         assert_eq!(prepared.previews.len(), 1);
         let selected = vec![SkillInstallSelection {
             skill_file: prepared.previews[0].skill_file.clone(),
@@ -419,7 +587,7 @@ mod tests {
                 args["resource_path"] = serde_json::json!(resource);
             }
             let args = args.to_string();
-            let result = ManageSkillTool
+            let result = ManageSkillTool::Desktop
                 .execute(ToolExecutionContext::new("readback", &args, &db, &[]))
                 .await
                 .unwrap();
@@ -475,17 +643,29 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let spec =
             download_spec("https://github.com/acme/repo/tree/main/skills/demo", None).unwrap();
-        let path = persist_download(&bytes, &spec, temp.path().join("download")).unwrap();
+        let path = persist_download(&bytes, &spec, &[], temp.path().join("download")).unwrap();
         let previews = crate::skills::inspect_skill_install_source(&path).unwrap();
         assert_eq!(previews.len(), 1);
         assert_eq!(previews[0].name, "demo");
         assert_eq!(previews[0].resources[0].path, "templates/report.md");
+        let (repo, names) = remote_source("npx skills add acme/repo@demo", None)
+            .unwrap()
+            .unwrap();
+        let selected =
+            persist_download(&bytes, &repo, &names, temp.path().join("selected")).unwrap();
+        assert_eq!(
+            crate::skills::inspect_skill_install_source(&selected)
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(persist_download(
             b"<html>Sign in</html>",
             &DownloadSpec {
                 url: reqwest::Url::parse("https://example.com/skill.md").unwrap(),
                 github_directory: None
             },
+            &[],
             temp.path().join("html")
         )
         .is_err());

@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test, type Locator } from './timeline-test';
 
 test('user Markdown folds by rendered height, preserves source, and does not load remote images', async ({ page }) => {
@@ -24,19 +25,33 @@ test('live Markdown and local slash commands keep original text and never send a
   await page.goto('/chat/conv-slash');
   const input = page.getByTestId('chat-input-textarea');
   const source = '# Draft\n\n**中文输入**\n\n- keep raw text';
-  await input.fill(source);
-  await expect(page.getByTestId('chat-draft-markdown').locator('h1')).toHaveText('Draft');
-  await expect(page.getByTestId('chat-draft-markdown').locator('strong')).toHaveText('中文输入');
-  await expect(input).toHaveValue(source);
+  await input.focus();
+  await input.evaluate((element, text) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', text);
+    data.setData('text/html', '<p>Other clipboard representation</p>');
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, source);
+  await expect(input.locator('.draft-heading').filter({hasText: /Draft|Setext heading/})).toContainText('Draft');
+  await expect(input.locator('.draft-strong').filter({hasText: '中文输入'})).toContainText('中文输入');
+  await expectDraft(input, source);
   await expect(input).toBeFocused();
+  await input.fill('');
+  await input.pressSequentially('**bold**');
+  await expect(input.locator('.draft-strong').filter({hasText: 'bold'})).toHaveCSS('font-weight', '700');
+  await expect(input.locator('.draft-delimiter').last()).toHaveCSS('font-size', '0px');
+  await input.press('ArrowLeft');
+  await input.press('ArrowLeft');
+  await page.keyboard.insertText('er');
+  await expectDraft(input, '**bolder**');
   await input.fill('Setext heading\n=============');
-  await expect(page.getByTestId('chat-draft-markdown').locator('h1')).toHaveText('Setext heading');
+  await expect(input.locator('.draft-heading').filter({hasText: /Draft|Setext heading/})).toContainText('Setext heading');
   await input.fill('https://example.invalid/guide');
-  await expect(page.getByTestId('chat-draft-markdown')).toBeVisible();
+  await expect(input.locator('.draft-link')).toBeVisible();
   await input.fill('/model');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('agent-model-picker-menu')).toBeVisible();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await page.keyboard.press('Escape');
   await input.fill('/options');
   await page.keyboard.press('Enter');
@@ -64,7 +79,7 @@ test('command palette runs chat actions, searches conversations, restores focus,
   await expect(dialog.getByRole('option').filter({ hasText: 'Slash commands' })).toHaveCount(2);
   await page.keyboard.press('Escape');
   await expect(input).toBeFocused();
-  await expect(input).toHaveValue('Keep my draft');
+  await expectDraft(input, 'Keep my draft');
   await page.goto('/settings');
   const shortcut = page.getByTestId('palette-shortcut-input');
   await shortcut.focus();
@@ -282,7 +297,7 @@ test('slash command menu can pin a skill for the next send', async ({ page }) =>
   await expect(menu).toContainText('/frontend-design');
 
   await page.keyboard.press('Enter');
-  await expect(textarea).toHaveValue('');
+  await expectDraft(textarea, '');
   const capsule = page.getByTestId('active-slash-command');
   await expect(capsule).toBeVisible();
   await expect(capsule).toContainText('/frontend-design');
@@ -353,7 +368,7 @@ test('an activated slash command can be cancelled without editing the prompt', a
   await page.getByTestId('remove-active-slash-command').click();
 
   await expect(page.getByTestId('active-slash-command')).toHaveCount(0);
-  await expect(textarea).toHaveValue('');
+  await expectDraft(textarea, '');
   await expect(textarea).toBeFocused();
 });
 
@@ -425,12 +440,12 @@ test('runtime slash commands share button state, preserve drafts, and configure 
   await input.fill('/nex');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('chat-nexus-dialog')).toBeVisible();
-  await expect(input).toHaveValue('');
+  await expectDraft(input, '');
   await page.getByTestId('chat-nexus-confirm').click();
   await expect(page.getByTestId('chat-nexus-mode-banner')).toBeVisible();
   await input.fill('/nexus on Keep this draft');
   await page.keyboard.press('Enter');
-  await expect(input).toHaveValue('Keep this draft');
+  await expectDraft(input, 'Keep this draft');
   await expect(page.getByTestId('chat-nexus-dialog')).toBeHidden();
   await input.fill('/moa cross-model-code-review');
   await page.keyboard.press('Enter');
@@ -463,7 +478,7 @@ test('runtime slash commands share button state, preserve drafts, and configure 
   await expect(page.getByTestId('chat-moa-mode-banner')).toBeHidden();
   await input.fill('/quality deep Next draft');
   await page.keyboard.press('Enter');
-  await expect(input).toHaveValue('Next draft');
+  await expectDraft(input, 'Next draft');
   await expect(page.getByTestId('chat-quality-profile-banner')).toContainText('Deep');
   expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(1);
 });
@@ -485,7 +500,7 @@ test('bare runtime commands and palette actions open the same pickers', async ({
   await dialog.getByRole('combobox').fill('Nexus');
   await dialog.getByRole('option', { name: 'Nexus mode', exact: true }).click();
   await expect(page.getByTestId('chat-nexus-dialog')).toBeVisible();
-  await expect(input).toHaveValue('Keep my draft');
+  await expectDraft(input, 'Keep my draft');
 });
 
 test('invalid and unavailable local commands never reach the model', async ({ page }) => {
@@ -494,7 +509,7 @@ test('invalid and unavailable local commands never reach the model', async ({ pa
   for (const command of ['/nexus unknown', '/quality invalid', '/stop']) {
     await input.fill(command);
     await page.getByTestId('chat-send').click();
-    await expect(input).toHaveValue(command);
+    await expectDraft(input, command);
   }
   await expect(page.getByTestId('chat-nexus-mode-banner')).toBeHidden();
   expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
@@ -509,7 +524,7 @@ test('registered browser button automatically has a local slash command', async 
   await input.fill('/browser Keep my draft');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('browser-dock')).toHaveCount(0);
-  await expect(input).toHaveValue('Keep my draft');
+  await expectDraft(input, 'Keep my draft');
   expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
 });
 

@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { selectControl } from './select-control';
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { readFileSync } from 'node:fs';
@@ -522,7 +523,7 @@ test("QR pairs once and retries an uncertain chat launch with the same ID after 
   await expect(
     page.getByRole("button", { name: "Public connection", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
+  await expectDraft(page.getByLabel("Message", { exact: true }), "");
   expect(app.counts().launches).toHaveLength(2);
   expect(new Set(app.counts().launches).size).toBe(1);
   await page.screenshot({
@@ -680,14 +681,14 @@ test('phone dictation pauses and recovers the same session after a stalled audio
   await page.getByRole('button', { name: 'Voice input', exact: true }).click();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('保留的文字');
-  await expect(draft).toHaveValue('保留的文字');
+  await expectDraft(draft, '保留的文字');
   await expect.poll(() => app.counts().sockets, { timeout: 8000 }).toBeGreaterThan(1);
   app.audioDelay(0);
   const audio = app.counts().audio;
   await expect.poll(() => app.counts().audio).toBeGreaterThan(audio + 5);
   expect(app.counts().actions.filter(item => item.method === 'voice.start')).toHaveLength(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(draft).toHaveValue('保留的文字');
+  await expectDraft(draft, '保留的文字');
   await page.getByRole('button', { name: 'Finish dictation', exact: true }).click();
 });
 
@@ -700,14 +701,14 @@ test('phone dictation edits the composer live and retains manual corrections thr
   await draft.hover(); await page.mouse.down();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('今天天气很好');
-  await expect(draft).toHaveValue('写下： 今天天气很好');
+  await expectDraft(draft, '写下： 今天天气很好');
   await draft.fill('写下： 明天天气很好');
   app.dictation('今天天气很好啊');
-  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await expectDraft(draft, '写下： 明天天气很好啊');
   await page.mouse.up();
   await expect.poll(() => app.counts().actions.some(item => item.method === 'voice.finish')).toBe(true);
   await expect(page.getByRole('button', {name:'Voice input',exact:true})).toBeEnabled();
-  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await expectDraft(draft, '写下： 明天天气很好啊');
   await expect.poll(() => page.evaluate(() => (window as any).__remoteTracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
@@ -777,7 +778,7 @@ test('phone keeps replies and tools in order and the composer opaque with a cust
   const opaque = await page.getByTestId('remote-composer').evaluate(element => {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
     const ctx = canvas.getContext('2d')!;
-    return [element, element.querySelector('textarea')!].map(item => {
+    return [element, element.querySelector('.remote-composer-input')!].map(item => {
       ctx.clearRect(0,0,1,1); ctx.fillStyle = getComputedStyle(item).backgroundColor; ctx.fillRect(0,0,1,1);
       return ctx.getImageData(0,0,1,1).data[3];
     });
@@ -1003,7 +1004,7 @@ test("phone microphone and camera pause across a route change then resume the sa
   await page
     .getByRole("button", { name: "Continue in chat", exact: true })
     .click();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+  await expectDraft(page.getByLabel("Message", { exact: true }),
     /owner is still unconfirmed/,
   );
   expect(
@@ -1235,7 +1236,7 @@ test("an old chat launch cannot clear the new conversation draft", async ({
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
   ).toBeEnabled();
-  await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+  await expectDraft(page.getByLabel("Message", { exact: true }),
     "Keep this new draft",
   );
   await expect(

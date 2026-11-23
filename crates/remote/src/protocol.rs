@@ -203,10 +203,8 @@ impl RemoteCommand {
             run_id, message, ..
         } = self
         {
-            if run_id.is_empty() || message.trim().is_empty() || message.chars().count() > 64_000 {
-                return Err(
-                    "Specify an active run and a steering message of 1 to 64000 characters".into(),
-                );
+            if run_id.is_empty() || message.trim().is_empty() {
+                return Err("Specify an active run and a nonempty steering message".into());
             }
         }
         if let Self::PhoneControlResult {
@@ -242,10 +240,8 @@ impl RemoteCommand {
             ..
         } = self
         {
-            if (message.trim().is_empty() && attachments.is_empty())
-                || message.chars().count() > 64_000
-            {
-                return Err("Chat messages must contain 1 to 64000 characters".into());
+            if message.trim().is_empty() && attachments.is_empty() {
+                return Err("Enter a message or attach a file".into());
             }
             if attachments.len() > 8
                 || attachments

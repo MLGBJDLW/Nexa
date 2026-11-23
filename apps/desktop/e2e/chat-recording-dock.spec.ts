@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
@@ -412,7 +413,7 @@ test('dictation and next-turn Nexus controls remain usable during an active resp
         text: 'Here is my next instruction',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Here is my next instruction');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'Here is my next instruction');
 });
 
 for (const overloaded of [false, true]) {
@@ -425,7 +426,7 @@ for (const overloaded of [false, true]) {
         .__VOICE_MICROPHONE_CONTROL__.flushChunkSizes = large ? Array(9).fill(262_144) : [960, 960];
     }, overloaded);
     await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
-    await expect(page.getByTestId('chat-input-textarea')).toHaveValue(
+    await expectDraft(page.getByTestId('chat-input-textarea'),
       overloaded ? 'fallback voice transcript' : 'final voice transcript',
     );
     const received = await page.evaluate(() => {
@@ -508,7 +509,7 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
       });
   });
   await expect(page.getByTestId('voice-partial-transcript')).toContainText('check the entire configuration');
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('check the entire configuration');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'check the entire configuration');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -520,7 +521,7 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
         text: '',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -533,7 +534,7 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
       });
   });
   await expect(page.getByTestId('voice-partial-transcript')).toContainText('check the entire configuration');
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('check the entire configuration');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'check the entire configuration');
 
   await page.getByTestId('chat-input-textarea').fill('check the whole configuration');
   await page.evaluate(() => {
@@ -546,7 +547,7 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
         text: 'check the complete configuration carefully',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('check the whole configuration carefully');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'check the whole configuration carefully');
 
   await page.evaluate(() => {
     (window as unknown as { __SET_VOICE_TRACK_MUTED__: (muted: boolean) => void })
@@ -595,7 +596,7 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
   );
   expect(stopTransition.state).toBe('processing');
   expect(stopTransition.elapsedMs).toBeLessThan(300);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('check the whole configuration carefully');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'check the whole configuration carefully');
   await expect(dock).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Start voice input' }).click();
@@ -616,14 +617,14 @@ test('failed realtime replay preserves words and retries the same draft without 
     fixture.__VOICE_MICROPHONE_CONTROL__.failSpoolTranscription = true;
     fixture.__EMIT_TAURI_EVENT__('speech-to-text:realtime', { sessionId:'realtime-voice-test', kind:'interim', update:'replaceSnapshot', sequence:1, text:'已有的转写内容' });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('已有的转写内容');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '已有的转写内容');
   await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
   const retry = page.getByRole('button', { name: 'Retry transcription', exact: true });
   await expect(retry).toBeVisible();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('已有的转写内容');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '已有的转写内容');
   await page.evaluate(() => { (window as unknown as { __VOICE_MICROPHONE_CONTROL__: { failSpoolTranscription: boolean } }).__VOICE_MICROPHONE_CONTROL__.failSpoolTranscription = false; });
   await retry.click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('fallback voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'fallback voice transcript');
 });
 
 test('rapid revised Chinese snapshots remain identical in the dock and composer', async ({ page }, testInfo) => {
@@ -642,7 +643,7 @@ test('rapid revised Chinese snapshots remain identical in the dock and composer'
     }
   }, corrected);
   await expect(page.getByTestId('voice-partial-transcript')).toContainText(corrected);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue(corrected);
+  await expectDraft(page.getByTestId('chat-input-textarea'), corrected);
   await page.getByTestId('chat-input').screenshot({ path: testInfo.outputPath('corrected-live-transcript.png') });
 });
 
@@ -661,11 +662,11 @@ test('live dictation stays pinned to the draft where recording started', async (
         text: 'owned by the first draft',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('owned by the first draft');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'owned by the first draft');
 
   await page.getByRole('button', { name: /Other Voice Draft/ }).click();
   await expect(page).toHaveURL(/\/chat\/conv-voice-other$/);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -677,11 +678,10 @@ test('live dictation stays pinned to the draft where recording started', async (
         text: 'owned by the first draft and continued',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 
   await page.getByRole('button', { name: /Voice Dock/ }).click();
-  await expect(page.getByTestId('chat-input-textarea'))
-    .toHaveValue('owned by the first draft and continued');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'owned by the first draft and continued');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
 });
@@ -702,7 +702,7 @@ test('CJK live dictation preserves a manual correction and appends without space
       });
   });
   const composer = page.getByTestId('chat-input-textarea');
-  await expect(composer).toHaveValue('今天天气');
+  await expectDraft(composer, '今天天气');
 
   await composer.fill('明天天气');
   await page.evaluate(() => {
@@ -715,7 +715,7 @@ test('CJK live dictation preserves a manual correction and appends without space
         text: '今天天气很好',
       });
   });
-  await expect(composer).toHaveValue('明天天气很好');
+  await expectDraft(composer, '明天天气很好');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -727,11 +727,11 @@ test('CJK live dictation preserves a manual correction and appends without space
         text: '今天天气很好。',
       });
   });
-  await expect(composer).toHaveValue('明天天气很好。');
+  await expectDraft(composer, '明天天气很好。');
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(composer).toHaveValue('明天天气很好。');
+  await expectDraft(composer, '明天天气很好。');
 });
 
 test('sending an interim transcript terminates dictation without repopulating the composer', async ({ page }) => {
@@ -749,11 +749,11 @@ test('sending an interim transcript terminates dictation without repopulating th
         text: 'send this interim transcript',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('send this interim transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'send this interim transcript');
 
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -765,7 +765,7 @@ test('sending an interim transcript terminates dictation without repopulating th
         text: 'send this interim transcript with a late suffix',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 });
 
 test('sending during transcription rejects the late finalized transcript', async ({ page }) => {
@@ -781,15 +781,15 @@ test('sending during transcription rejects the late finalized transcript', async
         text: 'send while finalizing',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('send while finalizing');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'send while finalizing');
 
   await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
   await expect(page.getByTestId('voice-recording-dock')).toHaveAttribute('data-state', 'processing');
   await page.getByTestId('chat-send').click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
   await page.waitForTimeout(500);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 });
 
 test('batch fallback clears the stale realtime hypothesis before a draft switch', async ({ page }) => {
@@ -810,11 +810,11 @@ test('batch fallback clears the stale realtime hypothesis before a draft switch'
         text: 'stale realtime hypothesis',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('stale realtime hypothesis');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'stale realtime hypothesis');
 
   await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('fallback voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'fallback voice transcript');
 
   await page.evaluate(() => {
     (window as unknown as { __EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void })
@@ -826,13 +826,13 @@ test('batch fallback clears the stale realtime hypothesis before a draft switch'
         text: 'late queued realtime hypothesis',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('fallback voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'fallback voice transcript');
 
   await page.getByRole('button', { name: /Other Voice Draft/ }).click();
   await expect(page).toHaveURL(/\/chat\/conv-voice-other$/);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
   await page.getByRole('button', { name: /Voice Dock/ }).click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('fallback voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'fallback voice transcript');
 });
 
 test('realtime success clears its hypothesis even when private spool cleanup is deferred', async ({ page }) => {
@@ -853,17 +853,17 @@ test('realtime success clears its hypothesis even when private spool cleanup is 
         text: 'stale successful hypothesis',
       });
   });
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('stale successful hypothesis');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'stale successful hypothesis');
 
   await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('final voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'final voice transcript');
 
   await page.getByRole('button', { name: /Other Voice Draft/ }).click();
   await expect(page).toHaveURL(/\/chat\/conv-voice-other$/);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
   await page.getByRole('button', { name: /Voice Dock/ }).click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('final voice transcript');
+  await expectDraft(page.getByTestId('chat-input-textarea'), 'final voice transcript');
 });
 
 test('cancelling during provider readiness never continues into voice resource startup', async ({ page }) => {
@@ -901,7 +901,7 @@ test('cancelling during provider readiness never continues into voice resource s
       && control.defaultRequestCalls === 0;
   })).toBe(true);
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('');
+  await expectDraft(page.getByTestId('chat-input-textarea'), '');
 });
 
 test('cancelling a pending spool creation deletes the late spool before microphone startup', async ({ page }) => {
@@ -1132,7 +1132,7 @@ test('holding the message box records once and releasing appends to the unsent d
   await page.mouse.move(box.x + 100, y, { steps: 3 });
   await page.waitForTimeout(550);
   await page.mouse.up();
-  expect(await input.evaluate(el => (el as HTMLTextAreaElement).selectionStart !== (el as HTMLTextAreaElement).selectionEnd)).toBe(true);
+  expect(await input.evaluate(el => !el.ownerDocument.getSelection()?.isCollapsed)).toBe(true);
   expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.voiceSpoolStartCalls)).toBe(0);
   await input.press('End');
 
@@ -1140,7 +1140,7 @@ test('holding the message box records once and releasing appends to the unsent d
   await page.mouse.down();
   await expect(page.locator('.voice-btn-recording')).toBeVisible();
   await page.mouse.up();
-  await expect(input).toHaveValue('Keep these words final voice transcript');
+  await expectDraft(input, 'Keep these words final voice transcript');
   expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(1);
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
 });
@@ -1157,7 +1157,7 @@ test('releasing the message box before microphone permission never captures afte
   await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.grant());
   await expect.poll(() => page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.stopCalls)).toBeGreaterThan(0);
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(input).toHaveValue('Original');
+  await expectDraft(input, 'Original');
   expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(0);
 });
 
@@ -1172,7 +1172,7 @@ test('a held recording cancels on window blur without changing the draft', async
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   await page.mouse.up();
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(input).toHaveValue('Keep this draft');
+  await expectDraft(input, 'Keep this draft');
   expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(0);
 });
 
@@ -1200,7 +1200,7 @@ test('a late hold transcript updates only the draft where dictation started', as
   await input.fill('Draft B');
   await page.evaluate(() => (window as any).__FINISH_HELD_TRANSCRIPT__());
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
-  await expect(input).toHaveValue('Draft B');
+  await expectDraft(input, 'Draft B');
   await page.getByRole('button', { name: /Voice Dock/ }).click();
-  await expect(input).toHaveValue('Draft A final voice transcript');
+  await expectDraft(input, 'Draft A final voice transcript');
 });

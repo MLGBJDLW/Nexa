@@ -39,6 +39,9 @@ fn retrieval_task_profile(base_url: &str, model: &str) -> &'static str {
         }
         "nvidia/llama-nemotron-embed-vl-1b-v2:free" => "nvidia-query-passage-v1",
         "cohere/embed-5-fast" | "cohere/embed-5-pro" => "cohere-search-input-type-v1",
+        "perplexity/pplx-embed-v2-context-0.6b" | "perplexity/pplx-embed-v2-context-9b" => {
+            "perplexity-dense-retrieval-v2"
+        }
         _ => "plain",
     }
 }
@@ -298,6 +301,11 @@ impl ApiEmbedder {
             }
             "nvidia-query-passage-v1" => {
                 body["input_type"] = json!(if query { "query" } else { "passage" });
+            }
+            "perplexity-dense-retrieval-v2" => {
+                // A flat batch keeps each indexed passage independent. Nested
+                // inputs would group unrelated passages into a single document.
+                body["input_type"] = json!(if query { "query" } else { "document" });
             }
             "cohere-search-input-type-v1" => {
                 body["input_type"] = json!(if query {
@@ -562,6 +570,21 @@ mod tests {
             assert_eq!(
                 cohere.request(&["document"], false).1["input_type"],
                 "search_document"
+            );
+        }
+        for (model, dimension_parameter) in [
+            ("perplexity/pplx-embed-v2-context-0.6b", None),
+            ("perplexity/pplx-embed-v2-context-9b", Some(json!(1024))),
+        ] {
+            let embedder = client(router, model, 1024);
+            let (_, documents) = embedder.request(&["alpha", "beta"], false);
+            assert_eq!(documents["input"], json!(["alpha", "beta"]));
+            assert_eq!(documents["input_type"], "document");
+            assert_eq!(documents["encoding_format"], "float");
+            assert_eq!(documents.get("dimensions"), dimension_parameter.as_ref());
+            assert_eq!(
+                embedder.request(&["question"], true).1["input_type"],
+                "query"
             );
         }
         let private = client(

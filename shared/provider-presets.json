@@ -5816,7 +5816,7 @@
         "maxOutputTokens": 131072,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-23",
         "modalities": [
           "text"
         ],
@@ -5848,6 +5848,7 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
+          "logit_bias",
           "logprobs",
           "max_tokens",
           "presence_penalty",
@@ -8186,9 +8187,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.5-pro",
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 235929
       },
       {
         "id": "xiaomi/mimo-v2.5",
@@ -8584,10 +8585,8 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
           "repetition_penalty",
@@ -8603,7 +8602,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-20",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/z-ai/glm-5.1",
         "maxOutputTokens": 131072,
         "status": "active"
@@ -10016,10 +10015,8 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
           "repetition_penalty",
@@ -10035,7 +10032,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-122b-a10b",
         "maxOutputTokens": 65536
       },
@@ -10506,15 +10503,11 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
-          "repetition_penalty",
           "response_format",
-          "seed",
           "stop",
           "structured_outputs",
           "temperature",
@@ -10525,9 +10518,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/minimax/minimax-m2.5",
-        "maxOutputTokens": 176947
+        "maxOutputTokens": 32768
       },
       {
         "id": "z-ai/glm-5",
@@ -10839,10 +10832,8 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "logprobs",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
           "repetition_penalty",
@@ -10858,7 +10849,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2.5/endpoints",
         "maxOutputTokens": 235929,
         "status": "active",
@@ -16568,22 +16559,19 @@
         "supportsStructuredOutput": true,
         "supportedParameters": [
           "frequency_penalty",
-          "logprobs",
           "max_tokens",
           "response_format",
-          "seed",
           "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-chat-v3-0324",
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 147456
       },
       {
         "id": "openai/o1-pro",
@@ -18341,9 +18329,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-20",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/api/v1/models",
-        "maxOutputTokens": 72000,
+        "maxOutputTokens": 117964,
         "status": "active",
         "recommended": false
       },
@@ -19903,7 +19891,6 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
-          "logprobs",
           "max_completion_tokens",
           "max_tokens",
           "min_p",
@@ -19919,11 +19906,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/tencent/hy4-preview",
         "maxOutputTokens": 64000,
         "capabilities": {
@@ -20139,7 +20125,6 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
-          "logprobs",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -20154,11 +20139,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-21",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-vision-exp",
         "maxOutputTokens": 262144,
         "capabilities": {
@@ -23823,7 +23807,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-20",
+        "lastVerifiedAt": "2026-11-23",
         "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hy4/endpoints",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -23849,6 +23833,7 @@
           "reasoning_effort",
           "repetition_penalty",
           "response_format",
+          "seed",
           "stop",
           "structured_outputs",
           "temperature",

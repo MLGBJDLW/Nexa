@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
@@ -761,7 +762,7 @@ test('opens the child workspace from the capsule and preserves the parent draft 
   await dock.getByLabel('Add an instruction to this subtask').fill('Check the edge case');
   await dock.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dock).toContainText('Instruction applied');
-  await expect(input).toHaveValue('Unsent parent draft');
+  await expectDraft(input, 'Unsent parent draft');
   await dock.getByLabel('Add an instruction to this subtask').fill('Unsent child draft');
   await dock.getByLabel('Close panel', { exact: true }).click();
   await expect(dock).toHaveCount(0);
@@ -772,7 +773,7 @@ test('opens the child workspace from the capsule and preserves the parent draft 
   await expect(dock).toContainText('Child completed after parent');
   await expect(dock.getByRole('button', { name: 'Stop subtask' })).toBeDisabled();
   await expect(dock.getByTestId('tool-call-card')).toHaveAttribute('data-tool-state', 'done');
-  await expect(input).toHaveValue('Unsent parent draft');
+  await expectDraft(input, 'Unsent parent draft');
   await dock.getByRole('separator').focus();
   await page.keyboard.press('ArrowLeft');
   await expect(dock.getByRole('separator')).toHaveAttribute('aria-valuenow', '620');

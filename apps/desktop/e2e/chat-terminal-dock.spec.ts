@@ -1,3 +1,4 @@
+import { expectDraft } from './draft-editor';
 import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
@@ -577,8 +578,8 @@ test('opens an interactive terminal dock from the chat screen', async ({ page, c
   await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toContain('ask_myself');
 
   await page.getByTestId('terminal-send-selection').click();
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/<terminal_selection>/);
-  await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/ask_myself/);
+  await expectDraft(page.getByTestId('chat-input-textarea'), /<terminal_selection>/);
+  await expectDraft(page.getByTestId('chat-input-textarea'), /ask_myself/);
 
   await page.getByRole('button', { name: 'Stop terminal' }).click();
   await expect(page.getByText('Exited')).toBeVisible();

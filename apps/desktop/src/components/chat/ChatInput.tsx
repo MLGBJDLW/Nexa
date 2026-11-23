@@ -57,7 +57,7 @@ import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
 import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
-import { DraftEditRegion } from './UserMessageText';
+import { MarkdownDraftEditor, type DraftEditorHandle } from './MarkdownDraftEditor';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
 import { CodeReviewPanel } from './CodeReviewPanel';
@@ -361,16 +361,17 @@ function normalizeInputHistory(inputHistory: readonly string[]): string[] {
 }
 
 function isCaretAtInputHistoryBoundary(
-  el: HTMLTextAreaElement,
+  el: DraftEditorHandle,
+  value: string,
   direction: "up" | "down",
 ): boolean {
-  if (el.selectionStart !== el.selectionEnd) return false;
-  const value = el.value;
+  const { from, to } = el.getSelection();
+  if (from !== to) return false;
   if (!value) return direction === "up";
   if (direction === "up") {
-    return !value.slice(0, el.selectionStart).includes("\n");
+    return !value.slice(0, from).includes("\n");
   }
-  return !value.slice(el.selectionEnd).includes("\n");
+  return !value.slice(to).includes("\n");
 }
 
 export function ChatInput({
@@ -462,7 +463,7 @@ export function ChatInput({
   const [visionPolicyMode, setVisionPolicyMode] = useState<'off' | 'ask' | 'auto' | 'always_auxiliary'>('auto');
   const [visionTurnOverride, setVisionTurnOverride] = useState<VisionTurnOverride | null>(null);
   const [sendPending, setSendPending] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<DraftEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle>(null);
   const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -684,11 +685,6 @@ export function ChatInput({
     setActiveSlashCommandId(draft.activeSlashCommandId);
     setPreviewAttachment(null);
     previousDraftKeyRef.current = draftKey;
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
-    }, 0);
   }, [draftKey, resetInputHistoryNavigation]);
 
   useEffect(() => {
@@ -707,24 +703,9 @@ export function ChatInput({
       resetInputHistoryNavigation();
       setValue(prefillText);
       persistDraft(prefillText);
-      setTimeout(() => textareaRef.current?.focus(), 0);
+      setTimeout(() => editorRef.current?.focus(), 0);
     }
   }, [persistDraft, prefillKey, prefillText, resetInputHistoryNavigation]);
-
-  // Auto-resize textarea
-  const adjustHeight = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    const lineHeight = 22;
-    const minHeight = 80;
-    const maxHeight = lineHeight * 9 + 20;
-    el.style.height = `${Math.max(minHeight, Math.min(el.scrollHeight, maxHeight))}px`;
-  }, []);
-
-  useEffect(() => {
-    adjustHeight();
-  }, [value, adjustHeight]);
 
   const applyInputHistoryValue = useCallback((nextValue: string, cursor: "start" | "end" | number) => {
     setValue(nextValue);
@@ -736,18 +717,17 @@ export function ChatInput({
         : nextValue.length;
     setCaretPosition(nextCursor);
     requestAnimationFrame(() => {
-      const el = textareaRef.current;
+      const el = editorRef.current;
       if (!el) return;
       el.focus();
-      el.setSelectionRange(nextCursor, nextCursor);
-      adjustHeight();
+      el.setCursor(nextCursor);
     });
-  }, [adjustHeight, persistDraft]);
+  }, [persistDraft]);
 
   const navigateInputHistory = useCallback((direction: "up" | "down") => {
     if (inputLocked || inputHistoryEntries.length === 0) return false;
-    const el = textareaRef.current;
-    if (!el || !isCaretAtInputHistoryBoundary(el, direction)) return false;
+    const el = editorRef.current;
+    if (!el || !isCaretAtInputHistoryBoundary(el, value, direction)) return false;
 
     if (direction === "up") {
       if (inputHistoryIndex >= inputHistoryEntries.length - 1) return false;
@@ -755,7 +735,7 @@ export function ChatInput({
       if (inputHistoryIndex === -1) {
         historyDraftRef.current = {
           value,
-          cursor: el.selectionStart,
+          cursor: el.getSelection().from,
         };
       }
       setInputHistoryIndex(nextIndex);
@@ -912,13 +892,6 @@ export function ChatInput({
     }
   }, [activeSlashIndex, slashMenuOpen, renderedSlashMatches]);
 
-  const updateCaretFromTextarea = useCallback(() => {
-    const el = textareaRef.current;
-    if (el) {
-      setCaretPosition(el.selectionStart);
-    }
-  }, []);
-
   const resumeTask = useCallback(async () => {
     if (!onResume || isStreaming || sendLocked || sendInFlightRef.current) return;
     sendInFlightRef.current = true;
@@ -986,7 +959,6 @@ export function ChatInput({
       setCaretPosition(Math.min(slashTrigger.start, nextValue.length));
       requestAnimationFrame(() => {
         runComposerAction(option.name, parsed.argument, option.appCommandId);
-        adjustHeight();
       });
       return;
     }
@@ -1000,7 +972,6 @@ export function ChatInput({
       setMoreOptionsOpen(true);
       requestAnimationFrame(() => {
         setCaretPosition(nextValue.length);
-        adjustHeight();
       });
       return;
     }
@@ -1012,9 +983,8 @@ export function ChatInput({
       persistDraft(nextValue, attachments, null);
       setPlanMode(true);
       requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        setCaretPosition(textareaRef.current?.selectionStart ?? nextValue.length);
-        adjustHeight();
+        editorRef.current?.focus();
+        setCaretPosition(editorRef.current?.getSelection().from ?? nextValue.length);
       });
       return;
     }
@@ -1025,20 +995,19 @@ export function ChatInput({
     setActiveSlashCommandId(option.id);
     persistDraft(nextValue, attachments, option.id);
     requestAnimationFrame(() => {
-      const el = textareaRef.current;
+      const el = editorRef.current;
       if (el) {
         el.focus();
-        el.setSelectionRange(nextCursor, nextCursor);
+        el.setCursor(nextCursor);
         setCaretPosition(nextCursor);
       }
-      adjustHeight();
     });
-  }, [adjustHeight, attachments, persistDraft, setPlanMode, slashTrigger, value, runComposerAction, t]);
+  }, [attachments, persistDraft, setPlanMode, slashTrigger, value, runComposerAction, t]);
 
   const removeActiveSlashCommand = useCallback(() => {
     setActiveSlashCommandId(null);
     persistDraft(value, attachments, null);
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    requestAnimationFrame(() => editorRef.current?.focus());
   }, [attachments, persistDraft, value]);
 
   const getSlashOptionTitle = useCallback((option: SlashCommandOption) => {
@@ -1084,11 +1053,6 @@ export function ChatInput({
     setPreviewAttachment(null);
     setDismissedSlashToken(null);
     setCaretPosition(0);
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
-    }, 0);
   }, [draftKey, resetInputHistoryNavigation]);
 
   const handleSend = useCallback(async (suggestion?: string) => {
@@ -1112,7 +1076,7 @@ export function ChatInput({
       setValue(parsed.message);
       setActiveSlashCommandId(null);
       persistDraft(parsed.message, attachments, null);
-      requestAnimationFrame(() => { runComposerAction(slashResolution.command.name, parsed.argument, slashResolution.command.appCommandId); adjustHeight(); });
+      requestAnimationFrame(() => { runComposerAction(slashResolution.command.name, parsed.argument, slashResolution.command.appCommandId); });
       return;
     }
     if (sendLocked) return;
@@ -1132,7 +1096,6 @@ export function ChatInput({
       setValue(nextValue);
       persistDraft(nextValue);
       setCaretPosition(nextValue.length);
-      requestAnimationFrame(adjustHeight);
       return;
     }
     if (slashResolution?.localAction === "companion") {
@@ -1232,7 +1195,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, followupSuggestions, historyFork, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, followupSuggestions, historyFork, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1242,7 +1205,7 @@ export function ChatInput({
           e.preventDefault();
           setValue(ghostSuggestion);
           persistDraft(ghostSuggestion);
-          requestAnimationFrame(() => { adjustHeight(); textareaRef.current?.setSelectionRange(ghostSuggestion.length, ghostSuggestion.length); });
+          requestAnimationFrame(() => { editorRef.current?.setCursor(ghostSuggestion.length); });
           return;
         }
         if (e.key === 'Escape' && followupSuggestions) {
@@ -1309,7 +1272,6 @@ export function ChatInput({
       ghostSuggestion,
       followupSuggestions,
       persistDraft,
-      adjustHeight,
       sendLocked,
       navigateInputHistory,
       slashActiveTab,
@@ -1493,10 +1455,9 @@ export function ChatInput({
     });
     setWorkflowCatalogOpen(false);
     requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      adjustHeight();
+      editorRef.current?.focus();
     });
-  }, [adjustHeight, persistDraft]);
+  }, [persistDraft]);
 
   const nexusRiskItems: Array<{
     Icon: typeof CircleDollarSign;
@@ -2124,39 +2085,34 @@ export function ChatInput({
           onChange={handleFileSelect}
         />
 
-        <DraftEditRegion draftKey={draftKey} text={value} sourceClassName="relative">
+        <NexaPopoverAnchor asChild>
+        <div className="relative">
         {ghostSuggestion && <div data-testid="chat-input-ghost" aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 px-4 pb-3 pt-3.5 text-sm leading-6 text-text-tertiary/70">
           <span className="line-clamp-2">{ghostSuggestion}</span><kbd className="ml-1 rounded border border-border px-1 text-[10px]">Tab</kbd>
         </div>}
-        <NexaPopoverAnchor asChild>
-        <textarea
-          data-testid="chat-input-textarea"
-          data-draft-key={draftKey}
-          ref={textareaRef}
+        <MarkdownDraftEditor
+          testId="chat-input-textarea"
+          draftKey={draftKey}
+          editorRef={editorRef}
           {...holdToDictate}
           value={value}
-          onChange={(e) => {
-            const nextValue = e.target.value;
+          onChange={(nextValue) => {
             resetInputHistoryNavigation();
             setValue(nextValue);
             persistDraft(nextValue);
-            setCaretPosition(e.target.selectionStart);
             setDismissedSlashToken(null);
           }}
-          onKeyDown={handleKeyDown}
-          onKeyUp={updateCaretFromTextarea}
-          onClick={updateCaretFromTextarea}
-          onSelect={updateCaretFromTextarea}
-          onPaste={handlePaste}
+          onKeyDownCapture={handleKeyDown}
+          onCursor={setCaretPosition}
+          onPasteCapture={handlePaste}
           placeholder={ghostSuggestion ? '' : isCompacting && !isForkWaiting ? `${t(historyFork ? "chat.forking" : "chat.compacting")} (>_<)` : t("chat.placeholder")}
-          aria-label={t("chat.placeholder")}
-          aria-description={[ghostSuggestion && t('chat.followupTabHint', { prompt: ghostSuggestion }), !inputLocked && t('voice.holdComposerToDictate')].filter(Boolean).join(' ') || undefined}
+          label={t("chat.placeholder")}
+          description={[ghostSuggestion && t('chat.followupTabHint', { prompt: ghostSuggestion }), !inputLocked && t('voice.holdComposerToDictate')].filter(Boolean).join(' ') || undefined}
           disabled={inputLocked}
-          rows={1}
-          className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
+          className="desktop-draft w-full text-sm leading-6 text-text-primary"
         />
+        </div>
         </NexaPopoverAnchor>
-        </DraftEditRegion>
 
         <div id="chat-advanced-options" data-testid="chat-advanced-options" hidden={!moreOptionsOpen} className="border-t border-border/35 p-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -2302,7 +2258,7 @@ export function ChatInput({
                   persistDraft(nextValue);
                   return nextValue;
                 });
-                textareaRef.current?.focus();
+                editorRef.current?.focus();
               }}
               disabled={inputLocked}
             />
@@ -2490,7 +2446,7 @@ export function ChatInput({
           const current = draftsRef.current[draftKey]?.value ?? value;
           const next = current ? `${current}\n\n${text}` : text;
           resetInputHistoryNavigation(); setValue(next); persistDraft(next); setMcpContentOpen(false);
-          requestAnimationFrame(() => textareaRef.current?.focus());
+          requestAnimationFrame(() => editorRef.current?.focus());
         }} />}
       </Modal>
       <Modal open={worktreeOpen} onClose={() => setWorktreeOpen(false)} title={t('chat.worktreeTitle')}>
@@ -2501,7 +2457,7 @@ export function ChatInput({
           const current = draftsRef.current[draftKey]?.value ?? value;
           const next = current.includes(packet.marker) ? current : current ? `${current}\n\n${packet.text}` : packet.text;
           resetInputHistoryNavigation(); setValue(next); persistDraft(next); setReviewOpen(false);
-          requestAnimationFrame(() => textareaRef.current?.focus());
+          requestAnimationFrame(() => editorRef.current?.focus());
         }} />}
       </Modal>
     </div>
