@@ -2,21 +2,18 @@
 
 ## [0.4.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.0...nexa-mobile-v0.4.1) (2026-11-23)
 
-
 ### Features
 
-* **chat:** edit Markdown inline and install agent skills from npx commands ([bbcf1c5](https://github.com/MLGBJDLW/Nexa/commit/bbcf1c5b2ebe1e932c3a9d5aba55c51a3621d498))
-* **mobile:** install and activate skills in the private phone library ([39e6059](https://github.com/MLGBJDLW/Nexa/commit/39e6059f88633e1ec501501b70f18b9effaeea65))
-* **mobile:** link saved accounts to speech and web capabilities ([10a8dd4](https://github.com/MLGBJDLW/Nexa/commit/10a8dd447c8bf714810cfa0c07fd9881106d5953))
-* **providers:** link API keys to compatible features and refresh loading indicators ([1e255d8](https://github.com/MLGBJDLW/Nexa/commit/1e255d82e67ae98107e9f181321bdedbdd86a385))
-* **providers:** link API keys to compatible features and refresh loading indicators ([#593](https://github.com/MLGBJDLW/Nexa/issues/593)) ([1e255d8](https://github.com/MLGBJDLW/Nexa/commit/1e255d82e67ae98107e9f181321bdedbdd86a385))
-
+- Compose and paste Markdown in one editable field on the phone. Formatting updates as you type, and pasting formatted text inserts one copy.
+- Install selected skills into the phone's private library from supported `npx skills add` commands and activate them for the agent.
+- Choose compatible speech and web features after saving an API key. Linked features use the saved account, its region and its configured endpoint.
+- Loading indicators cycle through a vortex, the Nexa logo and a DNA double helix. Reduced motion shows the stationary logo.
 
 ### Bug Fixes
 
-* **chat:** render Markdown directly in desktop and mobile drafts ([70cb055](https://github.com/MLGBJDLW/Nexa/commit/70cb055a810efacfc1969de93d50aa1df65004c3))
-* **mobile:** use the patched URL parser in native builds ([f9dceec](https://github.com/MLGBJDLW/Nexa/commit/f9dceec41aa268a32fca33874df292b9f40654bd))
-* **providers:** align mobile capabilities with reviewed account scopes ([1f44805](https://github.com/MLGBJDLW/Nexa/commit/1f44805e05e7167973497cc842ba0b6ea5b1a938))
+- Preserve long drafts, caret position and mobile input-method composition when editing or sending a message.
+- Verify privacy-protected context during Fork and restore the same checkpoint when a conversation reopens.
+- Update the native URL parser to version 2.5.9.
 
 ## [0.4.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.16...nexa-mobile-v0.4.0) (2026-11-20)
 
