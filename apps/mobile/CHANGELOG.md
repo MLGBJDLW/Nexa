@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.0...nexa-mobile-v0.4.1) (2026-11-23)
+
+### Features
+
+- Compose and paste Markdown in one editable field on the phone. Formatting updates as you type, and pasting formatted text inserts one copy.
+- Install selected skills into the phone's private library from supported `npx skills add` commands and activate them for the agent.
+- Choose compatible speech and web features after saving an API key. Linked features use the saved account, its region and its configured endpoint.
+- Loading indicators cycle through a vortex, the Nexa logo and a DNA double helix. Reduced motion shows the stationary logo.
+
+### Bug Fixes
+
+- Preserve long drafts, caret position and mobile input-method composition when editing or sending a message.
+- Verify privacy-protected context during Fork and restore the same checkpoint when a conversation reopens.
+- Update the native URL parser to version 2.5.9.
+
 ## [0.4.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.16...nexa-mobile-v0.4.0) (2026-11-20)
 
 ### Features
