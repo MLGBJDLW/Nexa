@@ -207,9 +207,10 @@ test('reveals the native window onto a branded startup surface', async ({ page }
 
   const splash = page.getByTestId('startup-splash');
   await expect(splash).toBeVisible();
-  const mark = splash.locator('.startup-splash__logo');
+  const mark = page.getByRole('status', { name: 'Loading...', exact: true }).locator('.startup-splash__logo');
   await expect(mark).toBeVisible();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(mark).toHaveCSS('animation-name', /nexa-loading-shape/);
   const positions = await mark.evaluate(element => {
     const shape = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-shape')!;
     shape.pause();

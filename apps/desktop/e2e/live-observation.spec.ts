@@ -56,7 +56,6 @@ test.beforeEach(async ({ page, context }) => {
 async function chooseQwen(page: import('@playwright/test').Page) {
   await page.goto('/live');
   await selectControl(page.getByLabel('Analysis mode'), 'qwenRealtime');
-  await page.getByLabel('Qwen workspace endpoint', {exact:true}).fill('wss://fixture.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime');
   await selectControl(page.getByLabel('Visual input'), 'camera');
   await page.getByLabel('Observation interval (seconds)',{exact:true}).fill('1');
 }
