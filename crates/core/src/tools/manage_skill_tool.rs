@@ -21,7 +21,39 @@ use super::{Tool, ToolCategory, ToolDef, ToolResult};
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/manage_skill.json");
 
-pub struct ManageSkillTool;
+#[derive(Clone, Default)]
+pub enum ManageSkillTool {
+    #[default]
+    Desktop,
+    Phone {
+        app_data: PathBuf,
+    },
+}
+
+const PHONE_ACTIONS: &[&str] = &[
+    "list_skills",
+    "inspect_install_sources",
+    "install_sources",
+    "view_skill",
+    "activate_skill",
+    "view_resource",
+];
+
+impl ManageSkillTool {
+    pub fn catalog(&self, db: &Database) -> Result<Vec<Skill>, CoreError> {
+        let mut skills = db.list_builtin_skills()?;
+        if matches!(self, Self::Phone { .. }) {
+            skills.retain(|skill| {
+                matches!(
+                    skill.canonical_name.as_str(),
+                    "install-skills" | "visual-explanations"
+                )
+            });
+        }
+        skills.extend(db.list_skills()?);
+        Ok(skills)
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct ManageSkillArgs {
@@ -183,6 +215,7 @@ fn validated_args(value: &serde_json::Value) -> Result<ManageSkillArgs, CoreErro
 }
 
 async fn execute_install_sources(
+    host: &ManageSkillTool,
     context: super::ToolExecutionContext<'_>,
     args: ManageSkillArgs,
 ) -> Result<ToolResult, CoreError> {
@@ -193,7 +226,7 @@ async fn execute_install_sources(
         biased;
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Skill import cancelled".into())),
         _ = lease.cancelled() => return Err(CoreError::Cancelled("Privacy changed during skill import".into())),
-        result = lease.scope(super::skill_install_sources::prepare(&context, &args.sources, args.github_ref.as_deref())) => result?,
+        result = lease.scope(super::skill_install_sources::prepare(&context, &args.sources, args.github_ref.as_deref(), host)) => result?,
     };
     lease.ensure_current()?;
     if args.action == "inspect_install_sources" {
@@ -206,8 +239,11 @@ async fn execute_install_sources(
         });
     }
     let selection = prepared.selection(&args.selection)?;
-    let destination = crate::skills::configured_user_skills_directory().ok_or_else(|| CoreError::InvalidInput(
-        "The host has not configured its user skill directory; open Skills settings before installing.".into()))?;
+    let destination = match host {
+        ManageSkillTool::Phone { app_data } => app_data.join("skills"),
+        ManageSkillTool::Desktop => crate::skills::configured_user_skills_directory().ok_or_else(|| CoreError::InvalidInput(
+            "The host has not configured its user skill directory; open Skills settings before installing.".into()))?,
+    };
     let db = context.db.clone();
     let installed = tokio::task::spawn_blocking(move || {
         // Keep downloads and the policy lease alive through the complete commit.
@@ -244,9 +280,7 @@ fn missing(field: &str, action: &str) -> CoreError {
     ))
 }
 
-fn load_skill_for_action(db: &Database, skill_id: &str) -> Result<Skill, CoreError> {
-    let mut skills = db.list_builtin_skills()?;
-    skills.extend(db.list_skills()?);
+fn load_skill_for_action(skills: Vec<Skill>, skill_id: &str) -> Result<Skill, CoreError> {
     let skill = skills
         .into_iter()
         .find(|skill| {
@@ -342,11 +376,34 @@ impl Tool for ManageSkillTool {
     }
 
     fn description(&self) -> &str {
+        if matches!(self, Self::Phone { .. }) {
+            return "List and activate phone skills, read bundled resources, and install selected packages. Inspect npx skills add commands, public GitHub URLs or local workspace packages with inspect_install_sources, then pass selected skillFile/contentDigest pairs to install_sources.";
+        }
         &ToolDef::from_json(&DEF, DEF_JSON).description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
+        let mut schema = ToolDef::from_json(&DEF, DEF_JSON).parameters.clone();
+        if matches!(self, Self::Phone { .. }) {
+            schema["properties"]["action"]["enum"] = serde_json::json!(PHONE_ACTIONS);
+            if let Some(fields) = schema["properties"].as_object_mut() {
+                fields.retain(|name, _| {
+                    matches!(
+                        name.as_str(),
+                        "action"
+                            | "sources"
+                            | "selection"
+                            | "github_ref"
+                            | "replace_existing"
+                            | "accept_blocked_warnings"
+                            | "skill_id"
+                            | "resource_path"
+                            | "limit"
+                    )
+                });
+            }
+        }
+        schema
     }
 
     fn categories(&self) -> &'static [ToolCategory] {
@@ -413,11 +470,17 @@ impl Tool for ManageSkillTool {
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
         let args = validated_args(&serde_json::from_str(context.arguments)?)?;
+        if matches!(self, Self::Phone { .. }) && !PHONE_ACTIONS.contains(&args.action.as_str()) {
+            return Err(CoreError::InvalidInput(format!(
+                "Skill action '{}' is unavailable on this phone",
+                args.action
+            )));
+        }
         if matches!(
             args.action.as_str(),
             "inspect_install_sources" | "install_sources"
         ) {
-            return execute_install_sources(context, args).await;
+            return execute_install_sources(self, context, args).await;
         }
         let crate::tools::ToolExecutionContext {
             call_id,
@@ -477,8 +540,7 @@ impl Tool for ManageSkillTool {
                 })
             }
             "list_skills" => {
-                let mut skills = db.list_builtin_skills()?;
-                skills.extend(db.list_skills()?);
+                let skills = self.catalog(db)?;
                 let limit = args.limit.unwrap_or(50).min(100);
                 let summaries = skills
                     .into_iter()
@@ -532,7 +594,7 @@ impl Tool for ManageSkillTool {
             }
             "view_skill" | "activate_skill" => {
                 let skill_id = args.skill_id.ok_or_else(|| missing("skill_id", action))?;
-                let skill = load_skill_for_action(db, &skill_id)?;
+                let skill = load_skill_for_action(self.catalog(db)?, &skill_id)?;
                 let resources = if skill.resources.is_empty() {
                     "Resources: none".to_string()
                 } else {
@@ -606,7 +668,7 @@ impl Tool for ManageSkillTool {
                 let resource_path = args
                     .resource_path
                     .ok_or_else(|| missing("resource_path", action))?;
-                let skill = load_skill_for_action(db, &skill_id)?;
+                let skill = load_skill_for_action(self.catalog(db)?, &skill_id)?;
                 let (resource, _) = find_skill_resource(&skill, &resource_path)?;
                 let content = match resource.encoding {
                     crate::skills::SkillResourceEncoding::Utf8 => format!(
@@ -638,7 +700,7 @@ impl Tool for ManageSkillTool {
                 let resource_path = args
                     .resource_path
                     .ok_or_else(|| missing("resource_path", action))?;
-                let skill = load_skill_for_action(db, &skill_id)?;
+                let skill = load_skill_for_action(self.catalog(db)?, &skill_id)?;
                 let (resource, normalized_path) = find_skill_resource(&skill, &resource_path)?;
                 let resource_kind = resource.kind.clone();
                 let resource_encoding = resource.encoding.clone();
@@ -802,7 +864,7 @@ mod tests {
     #[test]
     fn invalid_install_intents_fail_before_approval_and_scheduling() {
         let mut registry = super::super::ToolRegistry::new();
-        registry.register(Box::new(ManageSkillTool));
+        registry.register(Box::new(ManageSkillTool::Desktop));
         let (view, error) = registry.prepare_invocation_for_scheduling(
             "manage_skill", "view",
             r#"{"action":"view_skill","skill_id":"test","sources":[],"selection":null,"githubRef":"","replace_existing":false,"accept_blocked_warnings":false}"#,
@@ -827,15 +889,14 @@ mod tests {
                 "{args}"
             );
         }
-        assert!(!ManageSkillTool
+        assert!(!ManageSkillTool::Desktop
             .requires_confirmation(&serde_json::json!({"action":"inspect_install_sources"})));
-        assert!(
-            ManageSkillTool.requires_confirmation(&serde_json::json!({"action":"install_sources"}))
-        );
+        assert!(ManageSkillTool::Desktop
+            .requires_confirmation(&serde_json::json!({"action":"install_sources"})));
     }
 
     #[tokio::test]
-    async fn inspect_install_sources_returns_selected_bundle_without_activating_it() {
+    async fn inspect_and_install_selected_bundle_in_the_phone_library() {
         let temporary = tempfile::tempdir().unwrap();
         let source = temporary.path().join("downloaded-demo");
         fs::create_dir_all(source.join("templates")).unwrap();
@@ -851,7 +912,7 @@ mod tests {
         db.save_app_config(&config).unwrap();
         let args =
             serde_json::json!({"action":"inspect_install_sources","sources":[source]}).to_string();
-        let result = ManageSkillTool
+        let result = ManageSkillTool::Desktop
             .execute(crate::tools::ToolExecutionContext::new(
                 "inspect",
                 &args,
@@ -875,11 +936,51 @@ mod tests {
                 > 20
         );
         assert!(db.list_skills().unwrap().is_empty());
+
+        let phone = ManageSkillTool::Phone {
+            app_data: temporary.path().to_owned(),
+        };
+        let workspace =
+            crate::workspace::Workspace::validate(&[source.to_string_lossy().into_owned()])
+                .unwrap();
+        let preview = &artifact["skills"][0];
+        let args = serde_json::json!({
+            "action": "install_sources", "sources": [source],
+            "selection": [{"skillFile": preview["skillFile"], "contentDigest": preview["contentDigest"]}]
+        }).to_string();
+        let mut context = crate::tools::ToolExecutionContext::new("install", &args, &db, &[]);
+        context.workspace = Some(&workspace);
+        let result = phone.execute(context).await.unwrap();
+        assert!(!result.is_error);
+        assert!(temporary
+            .path()
+            .join("skills/downloaded-demo/templates/report.md")
+            .is_file());
+        assert!(phone
+            .catalog(&db)
+            .unwrap()
+            .iter()
+            .any(|skill| skill.name == "downloaded-demo"));
+        assert!(!phone.parameters_schema()["properties"]["action"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action == "run_resource_helper"));
+        let args = r#"{"action":"run_resource_helper","skill_id":"downloaded-demo","resource_path":"scripts/x.py"}"#;
+        assert!(phone
+            .execute(crate::tools::ToolExecutionContext::new(
+                "run",
+                args,
+                &db,
+                &[]
+            ))
+            .await
+            .is_err());
     }
 
     #[test]
     fn definition_loads() {
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         assert_eq!(tool.name(), "manage_skill");
         assert!(tool.description().contains("skill"));
         assert_eq!(tool.parameters_schema()["type"], "object");
@@ -888,7 +989,7 @@ mod tests {
     #[tokio::test]
     async fn disabled_builtin_skills_cannot_be_activated_or_used_through_resources() {
         let db = Database::open_memory().unwrap();
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         let id = "builtin-visual-explanations";
         db.toggle_skill(id, false).unwrap();
         for action in [
@@ -950,7 +1051,7 @@ mod tests {
     #[tokio::test]
     async fn list_and_view_skills() {
         let db = Database::open_memory().unwrap();
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         let list_args = serde_json::json!({
             "action": "list_skills",
             "limit": 3
@@ -1081,7 +1182,7 @@ mod tests {
                 }],
             })
             .unwrap();
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         let args = serde_json::json!({
             "action": "run_resource_helper",
             "skill_id": saved.id,
@@ -1120,7 +1221,7 @@ mod tests {
     #[tokio::test]
     async fn propose_and_apply_skill() {
         let db = Database::open_memory().unwrap();
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         let args = serde_json::json!({
             "action": "propose_create",
             "name": "Tool Retry Discipline",
@@ -1164,7 +1265,7 @@ mod tests {
     #[tokio::test]
     async fn proposal_preserves_large_skill_body_and_resources() {
         let db = Database::open_memory().unwrap();
-        let tool = ManageSkillTool;
+        let tool = ManageSkillTool::Desktop;
         let large_body = format!(
             "# Workflow\n\n{}",
             "Keep this step precise.\n".repeat(16_000)

@@ -431,11 +431,19 @@ pub(super) async fn prepare(
     context: &ToolExecutionContext<'_>,
     sources: &[String],
     github_ref: Option<&str>,
+    host: &super::manage_skill_tool::ManageSkillTool,
 ) -> Result<PreparedSources, CoreError> {
-    let policy = super::file_access_policy_for_context(context)?;
-    let temporary = tempfile::Builder::new()
-        .prefix("nexa-skill-download-")
-        .tempdir()?;
+    use super::manage_skill_tool::ManageSkillTool;
+    let mut policy = super::file_access_policy_for_context(context)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("nexa-skill-download-");
+    let temporary = match host {
+        ManageSkillTool::Phone { app_data } => {
+            policy.allow_unregistered_absolute_paths = false;
+            builder.tempdir_in(app_data)?
+        }
+        ManageSkillTool::Desktop => builder.tempdir()?,
+    };
     let mut result = PreparedSources {
         _temporary: temporary,
         paths: Vec::new(),
@@ -545,7 +553,9 @@ mod tests {
             "https://github.com/openai/skills/tree/main/skills/.system/skill-installer".to_string(),
         ];
         let context = ToolExecutionContext::new("probe", "{}", &db, &[]);
-        let prepared = prepare(&context, &sources, None).await.unwrap();
+        let prepared = prepare(&context, &sources, None, &ManageSkillTool::Desktop)
+            .await
+            .unwrap();
         assert_eq!(prepared.previews.len(), 1);
         let selected = vec![SkillInstallSelection {
             skill_file: prepared.previews[0].skill_file.clone(),
@@ -579,7 +589,7 @@ mod tests {
                 args["resource_path"] = serde_json::json!(resource);
             }
             let args = args.to_string();
-            let result = ManageSkillTool
+            let result = ManageSkillTool::Desktop
                 .execute(ToolExecutionContext::new("readback", &args, &db, &[]))
                 .await
                 .unwrap();

@@ -2496,7 +2496,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(user_memory_tool::UserMemoryTool));
     registry.register(Box::new(project_memory_tool::ProjectMemoryTool));
     registry.register(Box::new(agent_memory_tool::AgentMemoryTool));
-    registry.register(Box::new(manage_skill_tool::ManageSkillTool));
+    registry.register(Box::new(manage_skill_tool::ManageSkillTool::Desktop));
     registry.register(Box::new(harness_dry_run_tool::HarnessDryRunTool));
     registry
 }
