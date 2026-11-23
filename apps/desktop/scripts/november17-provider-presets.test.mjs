@@ -13,8 +13,18 @@ test('Qwen4 Token Plan stays region/account scoped and keeps preview',()=>{
 test('Liquid D1.2 remains on Decisions, not chat',()=>{
  const p=read('system-one-provider-presets').find(x=>x.id==='openrouter');for(const id of ['liquid/d1.2','liquid/d1.2-ultra']) {const m=p.models.find(x=>x.id===id);assert.equal(m.contextTokens,65536);assert.equal(m.recommended,false);assert.deepEqual(m.outputModalities,['decisions']);assert.equal(text.some(p=>p.models?.some(m=>m.id===id)),false);}
 });
-test('GPT Image 2 future shutdown remains deprecated and router scope is untouched',()=>{
- const ps=read('image-provider-presets');const m=ps.find(x=>x.id==='openai').models.find(x=>x.id==='gpt-image-2');assert.equal(m.status,'deprecated');assert.equal(m.deprecationDate,'2027-02-10');assert.equal(m.recommended,false);assert.equal(m.replacementModelId,undefined);const routed=ps.find(x=>x.id==='openrouter-images').models.find(x=>x.id==='openai/gpt-image-2');if(routed)assert.notEqual(routed.deprecationDate,'2027-02-10');
+test('GPT Image 2 has independently documented sunsets without a replacement route', () => {
+  const presets = read('image-provider-presets');
+  const native = presets.find(p => p.id === 'openai').models.find(m => m.id === 'gpt-image-2');
+  const routed = presets.find(p => p.id === 'openrouter-images').models.find(m => m.id === 'openai/gpt-image-2');
+  for (const model of [native, routed]) {
+    assert.equal(model.status, 'deprecated');
+    assert.equal(model.deprecationDate, '2027-02-10');
+    assert.equal(model.recommended, false);
+    assert.equal(model.replacementModelId, undefined);
+  }
+  assert.match(native.documentationRef, /^https:\/\/developers\.openai\.com\//);
+  assert.equal(routed.documentationRef, 'https://openrouter.ai/openai/gpt-image-2');
 });
 test('Seedance Flash uses confirmed frame operations and explicit durations only',()=>{
  const m=read('video-provider-presets').find(x=>x.id==='openrouter-video').models.find(x=>x.modelId==='bytedance/seedance-2.5-flash');assert.equal(m.selectable,true);assert.deepEqual(m.operationCapabilities.map(x=>x.operation),['text_to_video','image_to_video','first_last_frame']);for(const op of m.operationCapabilities){assert.equal(op.supportsAudio,true);assert.equal(op.supportsSeed,true);assert.deepEqual(op.durationOptions.map(x=>x.resolution),['480p','720p']);for(const o of op.durationOptions){assert.equal(o.durationsSeconds[0],4);assert.equal(o.durationsSeconds.at(-1),30);assert.equal(o.durationsSeconds.includes(-1),false);}}
