@@ -5,8 +5,7 @@
 
 ### Bug Fixes
 
-* **chat:** unblock first replies in desktop project conversations ([d372878](https://github.com/MLGBJDLW/Nexa/commit/d37287815bbd43a02a54d17873cafdd24c2e64bc))
-* **chat:** unblock first replies in desktop project conversations ([ab095c4](https://github.com/MLGBJDLW/Nexa/commit/ab095c4372fd93c278282cac742af25dcc29dd5e))
+- Desktop project chats now show the selected route immediately and can stream their first reply without waiting for a full workspace scan. File checks run when a tool, project hook, or restored task needs them.
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at d37287815bbd43a02a54d17873cafdd24c2e64bc -->
