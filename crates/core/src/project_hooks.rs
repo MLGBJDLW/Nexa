@@ -176,6 +176,14 @@ pub async fn run_event(
     context: &HookContext<'_>,
     event: HookEvent,
 ) -> Result<Vec<HookRun>, CoreError> {
+    run_event_with_preparation(context, event, &mut None::<std::future::Ready<_>>).await
+}
+
+async fn run_event_with_preparation(
+    context: &HookContext<'_>,
+    event: HookEvent,
+    before_execution: &mut Option<impl std::future::Future<Output = Result<(), CoreError>>>,
+) -> Result<Vec<HookRun>, CoreError> {
     if context.plan_mode {
         return Ok(vec![]);
     }
@@ -265,6 +273,9 @@ pub async fn run_event(
             match validation {
                 Err(error) => Err(error),
                 Ok(()) => {
+                    if let Some(prepare) = before_execution.take() {
+                        prepare.await?;
+                    }
                     let mut tool_context =
                         ToolExecutionContext::new(&run_id, "{}", context.db, context.source_scope)
                             .with_conversation_id(Some(conversation_id))
@@ -344,7 +355,9 @@ pub async fn run_event(
 
 /// Also catches native external-agent file writes before their final answer is persisted.
 pub async fn completion_blocker(context: &HookContext<'_>) -> Result<Option<String>, CoreError> {
-    Ok(completion_feedback(context).await?.blocker)
+    Ok(completion_feedback(context, std::future::ready(Ok(())))
+        .await?
+        .blocker)
 }
 
 pub(crate) struct CompletionFeedback {
@@ -354,9 +367,14 @@ pub(crate) struct CompletionFeedback {
 
 pub(crate) async fn completion_feedback(
     context: &HookContext<'_>,
+    before_execution: impl std::future::Future<Output = Result<(), CoreError>>,
 ) -> Result<CompletionFeedback, CoreError> {
-    let mut runs = run_event(context, HookEvent::AfterFileChange).await?;
-    runs.extend(run_event(context, HookEvent::BeforeComplete).await?);
+    let mut prepare = Some(before_execution);
+    let mut runs =
+        run_event_with_preparation(context, HookEvent::AfterFileChange, &mut prepare).await?;
+    runs.extend(
+        run_event_with_preparation(context, HookEvent::BeforeComplete, &mut prepare).await?,
+    );
     if let (Some(conversation), Some(turn)) = (context.conversation_id, context.turn_id) {
         let changes = context
             .db
@@ -523,18 +541,39 @@ mod tests {
     #[tokio::test]
     async fn hooks_require_opt_in_deduplicate_and_track_their_own_writes_without_recursion() {
         let fixture = Fixture::new("echo check >> count.txt");
-        assert!(completion_blocker(&fixture.context())
-            .await
-            .unwrap()
-            .is_none());
+        let mut captures = 0;
+        assert!(completion_feedback(&fixture.context(), async {
+            captures += 1;
+            Ok(())
+        })
+        .await
+        .unwrap()
+        .blocker
+        .is_none());
+        assert_eq!(
+            captures, 0,
+            "a turn without hooks needs no source inventory"
+        );
         assert!(!fixture.directory.path().join("count.txt").exists());
         fixture.enable(HookEvent::BeforeComplete);
-        let blocker = completion_blocker(&fixture.context()).await.unwrap();
+        let blocker = completion_feedback(&fixture.context(), async {
+            assert!(!fixture.directory.path().join("count.txt").exists());
+            captures += 1;
+            Ok(())
+        })
+        .await
+        .unwrap()
+        .blocker;
         assert!(blocker.is_none(), "{blocker:?}");
-        assert!(completion_blocker(&fixture.context())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(completion_feedback(&fixture.context(), async {
+            captures += 1;
+            Ok(())
+        })
+        .await
+        .unwrap()
+        .blocker
+        .is_none());
+        assert_eq!(captures, 1, "a reused hook receipt needs no new baseline");
         assert_eq!(
             std::fs::read_to_string(fixture.directory.path().join("count.txt"))
                 .unwrap()

@@ -59,6 +59,20 @@ pub enum VerificationGateKind {
 }
 
 impl VerificationGateKind {
+    fn depends_on_workspace_source(&self) -> bool {
+        matches!(
+            self,
+            Self::Tests
+                | Self::Lint
+                | Self::Typecheck
+                | Self::Build
+                | Self::IndependentReview
+                | Self::WriteIsolation
+                | Self::BrowserVisualObservation
+                | Self::BrowserSessionObservation
+        )
+    }
+
     fn is_interaction_observation(&self) -> bool {
         matches!(
             self,
@@ -313,6 +327,12 @@ pub struct WorkflowIr {
 }
 
 impl WorkflowIr {
+    pub(crate) fn needs_workspace_verification(&self) -> bool {
+        self.verification_gates
+            .iter()
+            .any(|gate| gate.required && gate.kind.depends_on_workspace_source())
+    }
+
     /// A receipt is valid only while the host-observed source state is stable.
     pub fn reconcile_verification_source(
         &mut self,
@@ -326,19 +346,7 @@ impl WorkflowIr {
         }
         if changed || state.pending {
             for gate in &mut self.verification_gates {
-                if gate.required
-                    && matches!(
-                        gate.kind,
-                        VerificationGateKind::Tests
-                            | VerificationGateKind::Lint
-                            | VerificationGateKind::Typecheck
-                            | VerificationGateKind::Build
-                            | VerificationGateKind::IndependentReview
-                            | VerificationGateKind::WriteIsolation
-                            | VerificationGateKind::BrowserVisualObservation
-                            | VerificationGateKind::BrowserSessionObservation
-                    )
-                {
+                if gate.required && gate.kind.depends_on_workspace_source() {
                     gate.passed = None;
                     gate.detail = Some("Source files changed or have unsettled effects; obtain fresh verification for the current state.".into());
                 }
