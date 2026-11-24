@@ -994,7 +994,7 @@
   "imageEditSending": "Sending…",
   "generationSpeed": "Generation speed (TPS)",
   "externalTurnSpeed": "Agent turn throughput",
-  "externalTurnSpeedHint": "Output tokens divided by elapsed agent turn time, including tools and waits.",
+  "externalTurnSpeedHint": "Total measured output tokens divided by total agent turn time, including tools and waits.",
   "generationSpeedUnavailable": "The runtime has not supplied the output token count and timing needed to calculate speed.",
-  "generationSpeedHint": "Latest model request: output tokens / request time, including first-token latency and excluding tools and user waits."
+  "generationSpeedHint": "Average for the selected model. Measured output tokens are divided by total request time, including first-token latency."
 }

@@ -2,38 +2,25 @@ import { runLocalStorageMigrations } from "./lib/localStorageMigrations";
 import "@fontsource-variable/inter";
 import "katex/dist/katex.min.css";
 import "./index.css";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { relaunch } from '@tauri-apps/plugin-process';
 
-function revealMainWindowAfterFirstPaint() {
-  if (!("__TAURI_INTERNALS__" in window)) return;
-  let appWindow: ReturnType<typeof getCurrentWindow>;
-  try {
-    appWindow = getCurrentWindow();
-  } catch {
-    // Browser previews and partial test shims do not have native window metadata.
-    return;
+let nativeStartupFailed = false;
+async function start() {
+  runLocalStorageMigrations();
+  if (isTauri()) {
+    try {
+      await invoke('wait_for_desktop_startup');
+    } catch (error) {
+      nativeStartupFailed = true;
+      throw error;
+    }
   }
-  if (appWindow.label !== "main") return;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      void (async () => {
-        await appWindow.show();
-        await appWindow.setFocus();
-      })().catch((error: unknown) => {
-        console.warn("Unable to reveal the main window after startup paint", error);
-      });
-    });
-  });
+  const { mountApp } = await import('./bootstrap');
+  mountApp();
 }
 
-revealMainWindowAfterFirstPaint();
-
-// Reveal the already-painted static shell independently of the React module
-// graph, while loading that graph in parallel with the first native frames.
-void Promise.resolve().then(() => {
-  runLocalStorageMigrations();
-  return import('./bootstrap');
-}).then(({ mountApp }) => mountApp()).catch((error: unknown) => {
+void start().catch((error: unknown) => {
   console.error('Unable to load the Nexa interface', error);
   const root = document.getElementById('root');
   if (!root) return;
@@ -42,7 +29,7 @@ void Promise.resolve().then(() => {
   message.textContent = 'Unable to load Nexa.';
   const retry = document.createElement('button');
   retry.type = 'button';
-  retry.textContent = 'Reload';
-  retry.onclick = () => window.location.reload();
+  retry.textContent = nativeStartupFailed ? 'Restart Nexa' : 'Reload';
+  retry.onclick = () => nativeStartupFailed ? void relaunch() : window.location.reload();
   root.replaceChildren(message, retry);
 });

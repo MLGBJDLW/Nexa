@@ -151,6 +151,12 @@ assert.deepEqual(compareCatalogInventory({ endpointId: 'embedding:jina', models:
 assert.deepEqual(compareCatalogInventory({ endpointId: 'video:openrouter-video', operationSpecific: true, models: [] }, [{ id: 'new-video-model' }]).newIds, ['new-video-model']);
 const retiredOnly = compareCatalogInventory({ ...router, models: [{ ...router.models[0], lifecycle: 'removed' }] }, []);
 assert.equal(driftDetected(retiredOnly), false, 'existing tombstones are not repeated missing-model alerts');
+const retiredWithAlias = { ...router, models: [{ ...router.models[0], lifecycle: 'removed', aliases: ['prior-alias'] }] };
+const relisted = compareCatalogInventory(retiredWithAlias, [{ id: 'prior-alias' }, liveRouter[0]]);
+assert.deepEqual(relisted.relistedIds, [liveRouter[0].id]);
+assert.deepEqual(relisted.newIds, []);
+assert.equal(driftDetected(relisted), true);
+assert.deepEqual(compareCatalogInventory(retiredWithAlias, [{ ...liveRouter[0], status: 'removed' }]).relistedIds, []);
 const denseEmbeddings = compareCatalogInventory({ endpointId: 'embedding:jina', models: [{
   id: 'jina-embeddings-v4', inputModalities: ['text'], outputModalities: ['embedding'], capabilities: { vision: false },
 }] }, [

@@ -973,15 +973,15 @@ async fn drive(
             continue;
         }
         let completed = wire.rpc_result(message, "session/prompt")?;
-        output.generation = None;
         if let Some(usage) = session.usage.observe(provider, &completed) {
             let elapsed_ms = prompt_started.elapsed().as_millis();
             if elapsed_ms > 0 && usage.provider_raw.is_none() {
-                output.generation = Some(nexa_core::agent::context::GenerationMetrics {
-                    output_tokens: usage.completion_tokens,
-                    request_duration_ms: elapsed_ms.min(u128::from(u64::MAX)) as u64,
-                    external_turn: true,
-                });
+                nexa_core::agent::context::GenerationMetrics::record(
+                    &mut output.generation,
+                    usage.completion_tokens,
+                    elapsed_ms.min(u128::from(u64::MAX)) as u64,
+                    true,
+                );
             }
             output.usage.prompt_tokens = output
                 .usage

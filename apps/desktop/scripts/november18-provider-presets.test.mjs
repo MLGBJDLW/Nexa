@@ -77,14 +77,12 @@ test('Avatar 6 stays unselectable pending audio-driven operation contract', () =
     assert.deepEqual(m.operationCapabilities, []);
   }
 });
-test('Macaron discovery remains Singapore/account-scoped and Doubao is not prematurely removed', () => {
+test('Macaron discovery remains Singapore/account-scoped', () => {
   for (const id of ['mindlab/macaron-v1.1-venti', 'mindlab/macaron-v1.1-coding-venti', 'mindlab/macaron-v1-tall']) {
     const m = provider('qwen-cloud-intl').models.find(m => m.id === id);
     assert.deepEqual(m.regions, ['ap-southeast-1']);assert.equal(m.access, 'account_enablement');assert.equal(m.recommended, false);
     assert.equal(provider('alibaba-model-studio').models.some(m => m.id === id), false);
   }
-  const m = provider('doubao').models.find(m => m.id === 'doubao-seed-2-0-pro-260215');
-  assert.equal(m.status, 'deprecated');assert.equal(m.deprecationDate, '2026-11-24');
 });
 test('Runway Hailuo additions keep explicit media-free text controls and published schema limits', () => {
   const snapshot=JSON.parse(readFileSync(new URL('../../../crates/core/src/media_generation/adapters/fixtures/runway-video-contracts.json',import.meta.url),'utf8'));

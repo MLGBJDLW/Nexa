@@ -3735,10 +3735,10 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/~deepseek/deepseek-flash-latest",
         "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 393216,
         "inputModalities": [
           "text",
           "image"
@@ -5813,10 +5813,10 @@
         "name": "Qwen: Qwen3.8 2.4T A95B",
         "tagKey": "providers.tagMostIntelligent",
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 65536,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-24",
         "modalities": [
           "text"
         ],
@@ -5873,10 +5873,10 @@
         "name": "Qwen: Qwen3.8 27B",
         "tagKey": "providers.tagCoding",
         "contextTokens": 1024000,
-        "maxOutputTokens": 235929,
+        "maxOutputTokens": 131072,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "modalities": [
           "text",
           "image",
@@ -7892,7 +7892,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "releaseDate": "2026-09-10",
         "inputModalities": [
           "text",
@@ -7904,7 +7904,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 393216,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -9479,7 +9479,6 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
-          "logprobs",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -9494,11 +9493,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/nvidia/nemotron-3-super-120b-a12b",
         "maxOutputTokens": 16384
       },
@@ -9605,9 +9603,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-9b",
-        "maxOutputTokens": 40960
+        "maxOutputTokens": 235929
       },
       {
         "id": "openai/gpt-5.4-pro",
@@ -9981,9 +9979,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-27b",
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 81920
       },
       {
         "id": "qwen/qwen3.5-122b-a10b",
@@ -12134,7 +12132,6 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
-          "logprobs",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -12148,11 +12145,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v3.2",
         "maxOutputTokens": 147456
       },
@@ -14601,9 +14597,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/openai/gpt-oss-120b",
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 117964
       },
       {
         "id": "openai/gpt-oss-20b:free",
@@ -14820,7 +14816,6 @@
         "supportedParameters": [
           "frequency_penalty",
           "logit_bias",
-          "logprobs",
           "max_tokens",
           "presence_penalty",
           "repetition_penalty",
@@ -14832,11 +14827,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-30b-a3b-instruct-2507",
         "maxOutputTokens": 235929
       },
@@ -16689,9 +16683,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/google/gemma-3-4b-it",
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 117964
       },
       {
         "id": "google/gemma-3-12b-it",
@@ -18709,9 +18703,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/meta-llama/llama-3.1-8b-instruct",
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 117964
       },
       {
         "id": "mistralai/mistral-nemo",
@@ -19452,9 +19446,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/gryphe/mythomax-l2-13b",
-        "maxOutputTokens": 3686
+        "maxOutputTokens": 7372
       },
       {
         "id": "openai/gpt-4-0314",
@@ -19659,7 +19653,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "contextTokens": 1000000,
+        "contextTokens": 1048576,
         "inputModalities": [
           "text"
         ],
@@ -19667,7 +19661,7 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": false,
+        "supportsStructuredOutput": true,
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
@@ -19676,8 +19670,10 @@
           "presence_penalty",
           "reasoning",
           "repetition_penalty",
+          "response_format",
           "seed",
           "stop",
+          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
@@ -19686,7 +19682,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/inclusionai/ling-3.1-flash",
         "maxOutputTokens": 262144,
         "capabilities": {
@@ -19755,7 +19751,7 @@
       {
         "id": "unbiased/pareto-26.10-preview",
         "name": "Pareto 26.10 Preview",
-        "status": "removed",
+        "status": "preview",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19778,7 +19774,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/unbiased/pareto-26.10-preview",
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -21106,9 +21102,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-20",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/~deepseek/deepseek-v4-flash-latest",
-        "maxOutputTokens": 384000,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -21169,9 +21165,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
-        "maxOutputTokens": 384000,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -21661,7 +21657,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "contextTokens": 524288,
+        "contextTokens": 1048576,
         "inputModalities": [
           "text",
           "image",
@@ -21690,7 +21686,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/thinkingmachines/inkling",
         "maxOutputTokens": 471859,
         "capabilities": {
@@ -21948,9 +21944,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/tencent/hy3",
-        "maxOutputTokens": 128000,
+        "maxOutputTokens": 235929,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -22148,7 +22144,7 @@
       {
         "id": "nvidia/nemotron-3.5-content-safety",
         "name": "NVIDIA: Nemotron 3.5 Content Safety",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -22178,7 +22174,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-content-safety",
         "maxOutputTokens": 117964,
         "capabilities": {
@@ -22192,7 +22188,8 @@
             "effortBudgetExclusive": true,
             "defaultEnabled": true
           }
-        }
+        },
+        "deprecationDate": "2026-11-30"
       },
       {
         "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
@@ -22236,7 +22233,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/typesafe/jev-router",
         "inputModalities": [
           "audio",
@@ -22281,7 +22278,7 @@
         "contextTokens": 1000000,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 128000
       },
       {
         "id": "meta/muse-wonder",
@@ -22826,7 +22823,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-24",
         "inputModalities": [
           "text",
           "image",
@@ -22869,7 +22866,7 @@
           }
         },
         "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-super-vl",
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 943718
       },
       {
         "id": "nvidia/nemotron-3.5-super-vl:free",
@@ -22925,7 +22922,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "inputModalities": [
           "text",
           "image",
@@ -22969,7 +22966,7 @@
           "vision": true
         },
         "documentationRef": "https://openrouter.ai/openrouter/auto-beta",
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 128000
       },
       {
         "id": "deepseek/deepseek-v4.1-flash-1017",
@@ -23506,6 +23503,7 @@
           "logprobs",
           "max_tokens",
           "min_p",
+          "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
@@ -23522,7 +23520,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/moonshotai/kimi-k3.1-pro",
         "status": "active",
         "recommended": false
@@ -23922,10 +23920,10 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/openrouter/auto-code",
         "contextTokens": 2000000,
-        "maxOutputTokens": 64000,
+        "maxOutputTokens": 128000,
         "inputModalities": [
           "text",
           "image",
@@ -24268,7 +24266,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-24",
         "documentationRef": "https://openrouter.ai/tencent/hy4-flash",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -24282,16 +24280,26 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "supportedParameters": [
+          "frequency_penalty",
           "include_reasoning",
+          "logit_bias",
+          "logprobs",
           "max_completion_tokens",
           "max_tokens",
+          "min_p",
+          "presence_penalty",
           "reasoning",
+          "repetition_penalty",
           "response_format",
+          "seed",
           "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
-          "tools"
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
         ],
         "capabilities": {
           "vision": true,
@@ -24890,6 +24898,14 @@
       {
         "id": "claude-opus-4-5",
         "name": "Claude Opus 4.5",
+        "aliases": [
+          "claude-opus-4-5-20251101"
+        ],
+        "status": "deprecated",
+        "deprecationDate": "2027-01-22",
+        "replacementModelId": "claude-opus-5-5",
+        "lastVerifiedAt": "2026-11-24",
+        "documentationRef": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
         "capabilities": {
           "reasoning": {
             "thinkingBudget": {
@@ -24904,6 +24920,9 @@
       {
         "id": "claude-sonnet-4-5",
         "name": "Claude Sonnet 4.5",
+        "aliases": [
+          "claude-sonnet-4-5-20250929"
+        ],
         "capabilities": {
           "reasoning": {
             "thinkingBudget": {
@@ -36129,10 +36148,10 @@
           "vision": true
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "replacementModelId": "doubao-seed-2-1-lite-260915",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
-        "deprecationDate": "2026-11-24"
+        "deprecationDate": "2027-01-22"
       },
       {
         "id": "doubao-seed-2-0-lite-260428",

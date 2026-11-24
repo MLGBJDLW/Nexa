@@ -108,11 +108,15 @@ export function Tooltip({ content, children, side = 'top', delay = 300 }: Toolti
     <div
       ref={triggerRef}
       className="inline-flex"
-      onMouseEnter={handleEnter}
-      onMouseLeave={() => {
-        if (!triggerRef.current?.contains(document.activeElement)) handleLeave();
+      onPointerEnter={event => {
+        if (event.pointerType !== 'touch') handleEnter();
       }}
-      onFocus={handleEnter}
+      onPointerLeave={handleLeave}
+      onPointerDownCapture={handleLeave}
+      onClickCapture={handleLeave}
+      onFocus={event => {
+        if (event.target.matches(':focus-visible')) handleEnter();
+      }}
       onBlur={handleLeave}
       onKeyDown={(event) => { if (event.key === 'Escape') handleLeave(); }}
     >

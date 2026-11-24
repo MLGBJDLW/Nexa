@@ -238,6 +238,7 @@ function markdownReport(report) {
       lines.push(
         `Discovered: ${probe.discoveredCount}`,
         `New: ${probe.newIds.length ? probe.newIds.join(', ') : 'none'}`,
+        `Previously removed IDs listed again (review required): ${probe.relistedIds.join(', ') || 'none'}`,
         `Missing: ${probe.missingIds.length ? probe.missingIds.join(', ') : 'none'}`,
         `Capability changes: ${probe.capabilityChanged.length ? probe.capabilityChanged.map((item) => `${item.id} (${item.fields.join(', ')})`).join('; ') : 'none'}`,
         `Lifecycle changes: ${probe.lifecycleChanged.length ? probe.lifecycleChanged.map((item) => `${item.id} (${item.curated} → ${item.discovered})`).join('; ') : 'none'}`,

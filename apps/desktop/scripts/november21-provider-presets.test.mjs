@@ -7,15 +7,15 @@ const presets = JSON.parse(readFileSync(new URL('../../../shared/provider-preset
 const model = (provider, id) => presets.find(p => p.id === provider).models.find(m => m.id === id);
 
 test('Ark announces same-route migration guidance without removing saved models', () => {
-  for (const [id, replacement] of [
-    ['doubao-seed-2-0-pro-260215', 'doubao-seed-2-1-lite-260915'],
-    ['doubao-seed-2-0-code-preview-260215', 'doubao-seed-evolving'],
-    ['glm-5-1-260428', 'doubao-seed-evolving'],
-    ['deepseek-v4-pro-260425', 'deepseek-v4-1-flash-261017'],
+  for (const [id, deadline, replacement] of [
+    ['doubao-seed-2-0-pro-260215', '2027-01-22', 'doubao-seed-2-1-lite-260915'],
+    ['doubao-seed-2-0-code-preview-260215', '2026-11-24', 'doubao-seed-evolving'],
+    ['glm-5-1-260428', '2026-11-24', 'doubao-seed-evolving'],
+    ['deepseek-v4-pro-260425', '2026-11-24', 'deepseek-v4-1-flash-261017'],
   ]) {
     const row = model('doubao', id);
     assert.equal(row.status, 'deprecated');
-    assert.equal(row.deprecationDate, '2026-11-24');
+    assert.equal(row.deprecationDate, deadline);
     assert.equal(row.replacementModelId, replacement);
     assert.equal(model('doubao', replacement).status, 'active');
   }

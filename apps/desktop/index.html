@@ -98,14 +98,14 @@
             <span class="startup-splash__logo nexa-loading-mark"></span>
           </div>
           <span class="startup-splash__wordmark">Nexa</span>
-          <span class="startup-splash__tagline"></span>
+          <span class="startup-splash__tagline">Starting¡­</span>
         </div>
       </div>
     </div>
     <script>
       (() => {
         const tagline = document.querySelector('.startup-splash__tagline');
-        if (tagline) tagline.textContent = document.documentElement.dataset.startupTagline || '';
+        if (tagline && document.documentElement.dataset.startupTagline) tagline.textContent = document.documentElement.dataset.startupTagline;
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

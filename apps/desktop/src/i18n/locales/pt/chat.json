@@ -994,7 +994,7 @@
   "imageEditSending": "Enviando…",
   "generationSpeed": "Velocidade de geração (TPS)",
   "externalTurnSpeed": "Taxa de saída do turno do agente",
-  "externalTurnSpeedHint": "Tokens de saída divididos pela duração do turno, incluindo ferramentas e esperas.",
+  "externalTurnSpeedHint": "Total de tokens de saída medidos dividido pela duração total dos turnos, incluindo ferramentas e esperas.",
   "generationSpeedUnavailable": "O ambiente ainda não informou os tokens de saída e o tempo necessários para calcular a velocidade.",
-  "generationSpeedHint": "Última solicitação ao modelo: tokens de saída / duração, incluindo a latência do primeiro token e excluindo ferramentas e espera do usuário."
+  "generationSpeedHint": "Média do modelo selecionado. Total de tokens de saída medidos dividido pelo tempo total das solicitações, incluindo a latência do primeiro token."
 }

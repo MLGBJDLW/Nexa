@@ -994,7 +994,7 @@
   "imageEditSending": "送信中…",
   "generationSpeed": "生成速度（TPS）",
   "externalTurnSpeed": "エージェントターンのスループット",
-  "externalTurnSpeedHint": "出力トークン数を、ツール実行や待機を含むターン全体の時間で割った値です。",
+  "externalTurnSpeedHint": "計測した出力トークンの合計を、ツール実行や待機を含むターンの合計時間で割った値です。",
   "generationSpeedUnavailable": "速度の計算に必要な出力トークン数と時間がランタイムからまだ報告されていません。",
-  "generationSpeedHint": "直近のモデル要求の出力トークン数 ÷ 所要時間。最初のトークンまでの待ち時間を含み、ツール実行やユーザー待機を除きます。"
+  "generationSpeedHint": "選択中のモデルの平均速度。出力トークンの合計を、最初のトークンまでの待ち時間を含むリクエストの合計時間で割った値です。"
 }

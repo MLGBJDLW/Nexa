@@ -19,6 +19,7 @@ pub(super) struct UsageAccountingContext<'a> {
     pub(super) trace: &'a mut Option<AgentTrace>,
     pub(super) total_usage: &'a mut Usage,
     pub(super) last_prompt_tokens: &'a mut u32,
+    pub(super) generation_metrics: &'a mut Option<context::GenerationMetrics>,
     pub(super) last_context_breakdown: &'a mut Option<context::ContextUsageBreakdown>,
 }
 
@@ -155,6 +156,7 @@ impl AgentExecutor {
             trace,
             total_usage,
             last_prompt_tokens,
+            generation_metrics,
             last_context_breakdown,
         } = ctx;
         let ModelStepUsageObservation {
@@ -183,15 +185,15 @@ impl AgentExecutor {
             .provider_type
             .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
         context_breakdown.runtime_model = Some(model.to_string());
-        context_breakdown.generation =
-            chunk_usage
-                .as_ref()
-                .filter(|_| request_latency_ms > 0)
-                .map(|usage| context::GenerationMetrics {
-                    output_tokens: usage.completion_tokens,
-                    request_duration_ms: request_latency_ms,
-                    external_turn: false,
-                });
+        if let Some(usage) = chunk_usage.as_ref() {
+            context::GenerationMetrics::record(
+                generation_metrics,
+                usage.completion_tokens,
+                request_latency_ms,
+                false,
+            );
+        }
+        context_breakdown.generation.clone_from(generation_metrics);
         let (prompt_tokens, completion_tokens, _has_actual_usage) =
             model_step_accounting_tokens(chunk_usage.as_ref(), context_breakdown.total_tokens);
         let operation_kind = match self.config.request_kind {

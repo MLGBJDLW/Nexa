@@ -128,10 +128,13 @@ function AppShell() {
   useEffect(() => {
     let active = true;
     const timeout = setTimeout(() => {
-      if (active) { active = false; setStartupError(true); }
+      if (active) setStartupError(true);
     }, 10_000);
     void api.getWizardState().then(state => {
-      if (active) setWizardCompleted(state == null ? true : Boolean(state.completed));
+      if (active) {
+        setStartupError(false);
+        setWizardCompleted(state == null ? true : Boolean(state.completed));
+      }
     }).catch(() => {
       if (active) setStartupError(true);
     }).finally(() => clearTimeout(timeout));

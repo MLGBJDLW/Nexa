@@ -1,26 +1,34 @@
-/* One shared image, three masks. The shape changes at the narrowest point of the turn. */
+/* Scale the two masks independently so each silhouette dissolves into the
+   same connected particles before the next silhouette comes into focus. */
 .nexa-loading-mark,
 svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) {
   background-color: currentColor;
-  mask: url("./loadingMarks.svg") center top / 100% 300% no-repeat;
-  animation: nexa-loading-turn 1.8s infinite, nexa-loading-shape 5.4s steps(1, end) infinite;
+  --particles: url("./loadingParticles.svg");
+  mask-image: url("./loadingVortex.svg"), var(--particles);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: 100% 100%, 0% 0%;
+  animation: nexa-loading-turn 2.4s ease-in-out infinite, nexa-loading-shape 7.2s steps(1, end) infinite;
 }
 svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) > * { visibility: hidden; }
+
 @keyframes nexa-loading-turn {
-  0% { transform: rotate(0deg) scaleX(.12); animation-timing-function: ease-out; }
-  12% { transform: rotate(0deg) scaleX(1); animation-timing-function: cubic-bezier(.56,.03,.95,.55); }
-  60% { transform: rotate(115deg) scaleX(1); animation-timing-function: cubic-bezier(.15,.54,.38,1); }
-  100% { transform: rotate(360deg) scaleX(.12); }
+  0% { mask-size: 0% 0%, 98% 98%; transform: rotate(-18deg); }
+  17% { mask-size: 55% 55%, 48% 48%; }
+  31% { mask-size: 100% 100%, 0% 0%; transform: rotate(0deg); }
+  60% { mask-size: 100% 100%, 0% 0%; transform: rotate(8deg); }
+  80% { mask-size: 42% 42%, 68% 68%; }
+  100% { mask-size: 0% 0%, 98% 98%; transform: rotate(342deg); }
 }
 @keyframes nexa-loading-shape {
-  0% { mask-position: center top; }
-  33.333333% { mask-position: center center; }
-  66.666667% { mask-position: center bottom; }
+  0% { mask-image: url("./loadingVortex.svg"), var(--particles); }
+  33.333333% { mask-image: url("./loadingGlyph.svg"), var(--particles); }
+  66.666667% { mask-image: url("./loadingHelix.svg"), var(--particles); }
 }
 @media (prefers-reduced-motion: reduce) {
   .nexa-loading-mark,
   svg.animate-spin:is(.lucide-loader-circle, .lucide-loader, .lucide-loader-2) {
     animation: none;
-    mask-position: center center;
+    mask-image: url("./loadingGlyph.svg");
   }
 }

@@ -2241,7 +2241,7 @@ mod tests {
             model_limits_from_catalog(ProviderType::OpenRouter, "qwen/qwen3.8-2.4t-a95b")
                 .expect("OpenRouter Qwen3.8 open flagship should expose its endpoint limits");
         assert_eq!(openrouter_open.context_tokens, Some(1_048_576));
-        assert_eq!(openrouter_open.max_output_tokens, Some(131_072));
+        assert_eq!(openrouter_open.max_output_tokens, Some(65_536));
 
         for model in [
             "google/gemini-3.8-flash",

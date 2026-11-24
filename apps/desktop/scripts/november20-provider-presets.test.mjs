@@ -46,6 +46,12 @@ test('Google-managed Claude snapshots keep their native route IDs, access and li
     assert.ok(!vertex.some(entry => entry.id === id.replace('@', '-')));
   }
   assert.equal(vertex.find(m => m.id === 'claude-sonnet-4-5@20250929').deprecationDate, '2026-11-30');
+  const opus = models('anthropic').find(m => m.id === 'claude-opus-4-5');
+  assert.deepEqual(opus.aliases, ['claude-opus-4-5-20251101']);
+  assert.equal(opus.status, 'deprecated');
+  assert.equal(opus.deprecationDate, '2027-01-22');
+  assert.equal(opus.replacementModelId, 'claude-opus-5-5');
+  assert.equal(vertex.find(m => m.id === 'claude-opus-4-5@20251101').deprecationDate, undefined);
   for (const id of ['claude-mythos-5', 'claude-mythos-5-1', 'claude-mythos-5-2']) {
     assert.equal(vertex.find(m => m.id === id).status, 'gated');
   }

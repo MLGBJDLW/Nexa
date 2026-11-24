@@ -139,14 +139,20 @@
     "apiStyle": "openai_transcription",
     "requiresApiKey": true,
     "baseUrl": "https://api.siliconflow.cn/v1",
-    "description": "OpenAI-compatible hosted transcription in China using SenseVoice or TeleSpeech ASR.",
+    "description": "Transcribe a complete recording using SiliconFlow's China speech recognition models.",
     "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
       {"id": "FunAudioLLM/SenseVoiceSmall", "name": "SenseVoice Small", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "TeleAI/TeleSpeechASR", "name": "TeleSpeech ASR", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "TeleAI/TeleSpeechASR", "name": "TeleSpeech ASR", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "Qwen/Qwen3-ASR-1.7B", "name": "Qwen3 ASR 1.7B", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"},
+      {"id": "XingChenAGI/XingChenGSR-V1.0", "name": "XingChen GSR V1.0", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"},
+      {"id": "XingChenAGI/XingChenASR-V3.2", "name": "XingChen ASR V3.2", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"},
+      {"id": "XingChenAGI/XingChenASR-V3.2-Ultra", "name": "XingChen ASR V3.2 Ultra", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"},
+      {"id": "XingChenAGI/XingChenASR-Diarize-V3.0", "name": "XingChen ASR Diarize V3.0", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"},
+      {"id": "XingChenAGI/Xing-Audio4.0-ASR-Preview", "name": "Xing Audio 4.0 ASR Preview (English)", "status": "preview", "access": "public", "source": "official", "productReadiness": "discoverable", "lastVerifiedAt": "2026-11-24"}
     ],
-    "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-transcriptions-post"]
+    "lastVerifiedAt": "2026-11-24",
+    "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-transcriptions-post", "https://cloud.siliconflow.cn/open/models"]
   },
   {
     "id": "siliconflow-international",

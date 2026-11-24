@@ -113,6 +113,15 @@ test('every curated voice model binding resolves inside its own provider', () =>
     assert.equal(lookup({ ...config, baseUrl: 'https://api.siliconflow.com/v1' }).id, 'siliconflow-international');
     assert.equal(lookup({ ...config, baseUrl: 'https://relay.example/v1' }).id, 'siliconflow');
   }
+  const china = stt.STT_PROVIDER_PRESETS.find(preset => preset.id === 'siliconflow');
+  const international = stt.STT_PROVIDER_PRESETS.find(preset => preset.id === 'siliconflow-international');
+  const preview = china.models.find(model => model.id === 'XingChenAGI/Xing-Audio4.0-ASR-Preview');
+  assert.equal(preview.descriptor.lifecycle, 'preview');
+  assert.equal(preview.descriptor.access, 'public');
+  assert.equal(stt.defaultSttItem(china.models).id, 'FunAudioLLM/SenseVoiceSmall');
+  assert.ok(!international.models.some(model => model.id === preview.id));
+  const internationalSpeech = tts.TTS_PROVIDER_PRESETS.find(preset => preset.id === 'siliconflow-international');
+  assert.equal(tts.ttsVoiceForModel(internationalSpeech, 'IndexTeam/IndexTTS-2', 'fishaudio/fish-speech-1.5:alex'), 'IndexTeam/IndexTTS-2:alex');
   for (const preset of tts.TTS_PROVIDER_PRESETS) {
     const models = new Set(preset.models.map(m => m.id));
     for (const voice of preset.voices) {
