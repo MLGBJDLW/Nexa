@@ -10,23 +10,41 @@ type GenerationMetrics = ContextUsageBreakdown['generation'];
 export interface GenerationSample {
   scope: string;
   observed: GenerationMetrics;
+  latest: GenerationMetrics;
   metrics: GenerationMetrics;
+  blocked: GenerationMetrics;
 }
 
-/** One latest measurement, scoped to the conversation and selected model route. */
+function sameMeasurement(a: GenerationMetrics, b: GenerationMetrics): boolean {
+  return a?.seriesId === b?.seriesId && a?.outputTokens === b?.outputTokens
+    && a?.requestDurationMs === b?.requestDurationMs && !!a?.externalTurn === !!b?.externalTurn;
+}
+
+/** Accumulate measured tokens and time. New snapshots of an active series
+ * replace its contribution, including when a live event is replayed from disk. */
 export function retainGenerationSample(
   previous: GenerationSample | null,
   scope: string,
   observed: GenerationMetrics,
 ): GenerationSample {
   if (previous?.scope === scope && previous.observed === observed) return previous;
-  // A route change can leave the previous usage snapshot mounted. Do not
-  // relabel that measurement as belonging to the newly selected model.
-  const fresh = previous?.scope === scope || previous?.observed !== observed;
-  const metrics = fresh && modelTokensPerSecond(observed) != null
-    ? observed
-    : previous?.scope === scope ? previous.metrics : undefined;
-  return { scope, observed, metrics };
+  const state: GenerationSample = previous?.scope === scope
+    ? { ...previous, observed }
+    : { scope, observed, latest: undefined, metrics: undefined, blocked: previous?.latest ?? previous?.blocked };
+  if (!observed || modelTokensPerSecond(observed) == null) return state;
+  const { latest, blocked } = state;
+  if (blocked && (blocked.seriesId ? blocked.seriesId === observed.seriesId : sameMeasurement(blocked, observed))) return state;
+  if (sameMeasurement(latest, observed)) return state;
+  const replacing = !!observed.seriesId && latest?.seriesId === observed.seriesId;
+  if (replacing && observed.requestDurationMs < latest.requestDurationMs) return state;
+  const previousTotal = !!state.metrics?.externalTurn === !!observed.externalTurn ? state.metrics : undefined;
+  state.metrics = {
+    ...observed,
+    outputTokens: (previousTotal?.outputTokens ?? 0) + observed.outputTokens - (replacing ? latest.outputTokens : 0),
+    requestDurationMs: (previousTotal?.requestDurationMs ?? 0) + observed.requestDurationMs - (replacing ? latest.requestDurationMs : 0),
+  };
+  state.latest = observed;
+  return state;
 }
 
 interface UsageInput {

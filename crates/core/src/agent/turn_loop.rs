@@ -1273,6 +1273,7 @@ impl AgentExecutor {
             .clone();
         let mut total_usage = pre_summarization_usage;
         let mut last_prompt_tokens: u32 = 0;
+        let mut generation_metrics = None;
         let mut last_context_breakdown: Option<context::ContextUsageBreakdown> = None;
         let mut sort_order = next_sort_order;
         let mut accumulated_content = String::new();
@@ -2118,6 +2119,7 @@ impl AgentExecutor {
             // -- 4b. Accumulate usage ------------------------------------------
             self.record_model_step_usage(
                 usage_accounting::UsageAccountingContext {
+                    generation_metrics: &mut generation_metrics,
                     db,
                     conversation_id,
                     turn_id,

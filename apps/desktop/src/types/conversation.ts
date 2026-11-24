@@ -874,7 +874,7 @@ export interface ContextUsageSegment {
 }
 
 export interface ContextUsageBreakdown {
-  generation?: { outputTokens: number; requestDurationMs: number; externalTurn?: boolean };
+  generation?: { seriesId?: string; outputTokens: number; requestDurationMs: number; externalTurn?: boolean };
   totalTokens: number;
   segments: ContextUsageSegment[];
   measurement?: 'provider' | 'provider_plus_estimate' | 'estimated';

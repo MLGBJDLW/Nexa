@@ -20,6 +20,22 @@ test('latest valid generation survives missing timing and resets on model, endpo
   }
 });
 
+test('speed weights measured time and replaces replayed cumulative samples', () => {
+  const first = { seriesId: 'one', outputTokens: 100, requestDurationMs: 1000 };
+  const second = { seriesId: 'two', outputTokens: 50, requestDurationMs: 1000 };
+  const measured = { ...second, outputTokens: 100, requestDurationMs: 3000 };
+  let sample = retainGenerationSample(null, 'model', first);
+  for (const observation of [second, measured, undefined, { ...measured }, second]) {
+    sample = retainGenerationSample(sample, 'model', observation);
+  }
+  assert.equal(modelTokensPerSecond(sample.metrics), 50);
+  sample = retainGenerationSample(sample, 'new-model', { ...measured });
+  sample = retainGenerationSample(sample, 'new-model', { ...measured, requestDurationMs: 4000 });
+  assert.equal(sample.metrics, undefined);
+  sample = retainGenerationSample(sample, 'new-model', { ...first, seriesId: 'three' });
+  assert.equal(modelTokensPerSecond(sample.metrics), 100);
+});
+
 test('generation speed uses one model request and rejects unavailable or invalid timing', () => {
   assert.equal(modelTokensPerSecond({outputTokens: 120, requestDurationMs: 2000}), 60);
   assert.equal(modelTokensPerSecond({outputTokens: 0, requestDurationMs: 2000}), 0);

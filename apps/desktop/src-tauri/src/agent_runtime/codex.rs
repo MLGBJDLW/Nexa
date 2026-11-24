@@ -815,11 +815,12 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                         turn_usage_observed |= params.pointer("/tokenUsage/total/outputTokens").and_then(Value::as_u64).is_some();
                     }
                     if project_event(&mut projection,&turn,&mut async_items,method,params).await? {
-                        projection.generation = params.pointer("/turn/durationMs").and_then(Value::as_u64)
-                            .filter(|ms| *ms > 0 && turn_usage_observed)
-                            .and_then(|request_duration_ms| projection.usage.completion_tokens.checked_sub(turn_start_output_tokens).map(|output_tokens|
-                                nexa_core::agent::context::GenerationMetrics { output_tokens, request_duration_ms, external_turn: true }
-                            ));
+                        if let (Some(ms), Some(tokens)) = (
+                            params.pointer("/turn/durationMs").and_then(Value::as_u64).filter(|_| turn_usage_observed),
+                            projection.usage.completion_tokens.checked_sub(turn_start_output_tokens),
+                        ) {
+                            nexa_core::agent::context::GenerationMetrics::record(&mut projection.generation, tokens, ms, true);
+                        }
                         if !pending.is_empty() || !replies.is_empty() || !steering_queue.is_empty() { return Err(protocol_error("Codex completed with unacknowledged work")); }
                         if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await? {
                             let guidance = match completion_repairs.next(guidance, milestones) {

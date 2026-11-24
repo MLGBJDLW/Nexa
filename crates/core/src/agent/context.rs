@@ -373,7 +373,7 @@ pub struct ContextUsageBreakdown {
     pub runtime_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_model: Option<String>,
-    /// Latest physical model request only; never conversation totals or tool time.
+    /// Measured output and elapsed time for this turn and model route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<GenerationMetrics>,
 }
@@ -381,11 +381,37 @@ pub struct ContextUsageBreakdown {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationMetrics {
-    pub output_tokens: u32,
+    /// Older events carry a single request with no series identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series_id: Option<String>,
+    pub output_tokens: u64,
     pub request_duration_ms: u64,
     /// Agent prompt elapsed time includes its tool calls and approval waits.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub external_turn: bool,
+}
+
+impl GenerationMetrics {
+    pub fn record(
+        total: &mut Option<Self>,
+        output_tokens: u32,
+        duration_ms: u64,
+        external_turn: bool,
+    ) {
+        if duration_ms == 0 {
+            return;
+        }
+        let metrics = total.get_or_insert_with(|| Self {
+            series_id: Some(uuid::Uuid::new_v4().to_string()),
+            output_tokens: 0,
+            request_duration_ms: 0,
+            external_turn,
+        });
+        metrics.output_tokens = metrics
+            .output_tokens
+            .saturating_add(u64::from(output_tokens));
+        metrics.request_duration_ms = metrics.request_duration_ms.saturating_add(duration_ms);
+    }
 }
 
 pub fn estimate_context_usage_breakdown_for_model(

@@ -638,17 +638,19 @@ async fn project_event(
                 if let Some(model) = data["model"].as_str() {
                     projection.observe_runtime_model(model);
                 }
-                projection.generation = data["outputTokens"]
-                    .as_u64()
-                    .and_then(|value| u32::try_from(value).ok())
-                    .zip(data["duration"].as_u64().filter(|ms| *ms > 0))
-                    .map(|(output_tokens, request_duration_ms)| {
-                        nexa_core::agent::context::GenerationMetrics {
-                            output_tokens,
-                            request_duration_ms,
-                            external_turn: false,
-                        }
-                    });
+                if let (Some(tokens), Some(ms)) = (
+                    data["outputTokens"]
+                        .as_u64()
+                        .and_then(|value| u32::try_from(value).ok()),
+                    data["duration"].as_u64(),
+                ) {
+                    nexa_core::agent::context::GenerationMetrics::record(
+                        &mut projection.generation,
+                        tokens,
+                        ms,
+                        false,
+                    );
+                }
             }
             let tokens = |key: &str| {
                 data.get(key)
