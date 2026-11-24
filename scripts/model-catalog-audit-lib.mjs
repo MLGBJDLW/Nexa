@@ -229,8 +229,13 @@ export function compareCatalogInventory(endpoint, rows) {
         || !liveById.get(change.id.toLowerCase())?.inputModalities?.includes('text')),
     })).filter(change => change.fields.length);
   }
-  // Tombstones still suppress re-importing a historical ID, without creating a
-  // permanent missing-model alarm for models already deliberately retired.
+  // A returning exact route needs review. A historical alias alone does not
+  // establish that the saved route works again.
+  const retiredIds = new Set(endpoint.models.filter(model => model.lifecycle === 'removed').map(model => model.id.toLowerCase()));
+  const listedIds = new Set(live
+    .filter(model => typeof model.id === 'string' && !['deprecated', 'removed', 'retired'].includes(liveLifecycle(model)))
+    .map(model => model.id.toLowerCase()));
+  comparison.relistedIds = comparison.newIds.filter(id => retiredIds.has(id.toLowerCase()) && listedIds.has(id.toLowerCase()));
   const known = new Set(endpoint.models.flatMap(model => [model.id, model.discoveryId, ...(model.aliases ?? [])])
     .filter(Boolean).map(id => id.toLowerCase()));
   comparison.newIds = comparison.newIds.filter(id => !known.has(id.toLowerCase()));
@@ -272,6 +277,6 @@ export async function fetchCatalogPages(initialUrl, { headers, fetchImpl = fetch
 }
 
 export function driftDetected(comparison) {
-  return ['newIds', 'missingIds', 'capabilityChanged', 'lifecycleChanged', 'expirationChanged', 'regionChanged', 'limitChanged', 'modalityChanged', 'parameterChanged']
+  return ['newIds', 'relistedIds', 'missingIds', 'capabilityChanged', 'lifecycleChanged', 'expirationChanged', 'regionChanged', 'limitChanged', 'modalityChanged', 'parameterChanged']
     .some(field => comparison[field]?.length > 0);
 }
