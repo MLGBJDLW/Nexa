@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.2...nexa-monorepo-v0.20.3) (2026-11-24)
+
+
+### Bug Fixes
+
+* **chat:** unblock first replies in desktop project conversations ([d372878](https://github.com/MLGBJDLW/Nexa/commit/d37287815bbd43a02a54d17873cafdd24c2e64bc))
+* **chat:** unblock first replies in desktop project conversations ([ab095c4](https://github.com/MLGBJDLW/Nexa/commit/ab095c4372fd93c278282cac742af25dcc29dd5e))
+
 ## [0.20.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.1...nexa-monorepo-v0.20.2) (2026-11-24)
 
 ### Desktop and chat
