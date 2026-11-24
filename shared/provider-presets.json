@@ -24898,6 +24898,14 @@
       {
         "id": "claude-opus-4-5",
         "name": "Claude Opus 4.5",
+        "aliases": [
+          "claude-opus-4-5-20251101"
+        ],
+        "status": "deprecated",
+        "deprecationDate": "2027-01-22",
+        "replacementModelId": "claude-opus-5-5",
+        "lastVerifiedAt": "2026-11-24",
+        "documentationRef": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
         "capabilities": {
           "reasoning": {
             "thinkingBudget": {
@@ -24912,6 +24920,9 @@
       {
         "id": "claude-sonnet-4-5",
         "name": "Claude Sonnet 4.5",
+        "aliases": [
+          "claude-sonnet-4-5-20250929"
+        ],
         "capabilities": {
           "reasoning": {
             "thinkingBudget": {
@@ -36137,10 +36148,10 @@
           "vision": true
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-11-18",
+        "lastVerifiedAt": "2026-11-24",
         "replacementModelId": "doubao-seed-2-1-lite-260915",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
-        "deprecationDate": "2026-11-24"
+        "deprecationDate": "2027-01-22"
       },
       {
         "id": "doubao-seed-2-0-lite-260428",
