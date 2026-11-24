@@ -25,10 +25,12 @@ test('speed weights measured time and replaces replayed cumulative samples', () 
   const second = { seriesId: 'two', outputTokens: 50, requestDurationMs: 1000 };
   const measured = { ...second, outputTokens: 100, requestDurationMs: 3000 };
   let sample = retainGenerationSample(null, 'model', first);
-  for (const observation of [second, measured, undefined, { ...measured }, second]) {
+  for (const observation of [second, measured, undefined, { ...first }, { ...measured }, second]) {
     sample = retainGenerationSample(sample, 'model', observation);
   }
   assert.equal(modelTokensPerSecond(sample.metrics), 50);
+  sample = retainGenerationSample(sample, 'model', { ...first, outputTokens: 200, requestDurationMs: 2000 });
+  assert.equal(modelTokensPerSecond(sample.metrics), 60);
   sample = retainGenerationSample(sample, 'new-model', { ...measured });
   sample = retainGenerationSample(sample, 'new-model', { ...measured, requestDurationMs: 4000 });
   assert.equal(sample.metrics, undefined);

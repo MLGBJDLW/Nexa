@@ -11,6 +11,8 @@ export interface GenerationSample {
   scope: string;
   observed: GenerationMetrics;
   latest: GenerationMetrics;
+  completed: ReadonlyMap<string, NonNullable<GenerationMetrics>>;
+  totals: Readonly<Partial<Record<'request' | 'turn', NonNullable<GenerationMetrics>>>>;
   metrics: GenerationMetrics;
   blocked: GenerationMetrics;
 }
@@ -20,30 +22,47 @@ function sameMeasurement(a: GenerationMetrics, b: GenerationMetrics): boolean {
     && a?.requestDurationMs === b?.requestDurationMs && !!a?.externalTurn === !!b?.externalTurn;
 }
 
-/** Accumulate measured tokens and time. New snapshots of an active series
- * replace its contribution, including when a live event is replayed from disk. */
+function seriesKey(metrics: NonNullable<GenerationMetrics>): string {
+  return metrics.seriesId ?? `legacy:${!!metrics.externalTurn}:${metrics.outputTokens}:${metrics.requestDurationMs}`;
+}
+
+/** Cumulative snapshots replace their series contribution. The active series
+ * updates in constant time; only crossing turns or correcting an older turn
+ * copies the index. Replayed durable snapshots leave the displayed series alone. */
 export function retainGenerationSample(
   previous: GenerationSample | null,
   scope: string,
   observed: GenerationMetrics,
 ): GenerationSample {
-  if (previous?.scope === scope && previous.observed === observed) return previous;
+  if (previous?.scope === scope && sameMeasurement(previous.observed, observed)) return previous;
   const state: GenerationSample = previous?.scope === scope
     ? { ...previous, observed }
-    : { scope, observed, latest: undefined, metrics: undefined, blocked: previous?.latest ?? previous?.blocked };
+    : { scope, observed, latest: undefined, completed: new Map(), totals: {}, metrics: undefined, blocked: previous?.latest ?? previous?.blocked };
   if (!observed || modelTokensPerSecond(observed) == null) return state;
-  const { latest, blocked } = state;
-  if (blocked && (blocked.seriesId ? blocked.seriesId === observed.seriesId : sameMeasurement(blocked, observed))) return state;
-  if (sameMeasurement(latest, observed)) return state;
-  const replacing = !!observed.seriesId && latest?.seriesId === observed.seriesId;
-  if (replacing && observed.requestDurationMs < latest.requestDurationMs) return state;
-  const previousTotal = !!state.metrics?.externalTurn === !!observed.externalTurn ? state.metrics : undefined;
-  state.metrics = {
-    ...observed,
-    outputTokens: (previousTotal?.outputTokens ?? 0) + observed.outputTokens - (replacing ? latest.outputTokens : 0),
-    requestDurationMs: (previousTotal?.requestDurationMs ?? 0) + observed.requestDurationMs - (replacing ? latest.requestDurationMs : 0),
+  const key = seriesKey(observed);
+  if (state.blocked && seriesKey(state.blocked) === key) return state;
+  const { latest, completed } = state;
+  const archived = completed.get(key);
+  const prior = latest && seriesKey(latest) === key ? latest : archived;
+  if (prior && observed.requestDurationMs <= prior.requestDurationMs) return state;
+
+  const kind = observed.externalTurn ? 'turn' : 'request';
+  const total = state.totals[kind];
+  state.totals = {
+    ...state.totals,
+    [kind]: {
+      outputTokens: (total?.outputTokens ?? 0) + observed.outputTokens - (prior?.outputTokens ?? 0),
+      requestDurationMs: (total?.requestDurationMs ?? 0) + observed.requestDurationMs - (prior?.requestDurationMs ?? 0),
+      externalTurn: observed.externalTurn,
+    },
   };
-  state.latest = observed;
+  if (archived) {
+    state.completed = new Map(completed).set(key, observed);
+  } else {
+    if (latest && !prior) state.completed = new Map(completed).set(seriesKey(latest), latest);
+    state.latest = observed;
+  }
+  state.metrics = state.totals[state.latest?.externalTurn ? 'turn' : 'request'];
   return state;
 }
 
