@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.20.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.1...nexa-monorepo-v0.20.2) (2026-11-24)
+
+### Desktop and chat
+
+- Nexa opens its window while it restores local services and conversations. A slow workspace can finish opening after the retry prompt appears.
+- Loading indicators move from a three-armed vortex through a field of connected particles into the Nexa mark and a helix. The system's reduced-motion setting selects a stationary mark.
+- The chat speed display divides total measured output tokens by total measured time. It keeps its value between requests, handles replayed usage and starts a fresh average when you change model or connection.
+- Clicking a navigation item dismisses its tooltip. Hovering again or navigating with the keyboard still shows the label.
+
+### Model support
+
+- Restore the Pareto 26.10 Preview route on OpenRouter and refresh published model limits, parameters and retirement dates. Model discovery now flags previously removed models that return.
+- Add six speech recognition models on SiliconFlow China and IndexTTS-2 with its Alex voice on SiliconFlow International. Update HeyGen audio input support, Zhipu embedding limits and the retirement dates for Claude Opus 4.5 and Doubao Seed 2.0 Pro.
+- Update the cookie dependency to 0.18.3 for the upstream private-cookie security fix.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 157b6d8eb69e6e95fae7527f866491a030a6211e -->
+
+### What's Changed
+* feat(desktop): improve startup feedback, average model speed and refresh provider catalogs by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/596
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.1...nexa-monorepo-v0.20.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1) (2026-11-23)
 
 ### Features
