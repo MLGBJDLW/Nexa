@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.1...nexa-mobile-v0.4.2) (2026-11-24)
+
+### Improvements
+
+- Nexa Mobile shows a loading indicator as soon as the app opens. Connected particles separate and regroup between a spiral, the Nexa mark and a helix. Reduced motion keeps the mark still.
+- Paired chat displays average generation speed across measured requests. Reconnecting or receiving a repeated usage update preserves the average. Choosing another model or connection starts a fresh measurement.
+- Update the cookie dependency to 0.18.3 for the upstream private-cookie security fix.
+
 ## [0.4.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.0...nexa-mobile-v0.4.1) (2026-11-23)
 
 ### Features
