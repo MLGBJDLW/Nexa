@@ -23,6 +23,16 @@
 * **startup:** paint the desktop shell during native recovery ([48d6a9d](https://github.com/MLGBJDLW/Nexa/commit/48d6a9d3af74a3914f568cc4204864b356a02bb8))
 * **ui:** isolate loading silhouettes as their masks contract ([3867751](https://github.com/MLGBJDLW/Nexa/commit/3867751821f5265621234ccc9c0d88b960ac6371))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 157b6d8eb69e6e95fae7527f866491a030a6211e -->
+
+### What's Changed
+* feat(desktop): improve startup feedback, average model speed and refresh provider catalogs by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/596
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.1...nexa-monorepo-v0.20.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.0...nexa-monorepo-v0.20.1) (2026-11-23)
 
 ### Features
