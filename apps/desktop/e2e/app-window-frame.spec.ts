@@ -224,13 +224,23 @@ test('reveals the native window onto a branded startup surface', async ({ page }
   const positions = await mark.evaluate(element => {
     const shape = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-shape')!;
     shape.pause();
-    return [300, 2100, 3900, 5700].map(time => {
+    return [800, 3200, 5600, 8000].map(time => {
       shape.currentTime = time;
       return getComputedStyle(element).maskPosition;
     });
   });
   expect(new Set(positions).size).toBe(3);
   expect(positions[0]).toBe(positions[3]);
+  const particleSizes = await mark.evaluate(element => {
+    const turn = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-turn')!;
+    turn.pause();
+    return [0, 800].map(time => {
+      turn.currentTime = time;
+      return getComputedStyle(element).maskSize;
+    });
+  });
+  expect(particleSizes[0]).toMatch(/98%/);
+  expect(particleSizes[1]).toMatch(/300%/);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(mark).toHaveCSS('animation-name', 'none');
   await expect(mark).toHaveCSS('mask-position', positions[1]);
