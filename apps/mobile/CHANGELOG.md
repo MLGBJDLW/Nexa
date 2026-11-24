@@ -2,16 +2,11 @@
 
 ## [0.4.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.1...nexa-mobile-v0.4.2) (2026-11-24)
 
+### Improvements
 
-### Features
-
-* **desktop:** improve startup feedback, average model speed and refresh provider catalogs ([157b6d8](https://github.com/MLGBJDLW/Nexa/commit/157b6d8eb69e6e95fae7527f866491a030a6211e))
-* **mobile:** show startup feedback before JavaScript loads ([7adc48b](https://github.com/MLGBJDLW/Nexa/commit/7adc48b7d0709a0131ab5b42d225679382c09691))
-
-
-### Bug Fixes
-
-* **deps:** update cookie to the patched desktop and mobile release ([a96bb7f](https://github.com/MLGBJDLW/Nexa/commit/a96bb7f14e10e7a9b7ef3d2cd9871fd40a84e7bf))
+- Nexa Mobile shows a loading indicator as soon as the app opens. Connected particles separate and regroup between a spiral, the Nexa mark and a helix. Reduced motion keeps the mark still.
+- Paired chat displays average generation speed across measured requests. Reconnecting or receiving a repeated usage update preserves the average. Choosing another model or connection starts a fresh measurement.
+- Update the cookie dependency to 0.18.3 for the upstream private-cookie security fix.
 
 ## [0.4.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.0...nexa-mobile-v0.4.1) (2026-11-23)
 
