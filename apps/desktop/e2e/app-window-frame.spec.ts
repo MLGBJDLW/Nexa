@@ -40,6 +40,9 @@ test.beforeEach(async ({ page }) => {
         case 'plugin:window|toggle_maximize':
           maximized = !maximized;
           return null;
+        case 'wait_for_desktop_startup':
+          if (location.search.includes('slow-native')) await new Promise<void>(resolve => Object.assign(window, { finishRecovery: resolve }));
+          return null;
         case 'get_wizard_state_cmd':
           if (localStorage.getItem('nexa-test-delay-wizard') === 'true' && !wizardReleased) {
             await new Promise<void>(resolve => { releaseWizardState = resolve; });
@@ -64,6 +67,7 @@ test.beforeEach(async ({ page }) => {
       releaseWizardState?.();
       releaseWizardState = null;
     };
+    Object.assign(window, { isTauri: true });
     (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke,
       metadata: { currentWindow: { label: 'main' } },
@@ -244,12 +248,6 @@ test('reveals the native window onto a branded startup surface', async ({ page }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(mark).toHaveCSS('animation-name', 'none');
   await expect(mark).toHaveCSS('mask-position', positions[1]);
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__,
-  )).toContain('plugin:window|show');
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__,
-  )).toContain('plugin:window|set_focus');
   await page.evaluate(() => (
     window as unknown as { __releaseWizardState?: () => void }
   ).__releaseWizardState?.());
@@ -280,25 +278,12 @@ test('retries failed stream subscriptions and admits the workspace with one list
   await expect(page.getByText('404', { exact: true })).toBeVisible();
 });
 
-test('reveals the static startup surface while the React bootstrap is still loading', async ({ page }) => {
-  let releaseBootstrap!: () => void;
-  const gate = new Promise<void>(resolve => { releaseBootstrap = resolve; });
-  const requested = page.waitForRequest('**/src/bootstrap.tsx*');
-  await page.route('**/src/bootstrap.tsx*', async route => {
-    await gate;
-    await route.continue();
-  });
-  await page.goto('/missing-route', { waitUntil: 'domcontentloaded' });
-  await requested;
-  try {
-    await expect(page.getByTestId('startup-splash')).toBeVisible();
-    await expect(page.getByText('404', { exact: true })).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() =>
-      (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__,
-    )).toContain('plugin:window|show');
-  } finally {
-    releaseBootstrap();
-  }
+test('paints the static startup surface while native recovery is pending', async ({ page }) => {
+  await page.goto('/missing-route?slow-native', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('status', { name: 'Starting Nexa' })).toBeVisible();
+  await expect(page.getByText('404', { exact: true })).toHaveCount(0);
+  await page.waitForFunction(() => 'finishRecovery' in window);
+  await page.evaluate(() => (window as unknown as { finishRecovery: () => void }).finishRecovery());
   await expect(page.getByText('404', { exact: true })).toBeVisible();
 });
 

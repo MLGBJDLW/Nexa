@@ -6,7 +6,7 @@ use nexa_core::app_settings::{
 };
 use serde::Serialize;
 use tauri::{
-    App, AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalRect, PhysicalSize,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalRect, PhysicalSize,
     WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
@@ -240,7 +240,7 @@ pub fn apply_companion_settings(app: &AppHandle, settings: &CompanionSettings, s
     }
 }
 
-pub fn create_companion_window(app: &mut App, settings: &CompanionSettings) {
+pub fn create_companion_window(app: &AppHandle, settings: &CompanionSettings) {
     app.manage(CompanionWindowState::default());
     let builder = WebviewWindowBuilder::new(
         app,
@@ -266,9 +266,9 @@ pub fn create_companion_window(app: &mut App, settings: &CompanionSettings) {
     match builder.build() {
         Ok(window) => {
             if let Err(error) = apply_window_attributes(&window, settings) {
-                record_error(app.handle(), error);
+                record_error(app, error);
             }
-            let app_handle = app.handle().clone();
+            let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
                 loop {
@@ -293,7 +293,7 @@ pub fn create_companion_window(app: &mut App, settings: &CompanionSettings) {
             });
         }
         Err(error) => record_error(
-            app.handle(),
+            app,
             format!("Companion window creation is unsupported or failed: {error}"),
         ),
     }

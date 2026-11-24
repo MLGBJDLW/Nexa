@@ -290,7 +290,7 @@ fn place_status(window: &tauri::WebviewWindow, window_id: Option<u64>) {
     }
 }
 
-pub fn initialize(app: &mut tauri::App) {
+pub fn initialize(app: &AppHandle) {
     app.manage(DesktopControlStatusState::default());
     // The renderer is warmed while hidden. Showing it never takes focus from
     // the approved target and no per-token event opens another WebView.

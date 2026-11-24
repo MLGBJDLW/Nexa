@@ -163,8 +163,7 @@ fn load_or_create_routing_session_secret(data_dir: &Path) -> io::Result<String> 
 
 fn persisted_window_state_flags() -> StateFlags {
     // Native decorations and startup visibility are controlled by tauri.conf.json.
-    // Restoring either flag could re-enable the system title bar or reveal the
-    // WebView before the branded startup surface has painted.
+    // A saved hidden window must still open visibly on the next launch.
     StateFlags::all() & !(StateFlags::DECORATIONS | StateFlags::VISIBLE)
 }
 
@@ -355,8 +354,8 @@ fn build_tray_menu(
     )
 }
 
-fn install_tray(app: &mut tauri::App, locale: &str) -> tauri::Result<()> {
-    let menu = build_tray_menu(app.handle(), &tray_labels(locale))?;
+fn install_tray(app: &tauri::AppHandle, locale: &str) -> tauri::Result<()> {
+    let menu = build_tray_menu(app, &tray_labels(locale))?;
     let icon = app.default_window_icon().cloned();
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -441,6 +440,378 @@ fn update_tray_menu_cmd(
     tray.set_menu(Some(menu)).map_err(|error| error.to_string())
 }
 
+// Stored completion also covers a renderer reload or a backend that finishes
+// before the first WebView request. Dropping the sender reports worker panics.
+struct DesktopStartup(tokio::sync::watch::Receiver<Option<Result<(), String>>>);
+
+#[tauri::command]
+async fn wait_for_desktop_startup(startup: tauri::State<'_, DesktopStartup>) -> Result<(), String> {
+    let mut ready = startup.0.clone();
+    let result = ready.wait_for(Option::is_some).await
+        .map_err(|_| "Desktop initialization stopped unexpectedly".to_string())?;
+    result.as_ref().expect("waited for startup completion").clone()
+}
+
+fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .expect("failed to resolve app data directory");
+    std::fs::create_dir_all(&data_dir).expect("failed to create app data directory");
+
+    match load_or_create_routing_session_secret(&data_dir) {
+        Ok(secret) => {
+            if !nexa_core::llm::prompt_cache::configure_routing_session_secret(
+                secret.as_bytes(),
+            ) {
+                log::warn!("Routing session secret was already configured");
+            }
+        }
+        Err(error) => log::warn!(
+            "Failed to load routing session secret; using a process-local fallback: {error}"
+        ),
+    }
+
+    // Migrate legacy user data (ask-myself -> nexa). Safe to call every start.
+    migrate_legacy_data_dir(&data_dir);
+
+    let user_extensions =
+        nexa_core::user_extensions::UserExtensionLayout::discover(&data_dir)
+            .expect("failed to resolve Nexa user extension home");
+    match user_extensions.bootstrap() {
+        Ok(report) => log::info!(
+            "Prepared Nexa user extension home at {} (copied={}, preserved={}, skipped_links={})",
+            user_extensions.root().display(),
+            report.copied_files,
+            report.preserved_user_files,
+            report.skipped_links,
+        ),
+        Err(error) => log::warn!("Failed to prepare Nexa user extension home: {error}"),
+    }
+    nexa_core::skills::configure_user_skills_directory(
+        &user_extensions.skills_dir(),
+    )
+    .expect("failed to configure Nexa user skill directory");
+    nexa_core::user_extensions::configure_user_theme_directory(
+        &user_extensions.themes_dir(),
+    )
+    .expect("failed to configure Nexa user theme directory");
+
+    // Materialize bundled skill assets to disk so run_shell can exec them
+    // and <SKILL_DIR> placeholders in prompts resolve correctly.
+    match nexa_core::skills::materialize_skills_to_disk(&data_dir) {
+        Ok(path) => log::info!("Materialized skills to {}", path.display()),
+        Err(e) => log::warn!(
+            "Failed to materialize skills: {e}. Python-backed document editing via shell scripts will be unavailable."
+        ),
+    }
+    if let Some(bin_dir) = nexa_core::office_runtime::configure_app_managed_python_env(&data_dir) {
+        log::info!(
+            "Configured app-managed Office Python environment at {}",
+            bin_dir.display()
+        );
+    }
+    match app.path().resource_dir() {
+        Ok(resources) => match nexa_core::shell_environment::bundled_tools::configure(&resources) {
+            Ok(Some(bin)) => log::info!("Configured bundled shell utilities at {}", bin.display()),
+            Ok(None) => log::debug!("Bundled shell utilities are not staged in this source checkout"),
+            Err(error) => log::warn!("Bundled shell utilities are unavailable: {error}"),
+        },
+        Err(error) => log::warn!("Cannot locate bundled shell utilities: {error}"),
+    }
+    match app.path().resource_dir() {
+        Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_openxml_validator(
+            &data_dir,
+            &resource_dir,
+        ) {
+            Ok(Some(path)) => log::info!(
+                "Configured bundled Open XML SDK validator at {}",
+                path.display()
+            ),
+            Ok(None) => log::info!("Bundled Open XML SDK validator is not present"),
+            Err(error) => log::warn!("Failed to configure Open XML SDK validator: {error}"),
+        },
+        Err(error) => log::warn!("Failed to resolve app resource directory: {error}"),
+    }
+    match app.path().resource_dir() {
+        Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_office_addin(
+            &data_dir,
+            &resource_dir,
+        ) {
+            Ok(Some(path)) => log::info!(
+                "Configured bundled Office.js add-in manifest at {}",
+                path.display()
+            ),
+            Ok(None) => log::info!("Bundled Office.js add-in is not present"),
+            Err(error) => log::warn!("Failed to configure Office.js add-in: {error}"),
+        },
+        Err(error) => log::warn!("Failed to resolve Office.js resource directory: {error}"),
+    }
+    match app.path().resource_dir() {
+        Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_pptxgenjs_runtime(
+            &data_dir,
+            &resource_dir,
+        ) {
+            Ok(Some((node, modules))) => log::info!(
+                "Configured bundled PptxGenJS runtime: node={}, modules={}",
+                node.display(),
+                modules.display()
+            ),
+            Ok(None) => log::info!("Bundled PptxGenJS runtime is not present"),
+            Err(error) => log::warn!("Failed to configure PptxGenJS runtime: {error}"),
+        },
+        Err(error) => log::warn!("Failed to resolve PptxGenJS resource directory: {error}"),
+    }
+    match nexa_core::office_live_bridge::ensure_office_live_bridge() {
+        Ok(bridge) => log::info!(
+            "Office.js live bridge listening on {}",
+            bridge.status(false).endpoint
+        ),
+        Err(error) => log::warn!("Failed to start Office.js live bridge: {error}"),
+    }
+
+    let db_path = data_dir.join("nexa.db");
+    let db = Database::new(&db_path).expect("failed to initialize database");
+    if let Err(error) = nexa_core::external_agent::registry::initialize(&data_dir.join("runtime").join("external-agents")) {
+        log::warn!("ACP directory cache could not be loaded; bundled agents remain available: {error}");
+    }
+    if let Err(error) = db.recover_knowledge_jobs() {
+        log::warn!("Could not recover interrupted indexing jobs: {error}");
+    }
+    if let Err(error) = db.recover_project_hook_runs() {
+        log::warn!("Could not recover interrupted project hooks: {error}");
+    }
+    if let Err(error) = nexa_core::mcp::oauth::McpAuthService::recover_logins(&db) {
+        log::warn!("Could not recover interrupted MCP sign-ins: {error}");
+    }
+    let oauth = nexa_core::mcp::oauth::McpAuthService::shared(&db);
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = oauth.cleanup().await { log::warn!("MCP credential cleanup is pending: {error}"); }
+    });
+    if let Err(error) = db.recover_pending_file_changes() {
+        log::warn!("Could not settle file changes interrupted by the previous process: {error}");
+    }
+    let mcp_config_path = user_extensions.mcp_config_path();
+    let canonical_mcp_ready = match nexa_core::mcp::config_file::reload_user_mcp_config(
+        &db,
+        &mcp_config_path,
+    ) {
+        Ok(report) => {
+            log::info!(
+                "Loaded {} MCP connector(s) from {}",
+                report.imported,
+                mcp_config_path.display()
+            );
+            true
+        }
+        Err(error) => {
+            log::warn!(
+                "Failed to reload MCP connector config at {}; retaining the last valid projection: {error}",
+                mcp_config_path.display()
+            );
+            false
+        }
+    };
+    let canonical_skills = match nexa_core::skills::sync_registered_user_skills_from_directory(
+        &db,
+        &user_extensions.skills_dir(),
+    ) {
+        Ok(report) => {
+            if report.updated > 0
+                || report.unregistered > 0
+                || !report.rejected.is_empty()
+            {
+                log::info!(
+                    "Synchronized ~/.nexa skills: updated={}, unchanged={}, unregistered={}, rejected={}",
+                    report.updated,
+                    report.unchanged,
+                    report.unregistered,
+                    report.rejected.len(),
+                );
+            }
+            match db.list_skills().and_then(|skills| {
+                nexa_core::skills::materialize_user_skills_to_directory_except(
+                    &user_extensions.skills_dir(),
+                    &skills,
+                    &report.preserved_skill_ids,
+                )?;
+                Ok(skills)
+            }) {
+                Ok(skills) => {
+                    log::info!(
+                        "Materialized user skills to {}",
+                        user_extensions.skills_dir().display()
+                    );
+                    Some(skills)
+                }
+                Err(e) => {
+                    log::warn!("Failed to materialize user skills: {e}");
+                    None
+                }
+            }
+        }
+        Err(error) => {
+            log::warn!("Failed to synchronize ~/.nexa skills: {error}");
+            None
+        }
+    };
+    if canonical_mcp_ready {
+        if let Some(skills) = canonical_skills.as_deref() {
+            match user_extensions.finalize_legacy_projection_cleanup(skills) {
+                Ok(report) => {
+                    if report.armed_for_next_start {
+                        log::info!(
+                            "Verified canonical ~/.nexa reads; legacy projection cleanup is armed for the next start"
+                        );
+                    } else {
+                        log::info!(
+                            "Retired verified legacy extension projections (files={}, directories={}, preserved_modified={}, skipped_links={})",
+                            report.deleted_files,
+                            report.deleted_directories,
+                            report.preserved_modified,
+                            report.skipped_links,
+                        );
+                    }
+                    for warning in report.warnings {
+                        log::warn!("Legacy extension projection preserved: {warning}");
+                    }
+                }
+                Err(error) => log::warn!(
+                    "Could not finalize legacy extension projection cleanup: {error}"
+                ),
+            }
+        }
+    }
+    let db = Arc::new(db);
+    tauri::async_runtime::spawn(nexa_core::vector_store::start_background_sync((*db).clone()));
+    let db_executor = nexa_core::db_executor::DatabaseExecutor::new((*db).clone(), 64)
+        .expect("failed to initialize bounded database executor");
+    let run_event_outboxes = nexa_core::run_event_outbox::AgentRunEventOutboxes::new(
+        db_executor.clone(),
+        Arc::new(agent_run_outbox::DesktopAgentRunEventDelivery::new(
+            app.clone(),
+        )),
+    );
+    let agent_run_recovery = tauri::async_runtime::block_on(
+        run_event_outboxes.recover_after_restart_with_checkpoints(),
+    )?;
+    if agent_run_recovery.restored_suspensions > 0
+        || agent_run_recovery.repaired_terminals > 0
+        || agent_run_recovery.cancelled_runs > 0
+    {
+        log::info!(
+            "Recovered Agent Runs after restart: {} suspension(s) restored, {} terminal projection(s) repaired, {} interrupted run(s) cancelled",
+            agent_run_recovery.restored_suspensions,
+            agent_run_recovery.repaired_terminals,
+            agent_run_recovery.cancelled_runs,
+        );
+    }
+    match nexa_core::agent::cleanup_orphaned_workspace_isolations(db.as_ref()) {
+        Ok(report)
+            if report.removed_worktrees > 0
+                || report.removed_sources > 0
+                || report.retained_unverifiable_entries > 0 =>
+        {
+            log::info!(
+                "Recovered scheduled isolation after restart: {} worktree(s) and {} temporary source(s) removed; {} unverifiable entry(s) retained",
+                report.removed_worktrees,
+                report.removed_sources,
+                report.retained_unverifiable_entries,
+            );
+        }
+        Ok(_) => {}
+        Err(error) => log::warn!(
+            "Failed to reconcile orphaned scheduled isolation workspaces: {error}"
+        ),
+    }
+    let activity_runtime = nexa_core::activity::ActivityRuntime::with_database((*db).clone())
+        .expect("failed to initialize durable activity runtime");
+    let context_compaction = nexa_core::context_maintenance::ContextCompactionService::new(
+        db_executor.clone(),
+        activity_runtime,
+    );
+    let media_generation = nexa_core::media_generation::MediaGenerationRuntime::with_asset_store(
+        db_executor.clone(),
+        nexa_core::media_generation::MediaGenerationAssetStore::new(
+            data_dir.join("generation-assets"),
+        ),
+    );
+    let recovered_media_jobs =
+        tauri::async_runtime::block_on(media_generation.recover_after_restart())?;
+    if recovered_media_jobs > 0 {
+        log::info!(
+            "Marked {recovered_media_jobs} ambiguous media submission(s) provider_unknown after restart"
+        );
+    }
+    let media_recovery_plan =
+        tauri::async_runtime::block_on(media_generation.build_recovery_plan())?;
+    if !media_recovery_plan.is_empty() {
+        log::info!(
+            "Prepared {} durable media recovery action(s) before exposing renderer state",
+            media_recovery_plan.len()
+        );
+    }
+    #[cfg(feature = "video")]
+    let voice_audio_spool = Arc::new(
+        nexa_core::voice_audio_spool::VoiceAudioSpool::new(
+            data_dir.join("voice-spool"),
+        )
+        .expect("failed to initialize managed voice audio spool"),
+    );
+
+    let (background_work, background_work_receiver) = BackgroundWorkGovernor::new();
+    app.manage(remote::RemoteState::default());
+    app.manage(remote_screen::RemoteScreenState::default());
+    app.manage(AppState {
+        db: db.clone(),
+        codex_account_runtime: commands::CodexAccountRuntime::default(),
+        copilot_account_runtime: commands::CopilotAccountRuntime::default(),
+        user_extensions: user_extensions.clone(),
+        db_executor,
+        run_event_outboxes,
+        subagent_lifecycle: subagent_lifecycle::SubagentLifecycleRuntime::default(),
+        context_compaction,
+        media_generation,
+        #[cfg(feature = "video")]
+        whisper_busy: Arc::new(AtomicBool::new(false)),
+        #[cfg(feature = "video")]
+        voice_audio_spool,
+        #[cfg(feature = "video")]
+        voice_spool_append_permits: Arc::new(tokio::sync::Semaphore::new(4)),
+        scan_lock: Arc::new(std::sync::Mutex::new(())),
+        background_work,
+    });
+    app.manage(AgentState {
+        sessions: nexa_core::runtime::AgentSessionManager::new(),
+    });
+    app.manage(McpManagerState {
+        manager: Arc::new(nexa_core::mcp::McpManager::new()),
+    });
+    app.manage(ApprovalState::default());
+    app.manage(RealtimeTranscriptionState::default());
+    app.manage(commands::remote_voice::RemoteVoiceState::default());
+    app.manage(commands::LiveState::default());
+    app.manage(preview_tool::PreviewBridgeState::default());
+    app.manage(commands::TerminalState::default());
+    app.manage(browser::BrowserState::new(
+        app.clone(),
+        data_dir.join("browser-profiles"),
+    ));
+    app.manage(DownloadCancelFlag(Arc::new(AtomicBool::new(false))));
+    let app_config = db.load_app_config().unwrap_or_default();
+    companion_window::create_companion_window(app, &app_config.companion);
+    desktop_control_status::initialize(app);
+    install_tray(app, &app_config.ui_locale)?;
+
+    // Initialise the file watcher for auto-indexing.
+    let handle = app.clone();
+    commands::init_watcher(handle, background_work_receiver);
+    commands::init_task_orchestrator_scheduler(app.clone());
+    commands::init_dreaming_scheduler(app.clone());
+
+    Ok(())
+}
+
 fn main() {
     if std::env::args_os()
         .nth(1)
@@ -451,7 +822,9 @@ fn main() {
         }
         return;
     }
+    let (ready, receiver) = tokio::sync::watch::channel(None);
     let app = tauri::Builder::default()
+        .manage(DesktopStartup(receiver))
         .invoke_system(command_dispatch::main_frame_invoke_script())
         .manage(chat_ui_preview::ChatUiPreviewState::default())
         .register_uri_scheme_protocol("nexa-ui", |context, request| chat_ui_preview::respond(context.app_handle(), request))
@@ -465,366 +838,19 @@ fn main() {
                 .with_denylist(&["desktop-control-status"])
                 .build(),
         )
-        .setup(|app| {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("failed to resolve app data directory");
-            std::fs::create_dir_all(&data_dir).expect("failed to create app data directory");
-
-            match load_or_create_routing_session_secret(&data_dir) {
-                Ok(secret) => {
-                    if !nexa_core::llm::prompt_cache::configure_routing_session_secret(
-                        secret.as_bytes(),
-                    ) {
-                        log::warn!("Routing session secret was already configured");
-                    }
-                }
-                Err(error) => log::warn!(
-                    "Failed to load routing session secret; using a process-local fallback: {error}"
-                ),
-            }
-
-            // Migrate legacy user data (ask-myself -> nexa). Safe to call every start.
-            migrate_legacy_data_dir(&data_dir);
-
-            let user_extensions =
-                nexa_core::user_extensions::UserExtensionLayout::discover(&data_dir)
-                    .expect("failed to resolve Nexa user extension home");
-            match user_extensions.bootstrap() {
-                Ok(report) => log::info!(
-                    "Prepared Nexa user extension home at {} (copied={}, preserved={}, skipped_links={})",
-                    user_extensions.root().display(),
-                    report.copied_files,
-                    report.preserved_user_files,
-                    report.skipped_links,
-                ),
-                Err(error) => log::warn!("Failed to prepare Nexa user extension home: {error}"),
-            }
-            nexa_core::skills::configure_user_skills_directory(
-                &user_extensions.skills_dir(),
-            )
-            .expect("failed to configure Nexa user skill directory");
-            nexa_core::user_extensions::configure_user_theme_directory(
-                &user_extensions.themes_dir(),
-            )
-            .expect("failed to configure Nexa user theme directory");
-
-            // Materialize bundled skill assets to disk so run_shell can exec them
-            // and <SKILL_DIR> placeholders in prompts resolve correctly.
-            match nexa_core::skills::materialize_skills_to_disk(&data_dir) {
-                Ok(path) => log::info!("Materialized skills to {}", path.display()),
-                Err(e) => log::warn!(
-                    "Failed to materialize skills: {e}. Python-backed document editing via shell scripts will be unavailable."
-                ),
-            }
-            if let Some(bin_dir) = nexa_core::office_runtime::configure_app_managed_python_env(&data_dir) {
-                log::info!(
-                    "Configured app-managed Office Python environment at {}",
-                    bin_dir.display()
-                );
-            }
-            match app.path().resource_dir() {
-                Ok(resources) => match nexa_core::shell_environment::bundled_tools::configure(&resources) {
-                    Ok(Some(bin)) => log::info!("Configured bundled shell utilities at {}", bin.display()),
-                    Ok(None) => log::debug!("Bundled shell utilities are not staged in this source checkout"),
-                    Err(error) => log::warn!("Bundled shell utilities are unavailable: {error}"),
-                },
-                Err(error) => log::warn!("Cannot locate bundled shell utilities: {error}"),
-            }
-            match app.path().resource_dir() {
-                Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_openxml_validator(
-                    &data_dir,
-                    &resource_dir,
-                ) {
-                    Ok(Some(path)) => log::info!(
-                        "Configured bundled Open XML SDK validator at {}",
-                        path.display()
-                    ),
-                    Ok(None) => log::info!("Bundled Open XML SDK validator is not present"),
-                    Err(error) => log::warn!("Failed to configure Open XML SDK validator: {error}"),
-                },
-                Err(error) => log::warn!("Failed to resolve app resource directory: {error}"),
-            }
-            match app.path().resource_dir() {
-                Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_office_addin(
-                    &data_dir,
-                    &resource_dir,
-                ) {
-                    Ok(Some(path)) => log::info!(
-                        "Configured bundled Office.js add-in manifest at {}",
-                        path.display()
-                    ),
-                    Ok(None) => log::info!("Bundled Office.js add-in is not present"),
-                    Err(error) => log::warn!("Failed to configure Office.js add-in: {error}"),
-                },
-                Err(error) => log::warn!("Failed to resolve Office.js resource directory: {error}"),
-            }
-            match app.path().resource_dir() {
-                Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_pptxgenjs_runtime(
-                    &data_dir,
-                    &resource_dir,
-                ) {
-                    Ok(Some((node, modules))) => log::info!(
-                        "Configured bundled PptxGenJS runtime: node={}, modules={}",
-                        node.display(),
-                        modules.display()
-                    ),
-                    Ok(None) => log::info!("Bundled PptxGenJS runtime is not present"),
-                    Err(error) => log::warn!("Failed to configure PptxGenJS runtime: {error}"),
-                },
-                Err(error) => log::warn!("Failed to resolve PptxGenJS resource directory: {error}"),
-            }
-            match nexa_core::office_live_bridge::ensure_office_live_bridge() {
-                Ok(bridge) => log::info!(
-                    "Office.js live bridge listening on {}",
-                    bridge.status(false).endpoint
-                ),
-                Err(error) => log::warn!("Failed to start Office.js live bridge: {error}"),
-            }
-
-            let db_path = data_dir.join("nexa.db");
-            let db = Database::new(&db_path).expect("failed to initialize database");
-            if let Err(error) = nexa_core::external_agent::registry::initialize(&data_dir.join("runtime").join("external-agents")) {
-                log::warn!("ACP directory cache could not be loaded; bundled agents remain available: {error}");
-            }
-            if let Err(error) = db.recover_knowledge_jobs() {
-                log::warn!("Could not recover interrupted indexing jobs: {error}");
-            }
-            if let Err(error) = db.recover_project_hook_runs() {
-                log::warn!("Could not recover interrupted project hooks: {error}");
-            }
-            if let Err(error) = nexa_core::mcp::oauth::McpAuthService::recover_logins(&db) {
-                log::warn!("Could not recover interrupted MCP sign-ins: {error}");
-            }
-            let oauth = nexa_core::mcp::oauth::McpAuthService::shared(&db);
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = oauth.cleanup().await { log::warn!("MCP credential cleanup is pending: {error}"); }
-            });
-            if let Err(error) = db.recover_pending_file_changes() {
-                log::warn!("Could not settle file changes interrupted by the previous process: {error}");
-            }
-            let mcp_config_path = user_extensions.mcp_config_path();
-            let canonical_mcp_ready = match nexa_core::mcp::config_file::reload_user_mcp_config(
-                &db,
-                &mcp_config_path,
-            ) {
-                Ok(report) => {
-                    log::info!(
-                        "Loaded {} MCP connector(s) from {}",
-                        report.imported,
-                        mcp_config_path.display()
-                    );
-                    true
-                }
-                Err(error) => {
-                    log::warn!(
-                        "Failed to reload MCP connector config at {}; retaining the last valid projection: {error}",
-                        mcp_config_path.display()
-                    );
-                    false
-                }
-            };
-            let canonical_skills = match nexa_core::skills::sync_registered_user_skills_from_directory(
-                &db,
-                &user_extensions.skills_dir(),
-            ) {
-                Ok(report) => {
-                    if report.updated > 0
-                        || report.unregistered > 0
-                        || !report.rejected.is_empty()
-                    {
-                        log::info!(
-                            "Synchronized ~/.nexa skills: updated={}, unchanged={}, unregistered={}, rejected={}",
-                            report.updated,
-                            report.unchanged,
-                            report.unregistered,
-                            report.rejected.len(),
-                        );
-                    }
-                    match db.list_skills().and_then(|skills| {
-                        nexa_core::skills::materialize_user_skills_to_directory_except(
-                            &user_extensions.skills_dir(),
-                            &skills,
-                            &report.preserved_skill_ids,
-                        )?;
-                        Ok(skills)
-                    }) {
-                        Ok(skills) => {
-                            log::info!(
-                                "Materialized user skills to {}",
-                                user_extensions.skills_dir().display()
-                            );
-                            Some(skills)
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to materialize user skills: {e}");
-                            None
-                        }
-                    }
-                }
-                Err(error) => {
-                    log::warn!("Failed to synchronize ~/.nexa skills: {error}");
-                    None
-                }
-            };
-            if canonical_mcp_ready {
-                if let Some(skills) = canonical_skills.as_deref() {
-                    match user_extensions.finalize_legacy_projection_cleanup(skills) {
-                        Ok(report) => {
-                            if report.armed_for_next_start {
-                                log::info!(
-                                    "Verified canonical ~/.nexa reads; legacy projection cleanup is armed for the next start"
-                                );
-                            } else {
-                                log::info!(
-                                    "Retired verified legacy extension projections (files={}, directories={}, preserved_modified={}, skipped_links={})",
-                                    report.deleted_files,
-                                    report.deleted_directories,
-                                    report.preserved_modified,
-                                    report.skipped_links,
-                                );
-                            }
-                            for warning in report.warnings {
-                                log::warn!("Legacy extension projection preserved: {warning}");
-                            }
-                        }
-                        Err(error) => log::warn!(
-                            "Could not finalize legacy extension projection cleanup: {error}"
-                        ),
-                    }
-                }
-            }
-            let db = Arc::new(db);
-            tauri::async_runtime::spawn(nexa_core::vector_store::start_background_sync((*db).clone()));
-            let db_executor = nexa_core::db_executor::DatabaseExecutor::new((*db).clone(), 64)
-                .expect("failed to initialize bounded database executor");
-            let run_event_outboxes = nexa_core::run_event_outbox::AgentRunEventOutboxes::new(
-                db_executor.clone(),
-                Arc::new(agent_run_outbox::DesktopAgentRunEventDelivery::new(
-                    app.handle().clone(),
-                )),
-            );
-            let agent_run_recovery = tauri::async_runtime::block_on(
-                run_event_outboxes.recover_after_restart_with_checkpoints(),
-            )?;
-            if agent_run_recovery.restored_suspensions > 0
-                || agent_run_recovery.repaired_terminals > 0
-                || agent_run_recovery.cancelled_runs > 0
-            {
-                log::info!(
-                    "Recovered Agent Runs after restart: {} suspension(s) restored, {} terminal projection(s) repaired, {} interrupted run(s) cancelled",
-                    agent_run_recovery.restored_suspensions,
-                    agent_run_recovery.repaired_terminals,
-                    agent_run_recovery.cancelled_runs,
-                );
-            }
-            match nexa_core::agent::cleanup_orphaned_workspace_isolations(db.as_ref()) {
-                Ok(report)
-                    if report.removed_worktrees > 0
-                        || report.removed_sources > 0
-                        || report.retained_unverifiable_entries > 0 =>
-                {
-                    log::info!(
-                        "Recovered scheduled isolation after restart: {} worktree(s) and {} temporary source(s) removed; {} unverifiable entry(s) retained",
-                        report.removed_worktrees,
-                        report.removed_sources,
-                        report.retained_unverifiable_entries,
-                    );
-                }
-                Ok(_) => {}
-                Err(error) => log::warn!(
-                    "Failed to reconcile orphaned scheduled isolation workspaces: {error}"
-                ),
-            }
-            let activity_runtime = nexa_core::activity::ActivityRuntime::with_database((*db).clone())
-                .expect("failed to initialize durable activity runtime");
-            let context_compaction = nexa_core::context_maintenance::ContextCompactionService::new(
-                db_executor.clone(),
-                activity_runtime,
-            );
-            let media_generation = nexa_core::media_generation::MediaGenerationRuntime::with_asset_store(
-                db_executor.clone(),
-                nexa_core::media_generation::MediaGenerationAssetStore::new(
-                    data_dir.join("generation-assets"),
-                ),
-            );
-            let recovered_media_jobs =
-                tauri::async_runtime::block_on(media_generation.recover_after_restart())?;
-            if recovered_media_jobs > 0 {
-                log::info!(
-                    "Marked {recovered_media_jobs} ambiguous media submission(s) provider_unknown after restart"
-                );
-            }
-            let media_recovery_plan =
-                tauri::async_runtime::block_on(media_generation.build_recovery_plan())?;
-            if !media_recovery_plan.is_empty() {
-                log::info!(
-                    "Prepared {} durable media recovery action(s) before exposing renderer state",
-                    media_recovery_plan.len()
-                );
-            }
-            #[cfg(feature = "video")]
-            let voice_audio_spool = Arc::new(
-                nexa_core::voice_audio_spool::VoiceAudioSpool::new(
-                    data_dir.join("voice-spool"),
-                )
-                .expect("failed to initialize managed voice audio spool"),
-            );
-
-            let (background_work, background_work_receiver) = BackgroundWorkGovernor::new();
-            app.manage(remote::RemoteState::default());
-            app.manage(remote_screen::RemoteScreenState::default());
-            app.manage(AppState {
-                db: db.clone(),
-                codex_account_runtime: commands::CodexAccountRuntime::default(),
-                copilot_account_runtime: commands::CopilotAccountRuntime::default(),
-                user_extensions: user_extensions.clone(),
-                db_executor,
-                run_event_outboxes,
-                subagent_lifecycle: subagent_lifecycle::SubagentLifecycleRuntime::default(),
-                context_compaction,
-                media_generation,
-                #[cfg(feature = "video")]
-                whisper_busy: Arc::new(AtomicBool::new(false)),
-                #[cfg(feature = "video")]
-                voice_audio_spool,
-                #[cfg(feature = "video")]
-                voice_spool_append_permits: Arc::new(tokio::sync::Semaphore::new(4)),
-                scan_lock: Arc::new(std::sync::Mutex::new(())),
-                background_work,
-            });
-            app.manage(AgentState {
-                sessions: nexa_core::runtime::AgentSessionManager::new(),
-            });
-            app.manage(McpManagerState {
-                manager: Arc::new(nexa_core::mcp::McpManager::new()),
-            });
-            app.manage(ApprovalState::default());
-            app.manage(RealtimeTranscriptionState::default());
-            app.manage(commands::remote_voice::RemoteVoiceState::default());
-            app.manage(commands::LiveState::default());
-            app.manage(preview_tool::PreviewBridgeState::default());
-            app.manage(commands::TerminalState::default());
-            app.manage(browser::BrowserState::new(
-                app.handle().clone(),
-                data_dir.join("browser-profiles"),
-            ));
-            app.manage(DownloadCancelFlag(Arc::new(AtomicBool::new(false))));
-            let app_config = db.load_app_config().unwrap_or_default();
-            companion_window::create_companion_window(app, &app_config.companion);
-            desktop_control_status::initialize(app);
-            install_tray(app, &app_config.ui_locale)?;
-
-            // Initialise the file watcher for auto-indexing.
+        .setup(move |app| {
             let handle = app.handle().clone();
-            commands::init_watcher(handle, background_work_receiver);
-            commands::init_task_orchestrator_scheduler(app.handle().clone());
-            commands::init_dreaming_scheduler(app.handle().clone());
-
+            tauri::async_runtime::spawn_blocking(move || {
+                let result = initialize_desktop(&handle).map_err(|error| error.to_string());
+                if let Err(error) = &result {
+                    log::error!("Desktop initialization failed: {error}");
+                }
+                ready.send_replace(Some(result));
+            });
             Ok(())
         })
         .invoke_handler(command_dispatch::off_main_thread(tauri::generate_handler![
+            wait_for_desktop_startup,
             chat_ui_preview::create_chat_ui_preview_cmd,
             chat_ui_preview::release_chat_ui_preview_cmd,
             // Sources
