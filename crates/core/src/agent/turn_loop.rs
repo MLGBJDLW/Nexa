@@ -833,6 +833,13 @@ impl AgentExecutor {
             &self.config.system_prompt,
             has_indexed_sources,
         );
+        let _ = tx
+            .send(AgentEvent::ControllerStatus {
+                code: "route_selected".to_string(),
+                content: format!("Route selected: {:?}", route_plan.kind),
+                tone: Some("muted".to_string()),
+            })
+            .await;
         let explicit_research = route::requests_multi_source_research(routing_objective);
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
         let mut task_plan = resumed_execution
@@ -966,45 +973,47 @@ impl AgentExecutor {
         } else {
             source_scope.clone()
         };
+        use crate::workflow_verification::CaptureMode;
         let verification_capture =
             crate::workflow_verification::Capture::new(self.cancel_token.clone());
-        if let Some(workflow) = workflow_ir.as_mut() {
-            let source = verification_capture
-                .capture(
-                    db,
-                    conversation_id,
-                    turn_id,
-                    &execution_source_scope,
-                    self.tools.workspace(),
-                    crate::workflow_verification::CaptureMode::Authoritative,
-                )
-                .await?;
+        let capture_execution_source = |mode| {
+            verification_capture.capture(
+                db,
+                conversation_id,
+                turn_id,
+                &execution_source_scope,
+                self.tools.workspace(),
+                mode,
+            )
+        };
+        // Only restored receipts need a launch-time comparison. Fresh turns
+        // establish their baseline at the first operation that needs one.
+        if let Some(workflow) = workflow_ir.as_mut().filter(|_| is_execution_resume) {
+            let source = capture_execution_source(CaptureMode::Authoritative).await?;
             workflow.reconcile_verification_source(source.clone());
-            if is_execution_resume {
-                // Reconnaissance reads the original shared workspace, while
-                // write verification may also include an isolated checkout.
-                let read_source = if execution_source_scope == source_scope {
-                    source
-                } else {
-                    verification_capture
-                        .capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &source_scope,
-                            self.tools.workspace(),
-                            crate::workflow_verification::CaptureMode::Authoritative,
-                        )
-                        .await?
-                };
-                super::desktop_resume::reconcile_resumed_reconnaissance(
-                    db,
-                    turn_id,
-                    workflow,
-                    &read_source,
-                )?;
-                workflow.apply_checkpoint_to_task_plan(&mut task_plan);
-            }
+            // Reconnaissance reads the original shared workspace, while
+            // write verification may also include an isolated checkout.
+            let read_source = if execution_source_scope == source_scope {
+                source
+            } else {
+                verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &source_scope,
+                        self.tools.workspace(),
+                        crate::workflow_verification::CaptureMode::Authoritative,
+                    )
+                    .await?
+            };
+            super::desktop_resume::reconcile_resumed_reconnaissance(
+                db,
+                turn_id,
+                workflow,
+                &read_source,
+            )?;
+            workflow.apply_checkpoint_to_task_plan(&mut task_plan);
         }
         let min_evidence_sources = workflow_ir.as_ref().map_or(
             orchestration_policy
@@ -1028,13 +1037,6 @@ impl AgentExecutor {
         let workflow_ir_value = workflow_ir
             .as_ref()
             .and_then(|workflow| serde_json::to_value(workflow).ok());
-        let _ = tx
-            .send(AgentEvent::ControllerStatus {
-                code: "route_selected".to_string(),
-                content: format!("Route selected: {:?}", route_plan.kind),
-                tone: Some("muted".to_string()),
-            })
-            .await;
         emit_task_plan_update(&tx, &task_plan, "planning", "Typed task plan created").await;
         if let Some(workflow) = workflow_ir.as_ref() {
             let _ = tx
@@ -1478,6 +1480,13 @@ impl AgentExecutor {
                 else {
                     break;
                 };
+                if workflow_ir.verification_source.is_none()
+                    && workflow_ir.needs_workspace_verification()
+                {
+                    workflow_ir.reconcile_verification_source(
+                        capture_execution_source(CaptureMode::Authoritative).await?,
+                    );
+                }
                 let node_ids = workflow_ir
                     .ready_node_ids()
                     .into_iter()
@@ -2943,8 +2952,8 @@ impl AgentExecutor {
                     continue 'react_loop;
                 }
                 check_delegated_action_recovery!();
-                let hook_feedback =
-                    crate::project_hooks::completion_feedback(&crate::project_hooks::HookContext {
+                let hook_feedback = crate::project_hooks::completion_feedback(
+                    &crate::project_hooks::HookContext {
                         db,
                         tools: &self.tools,
                         workspace: self.tools.workspace(),
@@ -2955,8 +2964,20 @@ impl AgentExecutor {
                         plan_mode: self.config.execution_mode.is_plan(),
                         isolated: workspace_isolation.is_some(),
                         approval_mode: self.config.tool_approval_mode,
-                    })
-                    .await;
+                    },
+                    async {
+                        if let Some(workflow) = workflow_ir.as_mut().filter(|workflow| {
+                            workflow.verification_source.is_none()
+                                && workflow.needs_workspace_verification()
+                        }) {
+                            workflow.reconcile_verification_source(
+                                capture_execution_source(CaptureMode::Authoritative).await?,
+                            );
+                        }
+                        Ok(())
+                    },
+                )
+                .await;
                 check_delegated_action_recovery!();
                 let hook_feedback = hook_feedback?;
                 if let Some(blocker) = hook_feedback.blocker {
@@ -2992,18 +3013,13 @@ impl AgentExecutor {
                     .as_mut()
                     .filter(|workflow| workflow.requires_completion_audit())
                 {
-                    workflow_ir.reconcile_verification_source(
-                        verification_capture
-                            .capture(
-                                db,
-                                conversation_id,
-                                turn_id,
-                                &execution_source_scope,
-                                self.tools.workspace(),
-                                crate::workflow_verification::CaptureMode::Authoritative,
-                            )
-                            .await?,
-                    );
+                    if workflow_ir.verification_source.is_some()
+                        || workflow_ir.completion_contract.controller_owned_review
+                    {
+                        workflow_ir.reconcile_verification_source(
+                            capture_execution_source(CaptureMode::Authoritative).await?,
+                        );
+                    }
                     workflow_ir.sync_from_task_plan(&task_plan);
                     let final_audit = audit_final_answer(
                         &task_plan,
@@ -3042,18 +3058,11 @@ impl AgentExecutor {
                             }
                         }
                     }
-                    workflow_ir.reconcile_verification_source(
-                        verification_capture
-                            .capture(
-                                db,
-                                conversation_id,
-                                turn_id,
-                                &execution_source_scope,
-                                self.tools.workspace(),
-                                crate::workflow_verification::CaptureMode::Authoritative,
-                            )
-                            .await?,
-                    );
+                    if workflow_ir.verification_source.is_some() {
+                        workflow_ir.reconcile_verification_source(
+                            capture_execution_source(CaptureMode::Authoritative).await?,
+                        );
+                    }
                     if (workflow_ir.requires_runtime_write_isolation()
                         || self.config.request_kind.requires_workspace_isolation())
                         && workflow_ir.ready_to_promote_isolated_writes()
@@ -3331,34 +3340,37 @@ impl AgentExecutor {
 
             // A cached observation may invalidate earlier receipts, but only
             // fresh content can bind commands/reviews to a source revision.
-            let verification_mode = if tool_calls.iter().any(|call| {
+            // A browser action can create a source-bound observation gate while
+            // its result is being applied, including on a previously plain workflow.
+            let browser_receipt_batch = tool_calls.iter().any(|call| {
                 matches!(
-                    call.name.as_str(),
-                    "run_shell"
-                        | "judge_subagent_results"
-                        | "spawn_subagent"
-                        | "spawn_subagent_batch"
-                        | "browser_evidence_capture"
-                        | "browser_session"
+                    crate::tools::unified_control::effective_request(call)
+                        .name
+                        .as_str(),
+                    "browser_evidence_capture" | "browser_session"
                 )
-            }) {
+            });
+            let verification_mode = if browser_receipt_batch
+                || tool_calls.iter().any(|call| {
+                    matches!(
+                        call.name.as_str(),
+                        "run_shell"
+                            | "judge_subagent_results"
+                            | "spawn_subagent"
+                            | "spawn_subagent_batch"
+                    )
+                }) {
                 crate::workflow_verification::CaptureMode::Authoritative
             } else {
                 crate::workflow_verification::CaptureMode::Incremental
             };
 
-            if let Some(workflow) = workflow_ir.as_mut() {
+            if let Some(workflow) = workflow_ir
+                .as_mut()
+                .filter(|workflow| browser_receipt_batch || workflow.needs_workspace_verification())
+            {
                 workflow.reconcile_verification_source(
-                    verification_capture
-                        .capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &execution_source_scope,
-                            self.tools.workspace(),
-                            verification_mode,
-                        )
-                        .await?,
+                    capture_execution_source(verification_mode).await?,
                 );
             }
             if dispatch_consumes_tool_round {
@@ -3497,34 +3509,30 @@ impl AgentExecutor {
             if let Some(workflow) = workflow_ir.as_mut() {
                 let had_browser_targets =
                     !workflow.checkpoint.browser_observation_targets.is_empty();
-                let source = match verification_capture
-                    .capture(
-                        db,
-                        conversation_id,
-                        turn_id,
-                        &execution_source_scope,
-                        self.tools.workspace(),
-                        verification_mode,
-                    )
-                    .await
-                {
-                    Ok(source) => source,
-                    Err(CoreError::Cancelled(_)) if self.cancel_token.is_cancelled() => {
-                        // Tool cancellation still owns its normal settlement.
-                        // Retain an unverified source boundary instead of losing
-                        // the cancelled tool receipt to a follow-up scan error.
-                        crate::workflow_verification::VerificationSourceState {
-                            digest: workflow
-                                .verification_source
-                                .as_ref()
-                                .map(|source| source.digest.clone())
-                                .unwrap_or_default(),
-                            pending: true,
+                let verification_stable =
+                    if browser_receipt_batch || workflow.needs_workspace_verification() {
+                        match capture_execution_source(verification_mode).await {
+                            Ok(source) => workflow.reconcile_verification_source(source),
+                            Err(CoreError::Cancelled(_)) if self.cancel_token.is_cancelled() => {
+                                // Tool cancellation still owns its normal settlement.
+                                // Retain an unverified source boundary instead of losing
+                                // the cancelled tool receipt to a follow-up scan error.
+                                workflow.reconcile_verification_source(
+                                    crate::workflow_verification::VerificationSourceState {
+                                        digest: workflow
+                                            .verification_source
+                                            .as_ref()
+                                            .map(|source| source.digest.clone())
+                                            .unwrap_or_default(),
+                                        pending: true,
+                                    },
+                                )
+                            }
+                            Err(error) => return Err(error),
                         }
-                    }
-                    Err(error) => return Err(error),
-                };
-                let verification_stable = workflow.reconcile_verification_source(source);
+                    } else {
+                        false
+                    };
                 for call in &tool_calls {
                     if let Some(summary) = dispatch_summaries
                         .iter()

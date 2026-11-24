@@ -44,6 +44,69 @@ fn direct_run() -> (Database, String, String, String) {
     (db, conversation.id, turn.id, run.id)
 }
 
+#[tokio::test]
+async fn first_code_question_replies_without_scanning_the_workspace() {
+    // The fixture provider answers at step 1. Step 0 requests a tool first.
+    for (project_checks, first_model_step) in [(true, 1), (false, 0)] {
+        let root = tempfile::tempdir().unwrap();
+        if project_checks {
+            std::fs::write(root.path().join("Cargo.toml"), "").unwrap();
+        }
+        let (db, conversation, turn, _run) = direct_run();
+        // Trap the source inventory query in this in-memory database. This makes
+        // an eager scan observable without relying on the size or speed of a disk.
+        db.conn()
+            .execute_batch(
+                "ALTER TABLE turn_file_change_events RENAME COLUMN absolute_path TO scan_tripwire",
+            )
+            .unwrap();
+        let calls = Arc::new(AtomicUsize::new(first_model_step));
+        let mut tools = ToolRegistry::new().with_workspace(Some(crate::workspace::Workspace {
+            roots: vec![root.path().to_string_lossy().into_owned()],
+        }));
+        tools.register(Box::new(MockTool));
+        let executor = AgentExecutor::new(
+            Box::new(MockProvider {
+                stream_calls: calls.clone(),
+            }),
+            tools,
+            AgentConfig {
+                model: Some("mock-model".into()),
+                ..Default::default()
+            },
+        );
+        let prompt = "What does git status show?";
+        assert_eq!(
+            route_user_turn(prompt, "", false).kind,
+            AgentRouteKind::CodebaseOperation
+        );
+        let (tx, mut rx) = mpsc::channel(256);
+        let reply = executor
+            .run(
+                vec![],
+                vec![ContentPart::Text {
+                    text: prompt.into(),
+                }],
+                &db,
+                Some(&conversation),
+                Some(&turn),
+                tx,
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.text_content(), "final answer");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let mut streamed = String::new();
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::TextDelta { delta } = event {
+                streamed.push_str(&delta);
+            }
+        }
+        assert_eq!(streamed, "final answer");
+    }
+}
+
 struct ResumedKnowledgeProvider {
     calls: Arc<AtomicUsize>,
 }
