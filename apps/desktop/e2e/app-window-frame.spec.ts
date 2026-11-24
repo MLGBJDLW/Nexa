@@ -153,14 +153,14 @@ test('keeps the navigation rail fixed, optically centered, and metadata visible'
   }
   expect(versionBox!.y + versionBox!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height);
 
-  const search = rail.getByRole('link', { name: 'Search' });
-  const tip = page.getByRole('tooltip', { name: 'Search' });
-  await search.hover();
+  const chat = rail.getByRole('link', { name: 'Chat' });
+  const tip = page.getByRole('tooltip', { name: 'Chat' });
+  await chat.hover();
   await expect(tip).toBeVisible();
-  await search.click();
+  await chat.click();
   await expect(tip).toHaveCount(0);
   await page.mouse.move(120, 120);
-  await search.hover();
+  await chat.hover();
   await expect(tip).toBeVisible();
 });
 

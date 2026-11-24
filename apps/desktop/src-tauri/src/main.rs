@@ -447,9 +447,14 @@ struct DesktopStartup(tokio::sync::watch::Receiver<Option<Result<(), String>>>);
 #[tauri::command]
 async fn wait_for_desktop_startup(startup: tauri::State<'_, DesktopStartup>) -> Result<(), String> {
     let mut ready = startup.0.clone();
-    let result = ready.wait_for(Option::is_some).await
+    let result = ready
+        .wait_for(Option::is_some)
+        .await
         .map_err(|_| "Desktop initialization stopped unexpectedly".to_string())?;
-    result.as_ref().expect("waited for startup completion").clone()
+    result
+        .as_ref()
+        .expect("waited for startup completion")
+        .clone()
 }
 
 fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -461,9 +466,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
 
     match load_or_create_routing_session_secret(&data_dir) {
         Ok(secret) => {
-            if !nexa_core::llm::prompt_cache::configure_routing_session_secret(
-                secret.as_bytes(),
-            ) {
+            if !nexa_core::llm::prompt_cache::configure_routing_session_secret(secret.as_bytes()) {
                 log::warn!("Routing session secret was already configured");
             }
         }
@@ -475,9 +478,8 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     // Migrate legacy user data (ask-myself -> nexa). Safe to call every start.
     migrate_legacy_data_dir(&data_dir);
 
-    let user_extensions =
-        nexa_core::user_extensions::UserExtensionLayout::discover(&data_dir)
-            .expect("failed to resolve Nexa user extension home");
+    let user_extensions = nexa_core::user_extensions::UserExtensionLayout::discover(&data_dir)
+        .expect("failed to resolve Nexa user extension home");
     match user_extensions.bootstrap() {
         Ok(report) => log::info!(
             "Prepared Nexa user extension home at {} (copied={}, preserved={}, skipped_links={})",
@@ -488,14 +490,10 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         ),
         Err(error) => log::warn!("Failed to prepare Nexa user extension home: {error}"),
     }
-    nexa_core::skills::configure_user_skills_directory(
-        &user_extensions.skills_dir(),
-    )
-    .expect("failed to configure Nexa user skill directory");
-    nexa_core::user_extensions::configure_user_theme_directory(
-        &user_extensions.themes_dir(),
-    )
-    .expect("failed to configure Nexa user theme directory");
+    nexa_core::skills::configure_user_skills_directory(&user_extensions.skills_dir())
+        .expect("failed to configure Nexa user skill directory");
+    nexa_core::user_extensions::configure_user_theme_directory(&user_extensions.themes_dir())
+        .expect("failed to configure Nexa user theme directory");
 
     // Materialize bundled skill assets to disk so run_shell can exec them
     // and <SKILL_DIR> placeholders in prompts resolve correctly.
@@ -514,7 +512,9 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     match app.path().resource_dir() {
         Ok(resources) => match nexa_core::shell_environment::bundled_tools::configure(&resources) {
             Ok(Some(bin)) => log::info!("Configured bundled shell utilities at {}", bin.display()),
-            Ok(None) => log::debug!("Bundled shell utilities are not staged in this source checkout"),
+            Ok(None) => {
+                log::debug!("Bundled shell utilities are not staged in this source checkout")
+            }
             Err(error) => log::warn!("Bundled shell utilities are unavailable: {error}"),
         },
         Err(error) => log::warn!("Cannot locate bundled shell utilities: {error}"),
@@ -572,8 +572,12 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
 
     let db_path = data_dir.join("nexa.db");
     let db = Database::new(&db_path).expect("failed to initialize database");
-    if let Err(error) = nexa_core::external_agent::registry::initialize(&data_dir.join("runtime").join("external-agents")) {
-        log::warn!("ACP directory cache could not be loaded; bundled agents remain available: {error}");
+    if let Err(error) = nexa_core::external_agent::registry::initialize(
+        &data_dir.join("runtime").join("external-agents"),
+    ) {
+        log::warn!(
+            "ACP directory cache could not be loaded; bundled agents remain available: {error}"
+        );
     }
     if let Err(error) = db.recover_knowledge_jobs() {
         log::warn!("Could not recover interrupted indexing jobs: {error}");
@@ -586,7 +590,9 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     }
     let oauth = nexa_core::mcp::oauth::McpAuthService::shared(&db);
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = oauth.cleanup().await { log::warn!("MCP credential cleanup is pending: {error}"); }
+        if let Err(error) = oauth.cleanup().await {
+            log::warn!("MCP credential cleanup is pending: {error}");
+        }
     });
     if let Err(error) = db.recover_pending_file_changes() {
         log::warn!("Could not settle file changes interrupted by the previous process: {error}");
@@ -617,10 +623,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         &user_extensions.skills_dir(),
     ) {
         Ok(report) => {
-            if report.updated > 0
-                || report.unregistered > 0
-                || !report.rejected.is_empty()
-            {
+            if report.updated > 0 || report.unregistered > 0 || !report.rejected.is_empty() {
                 log::info!(
                     "Synchronized ~/.nexa skills: updated={}, unchanged={}, unregistered={}, rejected={}",
                     report.updated,
@@ -676,14 +679,16 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
                         log::warn!("Legacy extension projection preserved: {warning}");
                     }
                 }
-                Err(error) => log::warn!(
-                    "Could not finalize legacy extension projection cleanup: {error}"
-                ),
+                Err(error) => {
+                    log::warn!("Could not finalize legacy extension projection cleanup: {error}")
+                }
             }
         }
     }
     let db = Arc::new(db);
-    tauri::async_runtime::spawn(nexa_core::vector_store::start_background_sync((*db).clone()));
+    tauri::async_runtime::spawn(nexa_core::vector_store::start_background_sync(
+        (*db).clone(),
+    ));
     let db_executor = nexa_core::db_executor::DatabaseExecutor::new((*db).clone(), 64)
         .expect("failed to initialize bounded database executor");
     let run_event_outboxes = nexa_core::run_event_outbox::AgentRunEventOutboxes::new(
@@ -720,9 +725,9 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
             );
         }
         Ok(_) => {}
-        Err(error) => log::warn!(
-            "Failed to reconcile orphaned scheduled isolation workspaces: {error}"
-        ),
+        Err(error) => {
+            log::warn!("Failed to reconcile orphaned scheduled isolation workspaces: {error}")
+        }
     }
     let activity_runtime = nexa_core::activity::ActivityRuntime::with_database((*db).clone())
         .expect("failed to initialize durable activity runtime");
@@ -753,10 +758,8 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     }
     #[cfg(feature = "video")]
     let voice_audio_spool = Arc::new(
-        nexa_core::voice_audio_spool::VoiceAudioSpool::new(
-            data_dir.join("voice-spool"),
-        )
-        .expect("failed to initialize managed voice audio spool"),
+        nexa_core::voice_audio_spool::VoiceAudioSpool::new(data_dir.join("voice-spool"))
+            .expect("failed to initialize managed voice audio spool"),
     );
 
     let (background_work, background_work_receiver) = BackgroundWorkGovernor::new();
@@ -827,7 +830,9 @@ fn main() {
         .manage(DesktopStartup(receiver))
         .invoke_system(command_dispatch::main_frame_invoke_script())
         .manage(chat_ui_preview::ChatUiPreviewState::default())
-        .register_uri_scheme_protocol("nexa-ui", |context, request| chat_ui_preview::respond(context.app_handle(), request))
+        .register_uri_scheme_protocol("nexa-ui", |context, request| {
+            chat_ui_preview::respond(context.app_handle(), request)
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
