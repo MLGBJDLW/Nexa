@@ -1,1 +1,22 @@
-<!doctype html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#17191c"/><link rel="icon" href="../desktop/public/logo-small.svg"/><title>Nexa Mobile</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#17191c"/>
+    <link rel="icon" href="../desktop/public/logo-small.svg"/>
+    <link rel="stylesheet" href="../desktop/src/components/ui/loadingMark.css"/>
+    <title>Nexa Mobile</title>
+    <style>
+      .mobile-startup { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 1rem; background: #17191c; color: #eeeef2; font: 500 14px system-ui, sans-serif; }
+      .mobile-startup .nexa-loading-mark { width: 48px; height: 48px; }
+      @media (prefers-color-scheme: light) { .mobile-startup { background: #f8fafc; color: #334155; } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="mobile-startup" role="status"><span class="nexa-loading-mark" aria-hidden="true"></span>Starting Nexa…</div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
