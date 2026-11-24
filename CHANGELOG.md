@@ -2,26 +2,18 @@
 
 ## [0.20.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.1...nexa-monorepo-v0.20.2) (2026-11-24)
 
+### Desktop and chat
 
-### Features
+- Nexa opens its window while it restores local services and conversations. A slow workspace can finish opening after the retry prompt appears.
+- Loading indicators move from a three-armed vortex through a field of connected particles into the Nexa mark and a helix. The system's reduced-motion setting selects a stationary mark.
+- The chat speed display divides total measured output tokens by total measured time. It keeps its value between requests, handles replayed usage and starts a fresh average when you change model or connection.
+- Clicking a navigation item dismisses its tooltip. Hovering again or navigating with the keyboard still shows the label.
 
-* **catalog:** update regional speech and multimodal model support ([7a1144a](https://github.com/MLGBJDLW/Nexa/commit/7a1144af500dce57bd5e8e9c5557c45bba8b4a16))
-* **chat:** average generation speed across measured model requests ([2ba6cc4](https://github.com/MLGBJDLW/Nexa/commit/2ba6cc493803c27d3b5f3c742cea100f41e3c3f1))
-* **desktop:** improve startup feedback, average model speed and refresh provider catalogs ([157b6d8](https://github.com/MLGBJDLW/Nexa/commit/157b6d8eb69e6e95fae7527f866491a030a6211e))
-* **ui:** reform loading silhouettes through connected particles ([e1de400](https://github.com/MLGBJDLW/Nexa/commit/e1de400437632a9a3327bc4e99783aa6e20fd0b1))
+### Model support
 
-
-### Bug Fixes
-
-* **catalog:** flag previously removed models that return to discovery ([50fd64d](https://github.com/MLGBJDLW/Nexa/commit/50fd64d325fd86e493cc4274df9aa704c3ef38fc))
-* **catalog:** honor revised native Claude and Ark retirement schedules ([da08db3](https://github.com/MLGBJDLW/Nexa/commit/da08db363097ee689204934fef6be524ca3003ca))
-* **catalog:** restore backed Pareto preview and refresh OpenRouter routes ([518bda2](https://github.com/MLGBJDLW/Nexa/commit/518bda22f57e9d4b45badc2503d4d2431ec1a45a))
-* **chat:** reconcile replayed generation series after durable hydration ([f8c77d4](https://github.com/MLGBJDLW/Nexa/commit/f8c77d47ab9bc72179022ad0d65e2a8d4d8dd79e))
-* **deps:** update cookie to the patched desktop and mobile release ([a96bb7f](https://github.com/MLGBJDLW/Nexa/commit/a96bb7f14e10e7a9b7ef3d2cd9871fd40a84e7bf))
-* **navigation:** dismiss sidebar hints on activation ([32f06da](https://github.com/MLGBJDLW/Nexa/commit/32f06daca503218e6528b2d8b9a8ac39dae795e3))
-* **startup:** accept late workspace readiness after the retry hint ([98d1bc7](https://github.com/MLGBJDLW/Nexa/commit/98d1bc70d381fb095bc5ac4936844e5ef64e7405))
-* **startup:** paint the desktop shell during native recovery ([48d6a9d](https://github.com/MLGBJDLW/Nexa/commit/48d6a9d3af74a3914f568cc4204864b356a02bb8))
-* **ui:** isolate loading silhouettes as their masks contract ([3867751](https://github.com/MLGBJDLW/Nexa/commit/3867751821f5265621234ccc9c0d88b960ac6371))
+- Restore the Pareto 26.10 Preview route on OpenRouter and refresh published model limits, parameters and retirement dates. Model discovery now flags previously removed models that return.
+- Add six speech recognition models on SiliconFlow China and IndexTTS-2 with its Alex voice on SiliconFlow International. Update HeyGen audio input support, Zhipu embedding limits and the retirement dates for Claude Opus 4.5 and Doubao Seed 2.0 Pro.
+- Update the cookie dependency to 0.18.3 for the upstream private-cookie security fix.
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 157b6d8eb69e6e95fae7527f866491a030a6211e -->
