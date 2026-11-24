@@ -148,6 +148,16 @@ test('keeps the navigation rail fixed, optically centered, and metadata visible'
     expect(Math.abs(box.x + box.width / 2 - railAxis)).toBeLessThanOrEqual(1);
   }
   expect(versionBox!.y + versionBox!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height);
+
+  const search = rail.getByRole('link', { name: 'Search' });
+  const tip = page.getByRole('tooltip', { name: 'Search' });
+  await search.hover();
+  await expect(tip).toBeVisible();
+  await search.click();
+  await expect(tip).toHaveCount(0);
+  await page.mouse.move(120, 120);
+  await search.hover();
+  await expect(tip).toBeVisible();
 });
 
 test('themed workspace radial menu keeps editing menus, fits edges and executes existing commands', async ({ page }, info) => {
