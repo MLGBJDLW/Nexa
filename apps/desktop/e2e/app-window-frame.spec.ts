@@ -225,16 +225,16 @@ test('reveals the native window onto a branded startup surface', async ({ page }
   await expect(mark).toBeVisible();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await expect(mark).toHaveCSS('animation-name', /nexa-loading-shape/);
-  const positions = await mark.evaluate(element => {
+  const silhouettes = await mark.evaluate(element => {
     const shape = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-shape')!;
     shape.pause();
     return [800, 3200, 5600, 8000].map(time => {
       shape.currentTime = time;
-      return getComputedStyle(element).maskPosition;
+      return getComputedStyle(element).maskImage.split('), ')[0] + ')';
     });
   });
-  expect(new Set(positions).size).toBe(3);
-  expect(positions[0]).toBe(positions[3]);
+  expect(new Set(silhouettes).size).toBe(3);
+  expect(silhouettes[0]).toBe(silhouettes[3]);
   const particleSizes = await mark.evaluate(element => {
     const turn = element.getAnimations().find(animation => (animation as CSSAnimation).animationName === 'nexa-loading-turn')!;
     turn.pause();
@@ -244,10 +244,10 @@ test('reveals the native window onto a branded startup surface', async ({ page }
     });
   });
   expect(particleSizes[0]).toMatch(/98%/);
-  expect(particleSizes[1]).toMatch(/300%/);
+  expect(particleSizes[1]).toMatch(/^100%/);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(mark).toHaveCSS('animation-name', 'none');
-  await expect(mark).toHaveCSS('mask-position', positions[1]);
+  await expect(mark).toHaveCSS('mask-image', silhouettes[1]);
   await page.evaluate(() => (
     window as unknown as { __releaseWizardState?: () => void }
   ).__releaseWizardState?.());
