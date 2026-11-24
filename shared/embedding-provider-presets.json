@@ -872,11 +872,13 @@
         "id": "embedding-3",
         "name": "embedding-3",
         "dimensions": 2048,
+        "contextTokens": 3072,
+        "effectiveInputTokens": 3072,
         "supportsDimensionOverride": true,
         "recommended": true,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-11-24",
         "allowedDimensions": [
           256,
           512,
@@ -888,14 +890,17 @@
         "id": "embedding-2",
         "name": "embedding-2",
         "dimensions": 1024,
+        "contextTokens": 512,
+        "effectiveInputTokens": 512,
+        "maxBatchSize": 16,
         "supportsDimensionOverride": false,
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26"
+        "lastVerifiedAt": "2026-11-24"
       }
     ],
-    "documentationUrl": "https://docs.bigmodel.cn/api-reference/妯″瀷-api/鏂囨湰宓屽叆"
+    "documentationUrl": "https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入"
   },
   {
     "id": "baidu-qianfan",

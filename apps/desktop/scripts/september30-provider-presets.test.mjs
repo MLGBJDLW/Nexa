@@ -87,6 +87,10 @@ test('Ling 3.1 Flash keeps its Beijing activation and toggle-only reasoning cont
 test('embedding models keep regional vector dimensions and batch limits', async () => {
   const { EMBEDDING_PROVIDER_PRESETS: presets, findEmbeddingProviderPreset } = await loadPresets('../src/lib/embeddingProviderPresets.ts');
   const qwen = presets.find(preset => preset.id === 'alibaba-model-studio-cn').models;
+  const zhipu = presets.find(preset => preset.id === 'zhipu');
+  assert.equal(zhipu.models.find(model => model.id === 'embedding-3').effectiveInputTokens, 3072);
+  const embedding2 = zhipu.models.find(model => model.id === 'embedding-2');
+  assert.equal(embedding2.effectiveInputTokens * embedding2.maxBatchSize, 8192);
   assert.deepEqual(qwen.find(model => model.id === 'qwen3.7-text-embedding').allowedDimensions, [256, 512, 768, 1024, 1536, 2048, 2560]);
   assert.equal(qwen.find(model => model.id === 'qwen3.7-text-embedding-flash').maxBatchSize, 20);
   const workspace = host => `https://${host}.maas.aliyuncs.com/compatible-mode/v1`;

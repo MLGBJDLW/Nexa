@@ -252,11 +252,13 @@
     "description": "Synthesize speech through an international SiliconFlow account using a model-specific voice.",
     "models": [
       {"id": "FunAudioLLM/CosyVoice2-0.5B", "name": "CosyVoice2 0.5B", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-11-23"},
-      {"id": "fishaudio/fish-speech-1.5", "name": "Fish Speech 1.5", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-11-23"}
+      {"id": "fishaudio/fish-speech-1.5", "name": "Fish Speech 1.5", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-11-23"},
+      {"id": "IndexTeam/IndexTTS-2", "name": "IndexTTS-2", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-11-24", "documentationRef": "https://www.siliconflow.com/models/indextts-2"}
     ],
     "voices": [
       {"id": "FunAudioLLM/CosyVoice2-0.5B:alex", "name": "Alex", "recommended": true, "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
       {"id": "fishaudio/fish-speech-1.5:alex", "name": "Alex", "recommended": true, "modelIds": ["fishaudio/fish-speech-1.5"]},
+      {"id": "IndexTeam/IndexTTS-2:alex", "name": "Alex", "recommended": true, "modelIds": ["IndexTeam/IndexTTS-2"]},
       {"id": "FunAudioLLM/CosyVoice2-0.5B:anna", "name": "Anna", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
       {"id": "fishaudio/fish-speech-1.5:anna", "name": "Anna", "modelIds": ["fishaudio/fish-speech-1.5"]},
       {"id": "FunAudioLLM/CosyVoice2-0.5B:bella", "name": "Bella", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
@@ -274,7 +276,7 @@
     ],
     "outputFormats": ["mp3", "wav", "opus"],
     "speedRange": [0.25, 4.0],
-    "lastVerifiedAt": "2026-11-23",
+    "lastVerifiedAt": "2026-11-24",
     "documentationUrls": ["https://docs.siliconflow.com/en/api-reference/audio/create-speech", "https://docs.siliconflow.com/en/userguide/capabilities/text-to-speech"]
   },
   {
