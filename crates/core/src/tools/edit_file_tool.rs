@@ -11,10 +11,10 @@ use serde::Deserialize;
 #[cfg(test)]
 use crate::db::Database;
 use crate::error::CoreError;
-use crate::file_checkpoint::{checkpoint_artifact, CreateFileCheckpointInput};
+use crate::file_checkpoint::CreateFileCheckpointInput;
 
-use super::create_file_tool::resolve_and_validate;
-use super::diff_stats::diff_stats_from_diff;
+use super::create_file_tool::{resolve_and_validate, CreateFileArgs};
+use super::diff_stats::checkpoint_artifact_with_diff;
 use super::document_utils::{edit_guidance_for_path, generated_document_mime};
 use super::editable_text::EditableText;
 use super::text_match::{find_text_matches, TextMatch};
@@ -24,7 +24,6 @@ static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/edit_file.json");
 
 const DIFF_CONTEXT_LINES: usize = 3;
-const MAX_CREATE_DIFF_LINES: usize = 400;
 
 #[derive(Deserialize)]
 struct EditFileArgs {
@@ -168,23 +167,6 @@ fn line_index_at_end_exclusive(content: &str, end_offset: usize) -> usize {
         .count()
 }
 
-fn checkpoint_artifact_with_diff(
-    checkpoint: &crate::file_checkpoint::FileCheckpoint,
-    bytes_after: Option<u64>,
-    diff: serde_json::Value,
-    replacements: Option<usize>,
-) -> serde_json::Value {
-    let mut artifact = checkpoint_artifact(checkpoint, bytes_after);
-    if let Some(object) = artifact.as_object_mut() {
-        object.insert(
-            "diffStats".to_string(),
-            diff_stats_from_diff(&diff, replacements),
-        );
-        object.insert("diff".to_string(), diff);
-    }
-    artifact
-}
-
 fn replacement_diff_artifact(
     path: &str,
     old_content: &str,
@@ -296,40 +278,6 @@ fn replacement_diff_artifact(
     })
 }
 
-fn create_diff_artifact(path: &str, file_content: &str) -> serde_json::Value {
-    let all_lines = text_lines(file_content);
-    let displayed_count = all_lines.len().min(MAX_CREATE_DIFF_LINES);
-    let lines: Vec<serde_json::Value> = all_lines
-        .iter()
-        .take(displayed_count)
-        .enumerate()
-        .map(|(idx, content)| {
-            serde_json::json!({
-                "type": "addition",
-                "oldLine": null,
-                "newLine": idx + 1,
-                "content": content,
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "path": path,
-        "operation": "create",
-        "additions": all_lines.len(),
-        "deletions": 0,
-        "truncated": displayed_count < all_lines.len(),
-        "omittedLineCount": all_lines.len().saturating_sub(displayed_count),
-        "hunks": [{
-            "oldStart": 0,
-            "newStart": 1,
-            "oldLines": 0,
-            "newLines": all_lines.len(),
-            "lines": lines,
-        }]
-    })
-}
-
 fn find_replacement_matches(
     content: &str,
     old_str: &str,
@@ -387,6 +335,14 @@ impl Tool for EditFileTool {
         {
             return Ok(error);
         }
+        let args: EditFileArgs = serde_json::from_value(value)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid edit_file arguments: {e}")))?;
+        if normalized_action(&args) == "create" {
+            let content = args.new_str.expect("validated creation content");
+            return CreateFileArgs::new_file(args.path, content)
+                .write(context, "edit_file")
+                .await;
+        }
         let file_changes = crate::turn_file_changes::FileChangeScope::from_context(&context);
         let mutation_cancel = context
             .cancel_token
@@ -396,14 +352,10 @@ impl Tool for EditFileTool {
         let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
-            arguments,
             db,
             conversation_id,
             ..
         } = context;
-        let args: EditFileArgs = serde_json::from_str(arguments)
-            .map_err(|e| CoreError::InvalidInput(format!("Invalid edit_file arguments: {e}")))?;
-
         let db = db.clone();
         let call_id = call_id.to_string();
         let conversation_id = conversation_id.map(str::to_string);
@@ -421,294 +373,189 @@ impl Tool for EditFileTool {
                 });
             }
 
-            match normalized_action(&args) {
-                "str_replace" => {
-                    let old_str = match args.old_str.as_deref() {
-                        Some(s) if !s.is_empty() => s,
-                        _ => {
-                            return Ok(ToolResult {
-                                call_id: call_id.clone(),
-                                content: "str_replace requires a non-empty 'old_str' parameter. The alias 'old_string' is also accepted."
-                                    .to_string(),
-                                is_error: true,
-                                artifacts: None,
-                            });
-                        }
-                    };
-                    let new_str = args.new_str.as_deref().expect("validated replacement content");
-
-                    let canonical = match resolve_and_validate(
-                        &requested,
-                        &file_policy.sources,
-                        file_policy.allow_unregistered_absolute_paths,
-                    ) {
-                        Ok(p) => p,
-                        Err(msg) => {
-                            return Ok(ToolResult {
-                                call_id: call_id.clone(),
-                                content: msg,
-                                is_error: true,
-                                artifacts: None,
-                            });
-                        }
-                    };
-
-                    if !canonical.is_file() {
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: format!(
-                                "File not found: '{}'",
-                                args.path
-                            ),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    if generated_document_mime(&canonical).is_some() {
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: edit_guidance_for_path(&canonical)
-                                .unwrap_or_else(|| "Use office_artifact for DOCX/XLSX/PPTX creation and edits; use run_shell + doc-script-editor for PDF, conversion/rendering, or OOXML compatibility work. Pair it with the matching format skill.".to_string()),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    let _mutation = crate::file_mutation::lock_file_mutation(&canonical, Some(&mutation_cancel))?;
-                    let file_text = match EditableText::read(&canonical) {
-                        Ok(c) => c,
-                        Err(msg) => {
-                            return Ok(ToolResult {
-                                call_id: call_id.clone(),
-                                content: msg,
-                                is_error: true,
-                                artifacts: None,
-                            });
-                        }
-                    };
-                    let content = &file_text.text;
-
-                    let (search_start, search_end) = match line_range_bounds(
-                        content,
-                        args.start_line,
-                        args.end_line,
-                    ) {
-                        Ok(range) => range,
-                        Err(msg) => {
-                            return Ok(ToolResult {
-                                call_id: call_id.clone(),
-                                content: msg,
-                                is_error: true,
-                                artifacts: None,
-                            });
-                        }
-                    };
-
-                    // Count occurrences of old_str within the requested line range.
-                    let matches = find_replacement_matches(
-                        content,
-                        old_str,
-                        search_start,
-                        search_end,
-                    );
-
-                    if matches.is_empty() {
-                        let range_hint = match (args.start_line, args.end_line) {
-                            (None, None) => String::new(),
-                            (start, end) => format!(
-                                " within lines {}..{}",
-                                start
-                                    .map(|n| n.to_string())
-                                    .unwrap_or_else(|| "1".to_string()),
-                                end.map(|n| n.to_string())
-                                    .unwrap_or_else(|| "end".to_string())
-                            ),
-                        };
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: format!(
-                                "old_str not found in '{}'{}. Make sure the string matches exactly, including whitespace. Accepted aliases: old_string/new_string; action 'replace' is treated as 'str_replace'.",
-                                args.path,
-                                range_hint
-                            ),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    if matches.len() > 1 {
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: format!(
-                                "old_str found {} times in '{}'. It must match exactly once. Include more surrounding context or pass start_line/end_line to narrow the replacement.",
-                                matches.len(),
-                                args.path
-                            ),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    let matched = &matches[0];
-                    let byte_offset = matched.start;
-                    let matched_len = matched.len;
-                    let original = &content[byte_offset..byte_offset + matched_len];
-                    let replacement = matched.replacement_text(original, new_str);
-                    let new_content = format!(
-                        "{}{}{}",
-                        &content[..byte_offset],
-                        replacement,
-                        &content[byte_offset + matched_len..]
-                    );
-
-                    let checkpoint = db.create_file_checkpoint(CreateFileCheckpointInput {
-                        conversation_id: conversation_id.as_deref(),
-                        tool_call_id: &call_id,
-                        tool_name: "edit_file",
-                        operation: "str_replace",
-                        path: &args.path,
-                        absolute_path: &canonical,
-                    })?;
-
-                    if mutation_cancel.is_cancelled() { return Err(CoreError::InvalidInput("File mutation cancelled before writing".into())); }
-                    let new_bytes = file_text.encode(&new_content);
-                    if let Err(e) = std::fs::write(&canonical, &new_bytes) {
-                        return Ok(ToolResult {
-                            call_id,
-                            content: format!("Failed to write '{}': {e}", args.path),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    if let Some(scope) = &file_changes { scope.record_checkpoint(&checkpoint, &new_bytes); }
-                    let snippet = snippet_around(&new_content, byte_offset, replacement.len());
-                    let diff = replacement_diff_artifact(
-                        &args.path,
-                        content,
-                        &new_content,
-                        byte_offset,
-                        matched_len,
-                        replacement.len(),
-                    );
-                    Ok(ToolResult {
-                        call_id,
-                        content: format!(
-                            "Successfully replaced text in '{}'.\nCheckpoint: {}\n\nContext around edit:\n{}",
-                            args.path, checkpoint.id, snippet
-                        ),
-                        is_error: false,
-                        artifacts: Some(checkpoint_artifact_with_diff(
-                            &checkpoint,
-                            Some(new_bytes.len() as u64),
-                            diff,
-                            Some(1),
-                        )),
-                    })
+            let old_str = match args.old_str.as_deref() {
+                Some(s) if !s.is_empty() => s,
+                _ => {
+                    return Ok(ToolResult {
+                        call_id: call_id.clone(),
+                        content: "str_replace requires a non-empty 'old_str' parameter. The alias 'old_string' is also accepted."
+                            .to_string(),
+                        is_error: true,
+                        artifacts: None,
+                    });
                 }
+            };
+            let new_str = args.new_str.as_deref().expect("validated replacement content");
 
-                "create" => {
-                    let file_content = args.new_str.as_deref().expect("validated creation content");
-
-                    let canonical = match resolve_and_validate(
-                        &requested,
-                        &file_policy.sources,
-                        file_policy.allow_unregistered_absolute_paths,
-                    ) {
-                        Ok(p) => {
-                            // File path resolved — check it doesn't already exist.
-                            if p.exists() {
-                                return Ok(ToolResult {
-                                    call_id: call_id.clone(),
-                                    content: format!(
-                                        "File already exists: '{}'. Use str_replace to edit it instead.",
-                                        args.path
-                                    ),
-                                    is_error: true,
-                                    artifacts: None,
-                                });
-                            }
-                            p
-                        }
-                        Err(msg) => {
-                            // For new files the parent might exist but the file doesn't yet.
-                            // resolve_and_validate already handles this, so propagate the error.
-                            return Ok(ToolResult {
-                                call_id: call_id.clone(),
-                                content: msg,
-                                is_error: true,
-                                artifacts: None,
-                            });
-                        }
-                    };
-
-                    if generated_document_mime(&canonical).is_some() {
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: edit_guidance_for_path(&canonical)
-                                .unwrap_or_else(|| "Use office_artifact for DOCX/XLSX/PPTX creation and edits; use run_shell + doc-script-editor for PDF, conversion/rendering, or OOXML compatibility work. Pair it with the matching format skill.".to_string()),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    let _mutation = crate::file_mutation::lock_file_mutation(&canonical, Some(&mutation_cancel))?;
-                    // Create parent directories if needed.
-                    if let Some(parent) = canonical.parent() {
-                        if !parent.exists() {
-                            std::fs::create_dir_all(parent).map_err(CoreError::Io)?;
-                        }
-                    }
-
-                    let checkpoint = db.create_file_checkpoint(CreateFileCheckpointInput {
-                        conversation_id: conversation_id.as_deref(),
-                        tool_call_id: &call_id,
-                        tool_name: "edit_file",
-                        operation: "create",
-                        path: &args.path,
-                        absolute_path: &canonical,
-                    })?;
-
-                    if mutation_cancel.is_cancelled() { return Err(CoreError::InvalidInput("File mutation cancelled before writing".into())); }
-                    if let Err(e) = std::fs::write(&canonical, file_content) {
-                        return Ok(ToolResult {
-                            call_id,
-                            content: format!("Failed to write '{}': {e}", args.path),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-
-                    if let Some(scope) = &file_changes { scope.record_checkpoint(&checkpoint, file_content.as_bytes()); }
-                    let size = file_content.len();
-                    let diff = create_diff_artifact(&args.path, file_content);
-                    Ok(ToolResult {
-                        call_id,
-                        content: format!(
-                            "Created file '{}' ({} bytes).\nCheckpoint: {}",
-                            args.path, size, checkpoint.id
-                        ),
-                        is_error: false,
-                        artifacts: Some(checkpoint_artifact_with_diff(
-                            &checkpoint,
-                            Some(size as u64),
-                            diff,
-                            Some(0),
-                        )),
-                    })
+            let canonical = match resolve_and_validate(
+                &requested,
+                &file_policy.sources,
+                file_policy.allow_unregistered_absolute_paths,
+            ) {
+                Ok(p) => p,
+                Err(msg) => {
+                    return Ok(ToolResult {
+                        call_id: call_id.clone(),
+                        content: msg,
+                        is_error: true,
+                        artifacts: None,
+                    });
                 }
+            };
 
-                other => Ok(ToolResult {
-                    call_id,
+            if !canonical.is_file() {
+                return Ok(ToolResult {
+                    call_id: call_id.clone(),
                     content: format!(
-                        "Unknown action '{}'. Must be 'str_replace', 'replace', or 'create'.",
-                        other
+                        "File not found: '{}'",
+                        args.path
                     ),
                     is_error: true,
                     artifacts: None,
-                }),
+                });
             }
+
+            if generated_document_mime(&canonical).is_some() {
+                return Ok(ToolResult {
+                    call_id: call_id.clone(),
+                    content: edit_guidance_for_path(&canonical)
+                        .unwrap_or_else(|| "Use office_artifact for DOCX/XLSX/PPTX creation and edits; use run_shell + doc-script-editor for PDF, conversion/rendering, or OOXML compatibility work. Pair it with the matching format skill.".to_string()),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
+            let _mutation = crate::file_mutation::lock_file_mutation(&canonical, Some(&mutation_cancel))?;
+            let file_text = match EditableText::read(&canonical) {
+                Ok(c) => c,
+                Err(msg) => {
+                    return Ok(ToolResult {
+                        call_id: call_id.clone(),
+                        content: msg,
+                        is_error: true,
+                        artifacts: None,
+                    });
+                }
+            };
+            let content = &file_text.text;
+
+            let (search_start, search_end) = match line_range_bounds(
+                content,
+                args.start_line,
+                args.end_line,
+            ) {
+                Ok(range) => range,
+                Err(msg) => {
+                    return Ok(ToolResult {
+                        call_id: call_id.clone(),
+                        content: msg,
+                        is_error: true,
+                        artifacts: None,
+                    });
+                }
+            };
+
+            // Count occurrences of old_str within the requested line range.
+            let matches = find_replacement_matches(
+                content,
+                old_str,
+                search_start,
+                search_end,
+            );
+
+            if matches.is_empty() {
+                let range_hint = match (args.start_line, args.end_line) {
+                    (None, None) => String::new(),
+                    (start, end) => format!(
+                        " within lines {}..{}",
+                        start
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "1".to_string()),
+                        end.map(|n| n.to_string())
+                            .unwrap_or_else(|| "end".to_string())
+                    ),
+                };
+                return Ok(ToolResult {
+                    call_id: call_id.clone(),
+                    content: format!(
+                        "old_str not found in '{}'{}. Make sure the string matches exactly, including whitespace. Accepted aliases: old_string/new_string; action 'replace' is treated as 'str_replace'.",
+                        args.path,
+                        range_hint
+                    ),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
+            if matches.len() > 1 {
+                return Ok(ToolResult {
+                    call_id: call_id.clone(),
+                    content: format!(
+                        "old_str found {} times in '{}'. It must match exactly once. Include more surrounding context or pass start_line/end_line to narrow the replacement.",
+                        matches.len(),
+                        args.path
+                    ),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
+            let matched = &matches[0];
+            let byte_offset = matched.start;
+            let matched_len = matched.len;
+            let original = &content[byte_offset..byte_offset + matched_len];
+            let replacement = matched.replacement_text(original, new_str);
+            let new_content = format!(
+                "{}{}{}",
+                &content[..byte_offset],
+                replacement,
+                &content[byte_offset + matched_len..]
+            );
+
+            let checkpoint = db.create_file_checkpoint(CreateFileCheckpointInput {
+                conversation_id: conversation_id.as_deref(),
+                tool_call_id: &call_id,
+                tool_name: "edit_file",
+                operation: "str_replace",
+                path: &args.path,
+                absolute_path: &canonical,
+            })?;
+
+            if mutation_cancel.is_cancelled() { return Err(CoreError::InvalidInput("File mutation cancelled before writing".into())); }
+            let new_bytes = file_text.encode(&new_content);
+            if let Err(e) = std::fs::write(&canonical, &new_bytes) {
+                return Ok(ToolResult {
+                    call_id,
+                    content: format!("Failed to write '{}': {e}", args.path),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
+            if let Some(scope) = &file_changes { scope.record_checkpoint(&checkpoint, &new_bytes); }
+            let snippet = snippet_around(&new_content, byte_offset, replacement.len());
+            let diff = replacement_diff_artifact(
+                &args.path,
+                content,
+                &new_content,
+                byte_offset,
+                matched_len,
+                replacement.len(),
+            );
+            Ok(ToolResult {
+                call_id,
+                content: format!(
+                    "Successfully replaced text in '{}'.\nCheckpoint: {}\n\nContext around edit:\n{}",
+                    args.path, checkpoint.id, snippet
+                ),
+                is_error: false,
+                artifacts: Some(checkpoint_artifact_with_diff(
+                    &checkpoint,
+                    Some(new_bytes.len() as u64),
+                    diff,
+                    Some(1),
+                )),
+            })
         })
         .await
         .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
@@ -1110,6 +957,7 @@ mod tests {
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(result.content.contains("Created file"));
         let artifact = result.artifacts.as_ref().unwrap();
+        assert_eq!(artifact["checkpoint"]["toolName"], "edit_file");
         assert_eq!(artifact["diff"]["operation"], "create");
         assert_eq!(artifact["diff"]["additions"], 2);
         assert_eq!(artifact["diff"]["deletions"], 0);
@@ -1120,6 +968,39 @@ mod tests {
 
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content, "# New File\nContent here.");
+    }
+
+    #[tokio::test]
+    async fn concurrent_creators_keep_the_winning_tools_content_and_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup_db_with_source(dir.path());
+        let edit = r#"{"action":"create","path":"winner.txt","new_str":"edit"}"#;
+        let create = r#"{"mode":"create","path":"winner.txt","content":"create"}"#;
+        let (edit_result, create_result) = tokio::join!(
+            EditFileTool.execute(crate::tools::ToolExecutionContext::new(
+                "edit",
+                edit,
+                &db,
+                &[]
+            )),
+            crate::tools::create_file_tool::CreateFileTool.execute(
+                crate::tools::ToolExecutionContext::new("create", create, &db, &[])
+            ),
+        );
+        let edit_result = edit_result.unwrap();
+        let create_result = create_result.unwrap();
+        assert_ne!(edit_result.is_error, create_result.is_error);
+        let winner = if edit_result.is_error {
+            create_result
+        } else {
+            edit_result
+        };
+        let checkpoint = &winner.artifacts.unwrap()["checkpoint"];
+        assert_eq!(checkpoint["toolCallId"], winner.call_id);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("winner.txt")).unwrap(),
+            winner.call_id
+        );
     }
 
     #[tokio::test]
