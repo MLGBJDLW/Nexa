@@ -300,7 +300,15 @@ The standard launch checks credential presence before discovery and chat. A
 custom executable can supply credentials itself. ZCode account sign-in is not
 imported. This key can authenticate the Coding Plan endpoint; it does not imply
 pay-as-you-go billing. Mainland and international endpoints must match the key's
-service, and endpoint overrides remain in the adapter's launch environment.
+service. Select the region in the GLM Agent profile, enter the matching key and
+check the connection. Select **glm-5.4** in **Default Model** and save. Existing
+profiles keep their selected model until you change it. Changing the region
+clears the key entered in the form. Automatic region selection uses the adapter's
+configured endpoint. Z.AI lists GLM-5.4 for Lite, Pro and Max, and the mainland
+plan also lists GLM-5.3 and GLM-5.3-Flash. Quota eligibility depends on the
+provider's supported client and environment.
+[Z.AI model switching](https://docs.z.ai/devpack/latest-model) ·
+[Mainland Coding Plan](https://docs.bigmodel.cn/cn/coding-plan/overview).
 The adapter's ACP `authenticate` acknowledgement is a no-op. Discovery confirms
 the connection and available models, not key validity, quota or subscription
 entitlement. A missing key is reported before any prompt is sent.

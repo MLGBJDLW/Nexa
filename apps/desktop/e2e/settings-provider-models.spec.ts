@@ -14,8 +14,12 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
     host.invoke = async (command: string, args: any) => {
-      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_glm_acp_agent' && !args.launch.env?.Z_AI_API_KEY) {
-        throw new Error('GLM Agent needs a Coding Plan API key. ZCode account sign-in does not authenticate this ACP adapter. No prompt was sent.');
+      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_glm_acp_agent') {
+        if (!args.launch.env?.Z_AI_API_KEY) {
+          throw new Error('GLM Agent needs a Coding Plan API key. ZCode account sign-in does not authenticate this ACP adapter. No prompt was sent.');
+        }
+        return { models: ['glm-5.4', 'glm-5.3', 'glm-5.3-flash'].map(id => ({ id, name: id, reasoningEfforts: [] })),
+          configOptions: [], commands: [] };
       }
       return original(command, args);
     };
@@ -34,12 +38,24 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
   await probe.click();
   await expect(form.getByRole('alert')).toContainText('No prompt was sent');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await form.getByLabel('GLM Coding Plan API key', { exact: true }).fill('fixture-plan-key');
+  const planKey = form.getByLabel('GLM Coding Plan API key', { exact: true });
+  await planKey.fill('previous-region-fixture');
+  await selectControl(form.getByRole('combobox', { name: 'Region' }), 'https://open.bigmodel.cn/api/coding/paas/v4');
+  await expect(planKey).toHaveValue('');
+  await planKey.fill('fixture-plan-key');
   await probe.click();
+  const picker = form.getByRole('combobox', { name: 'Default Model' });
+  await expect(picker).toContainText('glm-5.4');
+  await selectControl(picker, 'glm-5.3');
+  await selectControl(picker, 'glm-5.4');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.screenshot({ path: testInfo.outputPath('glm-coding-plan-setup.png') });
   await form.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.env?.Z_AI_API_KEY)).toBe('fixture-plan-key');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch)).toMatchObject({
+    env: { Z_AI_API_KEY: 'fixture-plan-key', ACP_GLM_BASE_URL: 'https://open.bigmodel.cn/api/coding/paas/v4' },
+    configOptionsModel: 'glm-5.4',
+  });
+  expect(await page.evaluate(() => (window as any).__savedAgentConfig.model)).toBe('glm-5.4');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.workingDirectory)).toBe('');
 });
 
