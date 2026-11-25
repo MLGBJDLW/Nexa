@@ -111,7 +111,10 @@ test('usage groups providers and compares models without collapsing filter choic
         cacheReadTokens: sum('cacheReadTokens'), cacheMissTokens: sum('cacheMissTokens'), cacheCreationTokens: 0,
         providerReportedPercent: 100, normalizedPercent: 0, estimatedPercent: 0, unknownPercent: 0, estimatedCostMicros: null };
       return { totals, byModel: rows, byOperation: [],
-        timeSeries: [{ date: new Date().toISOString().slice(0, 10), ...totals }],
+        timeSeries: [1, 10_000, 25_000, 50_000, 1_000_000, 25_000].map((factor, day) => ({
+          ...totals, date: new Date(Date.now() - day * 86_400_000).toISOString().slice(0, 10),
+          totalTokens: totals.totalTokens * factor,
+        })),
         availableFilters: { providers: ['open_ai', 'open_router', 'anthropic'], models: ['shared-model', 'openai/shared-model', 'small-model', 'claude-test'], operations: ['agent_main'] } };
     };
   });
@@ -129,7 +132,17 @@ test('usage groups providers and compares models without collapsing filter choic
   await selectControl(page.getByRole('combobox', { name: 'All models', exact: true }), 'shared-model');
   await expect(page.getByTestId('usage-model-group')).toHaveCount(1);
   await expect(shared.getByTestId('usage-model-row')).toHaveCount(2);
-  await expect(page.getByTestId('usage-contribution-heatmap').getByRole('gridcell', { name: /2K Tokens/ })).toHaveCount(1);
+  const activity = page.getByTestId('usage-contribution-heatmap');
+  await expect(activity.getByRole('gridcell', { name: /· 2,000 Tokens$/ })).toHaveCount(1);
+  const busyDays = activity.getByRole('gridcell', { name: /· (20,000,000|50,000,000|100,000,000) Tokens$/ });
+  await expect(busyDays).toHaveCount(4);
+  expect(await busyDays.evaluateAll(cells => new Set(cells.map(cell => getComputedStyle(cell).backgroundColor)).size)).toBe(3);
+  await busyDays.first().click();
+  await expect(activity.getByText(/· 50,000,000 Tokens$/)).toBeVisible();
+  await selectControl(page.getByRole('combobox', { name: 'Usage trend' }), 'requests');
+  await expect(activity.getByRole('gridcell', { name: /· 7 Requests$/ })).toHaveCount(6);
+  expect(await activity.getByRole('gridcell', { name: /· 7 Requests$/ }).evaluateAll(cells =>
+    new Set(cells.map(cell => getComputedStyle(cell).backgroundColor)).size)).toBe(1);
   await selectControl(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
   await expect(breakdown.getByText('No usage records in this range.', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'All models', exact: true }).click();
