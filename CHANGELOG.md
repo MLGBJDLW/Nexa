@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.21.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agent:** The experimental Code Mode contract returns the script value directly and admits live tool calls on desktop and mobile.
+
+### Features
+
+* **agent:** add opt-in code mode for conversation results ([83fcdf7](https://github.com/MLGBJDLW/Nexa/commit/83fcdf7cf48da5af128a8f84d316c4a749bc69fb))
+* **agent:** run scoped tools programmatically in Code Mode ([593221b](https://github.com/MLGBJDLW/Nexa/commit/593221b870d9f87e5ae8194ea26fe819c99b2334))
+* **catalog:** refresh backed model routes and scoped retirements ([aaf5fa3](https://github.com/MLGBJDLW/Nexa/commit/aaf5fa3a186399a2154a54bcaab9e4c7bd8e144f))
+* **providers:** choose the GLM Coding Plan region and save GLM-5.4 ([2fe3148](https://github.com/MLGBJDLW/Nexa/commit/2fe314893e07fee1cef0e404d6e05be3e72f15bf))
+* **tools:** unify file search and page results across the workspace ([b7d0375](https://github.com/MLGBJDLW/Nexa/commit/b7d0375dd41dfa9c37877c52bbde96fcfb8a76eb))
+
+
+### Bug Fixes
+
+* **agent:** bound code mode readback IDs before copying ([88d819f](https://github.com/MLGBJDLW/Nexa/commit/88d819f2ec0f3d16c36c6c01aa06a56f4e262dcf))
+* **agent:** retain the full character budget for multilingual working notes ([53accd0](https://github.com/MLGBJDLW/Nexa/commit/53accd0516bc7538707ae7767dc4e008da76b279))
+* **chat:** resolve historical search labels in subagent receipts ([2878298](https://github.com/MLGBJDLW/Nexa/commit/287829874582bdb3491094ecbb7808c9e8a18e90))
+* **providers:** expose GLM-5.4 through pinned coding plan agents ([e0b296e](https://github.com/MLGBJDLW/Nexa/commit/e0b296e3e8c6663e0a838e026ab917ea20153ccf))
+* **providers:** preserve the configured key when switching GLM model endpoints ([4292c7a](https://github.com/MLGBJDLW/Nexa/commit/4292c7aaf5a8bd05a3b3b09c6b86d64358a3a125))
+* **storage:** show reusable pages within the database footprint ([49a0d79](https://github.com/MLGBJDLW/Nexa/commit/49a0d7983c70001632eb75714fdf1b9819a8b02a))
+* **tools:** preserve legacy edit receipts for new files ([17b0742](https://github.com/MLGBJDLW/Nexa/commit/17b0742dab106d17a0f0bd5a36b847ee0e892966))
+* **tools:** share exclusive file creation between write and edit calls ([a1f0386](https://github.com/MLGBJDLW/Nexa/commit/a1f03864a0909bc0c4ffbde7f5432fb9f700756f))
+* **usage:** distinguish high-volume days in the activity heatmap ([6f9b70f](https://github.com/MLGBJDLW/Nexa/commit/6f9b70fd7557e7bc9bf5425f162ceec168c67bbe))
+* **usage:** preserve contrast across sparse peaks and busy days ([8369e2b](https://github.com/MLGBJDLW/Nexa/commit/8369e2b15d447b1e7a33e290c7c6491c70d9c718))
+
+
+### Performance Improvements
+
+* **tools:** bound context memory while scanning file matches ([360e945](https://github.com/MLGBJDLW/Nexa/commit/360e94544c6f162af65c4ff6208b28c0657ceba0))
+
 ## [0.20.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.2...nexa-monorepo-v0.20.3) (2026-11-24)
 
 
