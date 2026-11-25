@@ -34,6 +34,16 @@
 
 * **tools:** bound context memory while scanning file matches ([360e945](https://github.com/MLGBJDLW/Nexa/commit/360e94544c6f162af65c4ff6208b28c0657ceba0))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 9833efe36037f4ec825b9664dc1ba955a6fa8b63 -->
+
+### What's Changed
+* feat(agent)!: introduce programmatic tool calls, support GLM-5.4 and refine usage and storage by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/601
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.2...nexa-monorepo-v0.20.3) (2026-11-24)
 
 
