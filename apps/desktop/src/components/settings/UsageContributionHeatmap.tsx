@@ -212,20 +212,38 @@ function buildHeatmapProjection(
     weeks.push({ key: dateKey(cursor), days });
   }
 
-  // Rank distinct visible totals so repeated days and an outlier cannot
-  // consume the dynamic range. Equal totals always share a shade.
   const sorted = [...totals].sort((a, b) => a - b);
+  return { weeks, daysByDate, bands: activityBands(sorted), peak: sorted[sorted.length - 1] ?? 0 };
+}
+
+function activityBands(sorted: number[]) {
   const shades = LEVEL_CLASSES.length - 1;
-  const count = Math.min(shades, sorted.length);
   const bands = [{ min: 0, max: 0, level: 0 }];
-  for (let i = 0; i < count; i++) {
+  if (sorted.length === 0) return bands;
+
+  // Split the widest occupied interval on a square-root scale. A lone peak
+  // takes one shade, and a long tail of quiet days cannot crowd out busy days.
+  const ranges = [{ first: 0, last: sorted.length - 1 }];
+  const span = ({ first, last }: typeof ranges[number]) => Math.sqrt(sorted[last]) - Math.sqrt(sorted[first]);
+  while (ranges.length < Math.min(shades, sorted.length)) {
+    const widest = ranges.filter(range => range.first < range.last)
+      .reduce((best, range) => span(range) > span(best) ? range : best);
+    const midpoint = Math.sqrt(sorted[widest.first]) + span(widest) / 2;
+    let split = widest.first + 1;
+    while (split < widest.last && Math.sqrt(sorted[split]) < midpoint) split++;
+    ranges.splice(ranges.indexOf(widest), 1,
+      { first: widest.first, last: split - 1 },
+      { first: split, last: widest.last },
+    );
+  }
+  for (const [index, { first, last }] of ranges.entries()) {
     bands.push({
-      min: sorted[Math.floor(i * sorted.length / count)],
-      max: sorted[Math.floor((i + 1) * sorted.length / count) - 1],
-      level: count === 1 ? shades : 1 + Math.round(i * (shades - 1) / (count - 1)),
+      min: sorted[first],
+      max: sorted[last],
+      level: ranges.length === 1 ? shades : 1 + Math.round(index * (shades - 1) / (ranges.length - 1)),
     });
   }
-  return { weeks, daysByDate, bands, peak: sorted[sorted.length - 1] ?? 0 };
+  return bands;
 }
 
 function utcDay(date: Date): Date {

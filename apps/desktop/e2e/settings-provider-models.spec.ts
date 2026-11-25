@@ -111,7 +111,7 @@ test('usage groups providers and compares models without collapsing filter choic
         cacheReadTokens: sum('cacheReadTokens'), cacheMissTokens: sum('cacheMissTokens'), cacheCreationTokens: 0,
         providerReportedPercent: 100, normalizedPercent: 0, estimatedPercent: 0, unknownPercent: 0, estimatedCostMicros: null };
       return { totals, byModel: rows, byOperation: [],
-        timeSeries: [1, 10_000, 25_000, 50_000, 1_000_000, 25_000].map((factor, day) => ({
+        timeSeries: [1, 10_000, 25_000, 50_000, 1_000_000, 25_000, ...Array.from({ length: 90 }, (_, i) => i + 2)].map((factor, day) => ({
           ...totals, date: new Date(Date.now() - day * 86_400_000).toISOString().slice(0, 10),
           totalTokens: totals.totalTokens * factor,
         })),
@@ -140,7 +140,7 @@ test('usage groups providers and compares models without collapsing filter choic
   await busyDays.first().click();
   await expect(activity.getByText(/· 50,000,000 Tokens$/)).toBeVisible();
   await selectControl(page.getByRole('combobox', { name: 'Usage trend' }), 'requests');
-  await expect(activity.getByRole('gridcell', { name: /· 7 Requests$/ })).toHaveCount(6);
+  await expect(activity.getByRole('gridcell', { name: /· 7 Requests$/ })).toHaveCount(96);
   expect(await activity.getByRole('gridcell', { name: /· 7 Requests$/ }).evaluateAll(cells =>
     new Set(cells.map(cell => getComputedStyle(cell).backgroundColor)).size)).toBe(1);
   await selectControl(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
