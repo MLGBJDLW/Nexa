@@ -477,7 +477,8 @@ export function buildMcpSubagentToolDescriptors(
 }
 
 export function getSubagentToolDescriptor(name: string, catalog: SubagentToolDescriptor[] = SUBAGENT_TOOL_CATALOG) {
-  return catalog.find(tool => tool.name === name) ?? null;
+  const canonical = canonicalSubagentToolName(name);
+  return catalog.find(tool => tool.name === canonical) ?? null;
 }
 
 export function normalizeSubagentToolSelection(
