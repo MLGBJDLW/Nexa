@@ -1117,7 +1117,7 @@ mod tests {
             .tools
             .register(Box::new(SplitOutput(executions.clone())));
         session.input.tools.register(Box::new(
-            crate::tools::context_history_tool::ContextHistoryTool,
+            crate::tools::context_history_tool::ContextHistoryTool::default(),
         ));
         let original = ToolCallRequest {
             id: "split-call".into(),

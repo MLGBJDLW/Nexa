@@ -557,7 +557,9 @@ impl Database {
         let conn = self.conn();
         conn.query_row(
             &format!(
-                "WITH outputs AS ({CONTEXT_TOOL_RESULT_QUERY})
+                "WITH outputs AS ({CONTEXT_TOOL_RESULT_QUERY}
+                 AND json_extract(i.value,'$.toolCall.callId')=?3
+                 AND (?4 IS NULL OR json_extract(i.value,'$.toolCall.resultId')=?4))
                  SELECT tool_name,is_error,content,artifacts,result_id
                  FROM outputs WHERE (SELECT COUNT(*) FROM outputs)=1
                    AND status IN ('done','error') AND provider_executed=0
@@ -588,6 +590,48 @@ impl Database {
         .ok_or_else(|| {
             CoreError::NotFound("Unique completed tool result in this conversation and turn".into())
         })
+    }
+
+    /// A cursor over readback identities. Inspect one trace at a time and emit
+    /// only public identifiers, even when the trace also contains reasoning.
+    pub(crate) fn context_tool_result_refs(
+        &self,
+        conversation: &str,
+        turn: Option<&str>,
+        offset: usize,
+    ) -> Result<Value, CoreError> {
+        const PAGE: usize = 32;
+        let conn = self.conn();
+        let turn = conn.query_row(
+            "SELECT t.id, (SELECT id FROM conversation_turns
+                WHERE conversation_id=t.conversation_id AND rowid<t.rowid ORDER BY rowid DESC LIMIT 1)
+             FROM conversation_turns t WHERE t.conversation_id=?1 AND (?2 IS NULL OR t.id=?2)
+             ORDER BY t.rowid DESC LIMIT 1",
+            params![conversation, turn],
+            |row| Ok((row.get::<_,String>(0)?, row.get::<_,Option<String>>(1)?)),
+        ).optional()?;
+        let Some((turn_id, older)) = turn else {
+            return Ok(json!({"results":[]}));
+        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT item_index, call_id, tool_name, result_id FROM ({CONTEXT_TOOL_RESULT_QUERY})
+             WHERE item_index>=?3 AND status IN ('done','error') AND provider_executed=0
+             AND content_type='text' AND tool_name_type='text' AND typeof(call_id)='text'
+             ORDER BY item_index LIMIT ?4"
+        ))?;
+        let mut refs = stmt.query_map(params![conversation, turn_id, offset, PAGE + 1], |row| {
+            Ok((row.get::<_,usize>(0)?, json!({
+                "turnId":turn_id, "toolCallId":row.get::<_,String>(1)?,
+                "toolName":row.get::<_,String>(2)?, "resultId":row.get::<_,Option<String>>(3)?
+            })))
+        })?.collect::<Result<Vec<_>,_>>()?;
+        let (next_turn_id, next_offset) = if refs.len() > PAGE {
+            (Some(turn_id), refs.pop().map(|(i, _)| i))
+        } else {
+            (older, Some(0))
+        };
+        let results = refs.into_iter().map(|(_, value)| value).collect::<Vec<_>>();
+        Ok(json!({"results":results, "nextTurnId":next_turn_id,"nextOffset":next_offset}))
     }
 
     /// Advertise a readback only after the exact output has reached the owning
@@ -640,7 +684,8 @@ impl Database {
 // validated ToolOutput model text may be selected from the tool's artifacts.
 // Existing privacy projections and conversation/turn deletion govern this data.
 const CONTEXT_TOOL_RESULT_QUERY: &str = "
-    SELECT json_extract(i.value,'$.toolCall.toolName') AS tool_name,
+    SELECT i.key AS item_index, json_extract(i.value,'$.toolCall.callId') AS call_id,
+           json_extract(i.value,'$.toolCall.toolName') AS tool_name,
            COALESCE(json_extract(i.value,'$.toolCall.isError'),0) AS is_error,
            json_extract(i.value,'$.toolCall.content') AS content,
            json_quote(json_extract(i.value,'$.toolCall.artifacts')) AS artifacts,
@@ -652,8 +697,6 @@ const CONTEXT_TOOL_RESULT_QUERY: &str = "
     FROM conversation_turns t,json_each(nexa_snapshot_json_v1(t.trace_json),'$.items') i
     WHERE t.conversation_id=?1 AND t.id=?2
       AND json_extract(i.value,'$.kind')='tool'
-      AND json_extract(i.value,'$.toolCall.callId')=?3
-      AND (?4 IS NULL OR json_extract(i.value,'$.toolCall.resultId')=?4)
 ";
 
 #[cfg(test)]
@@ -821,6 +864,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn code_mode_uses_scoped_readback_and_respects_revocation() {
+        use crate::tools::{
+            context_history_tool::ContextHistoryTool, Tool, ToolExecutionContext, ToolRegistry,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("code-mode.sqlite");
+        let db = Database::new(&file).unwrap();
+        let id = conversation(&db);
+        let other = conversation(&db);
+        let content = "é🙂操作\n".repeat(6500);
+        tool_trace(&db, &id, &content);
+        tool_trace(&db, &id, r#"{"status":"ok"}"#);
+        let mut registry = ToolRegistry::new();
+        ContextHistoryTool::enable_code_mode(&mut registry);
+        assert!(registry.get("context_history").is_none());
+        registry.register(Box::new(ContextHistoryTool::default()));
+        let standard = registry.definition("context_history").unwrap();
+        assert!(standard.parameters["properties"].get("code").is_none());
+        ContextHistoryTool::enable_code_mode(&mut registry);
+        let tool = registry.get("context_history").unwrap();
+        assert!(tool.parameters_schema()["properties"].get("code").is_some());
+        let code = r#"
+            local refs = list_results()
+            local first = refs.results[1]
+            local previous = list_results(refs.nextTurnId, refs.nextOffset).results[1]
+            local offset, digest, bytes = 0, nil, 0
+            repeat
+                local p = read_result(previous.turnId, previous.toolCallId, previous.resultId, offset, digest)
+                bytes += #p.text
+                offset, digest = p.nextOffset, p.contentDigest
+            until offset == nil
+            local status = decode_json(read_result(first.turnId, first.toolCallId, first.resultId).text).status
+            return status .. ":" .. bytes
+        "#;
+        let args = json!({"action":"code_mode","code":code}).to_string();
+        let ctx = |chat| {
+            ToolExecutionContext::new("analysis", &args, &db, &[]).with_conversation_id(Some(chat))
+        };
+        assert!(tool.execute(ctx(&id)).await.is_err());
+        let mut saved = db.load_app_config().unwrap();
+        saved.experimental_code_mode = true;
+        db.save_app_config(&saved).unwrap();
+        assert!(
+            Database::new(&file)
+                .unwrap()
+                .load_app_config()
+                .unwrap()
+                .experimental_code_mode
+        );
+        assert!(ContextHistoryTool::default()
+            .execute(ctx(&id))
+            .await
+            .is_err());
+        let result = registry.execute("context_history", ctx(&id)).await.unwrap();
+        assert!(!result.is_error, "{}", result.content);
+        assert!(
+            result.content.contains(&format!("ok:{}", content.len())),
+            "{}",
+            result.content
+        );
+        assert!(tool.execute(ctx(&other)).await.is_err());
+        saved.experimental_code_mode = false;
+        db.save_app_config(&saved).unwrap();
+        assert!(tool.execute(ctx(&id)).await.is_err());
+    }
+
+    #[tokio::test]
     async fn tool_result_readback_uses_current_privacy_and_rejects_stale_pages() {
         use crate::tools::{context_history_tool::ContextHistoryTool, Tool, ToolExecutionContext};
         let db = Database::open_memory().unwrap();
@@ -857,7 +967,7 @@ mod tests {
         })
         .unwrap();
         let mut args = json!({"action":"read_tool_result", "turn_id":turn, "tool_call_id":"long-output", "result_id":result_id, "expected_digest":before["contentDigest"]});
-        let result = ContextHistoryTool
+        let result = ContextHistoryTool::default()
             .execute(
                 ToolExecutionContext::new("readback", &args.to_string(), &db, &[])
                     .with_conversation_id(Some(&id)),
@@ -868,7 +978,7 @@ mod tests {
             "a privacy revision must not be combined with an earlier page"
         );
         args.as_object_mut().unwrap().remove("expected_digest");
-        let result = ContextHistoryTool
+        let result = ContextHistoryTool::default()
             .execute(
                 ToolExecutionContext::new("readback", &args.to_string(), &db, &[])
                     .with_conversation_id(Some(&id)),
@@ -878,6 +988,19 @@ mod tests {
         assert!(!result.content.contains("privateCODE"));
         assert!(result.content.contains("[PRIVATE]"));
         assert!(result.content.contains("Historical evidence"));
+        let mut settings = db.load_app_config().unwrap();
+        settings.experimental_code_mode = true;
+        db.save_app_config(&settings).unwrap();
+        let script = format!("return read_result('{turn}', 'long-output', '{result_id}').text");
+        let call = json!({"action":"code_mode","code":script}).to_string();
+        let tool = ContextHistoryTool::new(true);
+        let ctx = |chat| {
+            ToolExecutionContext::new("cell", &call, &db, &[]).with_conversation_id(Some(chat))
+        };
+        let analysis = tool.execute(ctx(&id)).await.unwrap();
+        assert!(analysis.content.contains("[PRIVATE]"));
+        assert!(!analysis.content.contains("privateCODE"));
+        assert!(tool.execute(ctx("other-chat")).await.is_err());
         let projected = db.get_conversation_turn(&turn).unwrap().trace.unwrap();
         assert_eq!(projected["items"][1]["toolCall"]["resultId"], result_id);
         assert_ne!(

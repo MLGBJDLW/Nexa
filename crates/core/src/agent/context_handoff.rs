@@ -231,7 +231,7 @@ mod tests {
             .id;
         let mut tools = ToolRegistry::new();
         tools.register(Box::new(
-            crate::tools::context_history_tool::ContextHistoryTool,
+            crate::tools::context_history_tool::ContextHistoryTool::default(),
         ));
         let executor = AgentExecutor::new(
             Box::new(NoModelCalls),

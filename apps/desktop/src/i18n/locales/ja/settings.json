@@ -1,4 +1,6 @@
 {
+  "codeMode": "コードモード（試験的）",
+  "codeModeDesc": "この会話の過去のツール結果を、エージェントが端末上の Luau スクリプトで処理できます。有効にすると次のターンから適用されます。",
   "storageCleanupChats": "会話の管理から不要な会話を削除できます。",
   "storageCleanupKnowledge": "ナレッジ設定からソースを削除すると索引が解放されます。",
   "storageCleanupModels": "ローカルモデルの設定から不要なモデルを削除できます。",

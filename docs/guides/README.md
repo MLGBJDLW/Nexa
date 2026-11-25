@@ -24,5 +24,6 @@
 | [MCP OAuth sign-in](MCP_OAUTH.md) | Sign in, renew or disconnect remote connector accounts with system credential storage |
 | [Chat worktrees](CHAT_WORKTREES.md) | Keep parallel chat checkouts, archive work safely, and restore local snapshots |
 | [Code review and GitHub PRs](CODE_REVIEW.md) | Record version-bound findings, hand selected fixes to the Agent, and inspect PR checks and threads |
+| [Experimental Code Mode](CODE_MODE.md) | Analyze earlier tool results with local scripts on desktop and Android |
 
 For the separate Word/Excel/PowerPoint adapter, see the [Office add-in guide](../../integrations/office-addin/README.md).

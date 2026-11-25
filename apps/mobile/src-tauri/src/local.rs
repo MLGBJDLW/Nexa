@@ -478,7 +478,9 @@ impl LocalRuntime {
             ));
         }
         tools.register(Box::new(
-            nexa_core::tools::context_history_tool::ContextHistoryTool,
+            nexa_core::tools::context_history_tool::ContextHistoryTool::new(
+                app_config.experimental_code_mode,
+            ),
         ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));

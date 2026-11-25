@@ -2526,7 +2526,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(related_concepts_tool::RelatedConceptsTool));
     registry.register(Box::new(run_shell_tool::RunShellTool));
     registry.register(Box::new(scratchpad_tool::UpdateScratchpadTool));
-    registry.register(Box::new(context_history_tool::ContextHistoryTool));
+    registry.register(Box::new(context_history_tool::ContextHistoryTool::default()));
     registry.register(Box::new(session_search_tool::SessionSearchTool));
     registry.register(Box::new(persona_tool::PersonaTool));
     registry.register(Box::new(user_memory_tool::UserMemoryTool));

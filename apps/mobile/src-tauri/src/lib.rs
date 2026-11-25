@@ -48,6 +48,13 @@ async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result
     let phone = runtime.get(&app).await?;
     phone.arm_schedule(&app).await;
     let mut state = connections::public_state(&app).await?;
+    state["experimentalCodeMode"] = json!(
+        phone
+            .db
+            .load_app_config()
+            .map_err(|e| e.to_string())?
+            .experimental_code_mode
+    );
     state["appearance"] = json!(phone
         .db
         .load_appearance_registry()
@@ -56,6 +63,19 @@ async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result
     state["hosts"] = json!(remote::hosts(&app).await?);
     state["capabilities"] = platform::call(&app, "capabilities", json!({})).await?;
     Ok(state)
+}
+
+#[tauri::command]
+async fn mobile_set_code_mode(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = runtime.get(&app).await?.db.clone();
+    let _writer = CONFIG_WRITE.lock().await;
+    let mut config = db.load_app_config().map_err(|e| e.to_string())?;
+    config.experimental_code_mode = enabled;
+    db.save_app_config(&config).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1034,6 +1054,7 @@ pub fn run() {
             chat_ui_preview::create_chat_ui_preview_cmd,
             chat_ui_preview::release_chat_ui_preview_cmd,
             mobile_state,
+            mobile_set_code_mode,
             mobile_save_settings,
             mobile_connection,
             mobile_sync_connections,
