@@ -1197,7 +1197,8 @@
   "executionLimitsHelp": "Автоматический режим не ограничивает длительность, число циклов инструментов и общий расход. Параллелизм защищает ресурсы устройства. Указывайте ограничения только для конкретного бюджета.",
   "executionLimitsCustom": "Свои ограничения",
   "glmCodingPlanKey": "API-ключ GLM Coding Plan",
-  "glmCodingPlanHelp": "Адаптер использует API-ключ Coding Plan; вход ZCode выполняется отдельно. Оставьте поле пустым для Z_AI_API_KEY или данных glm-acp-agent --setup. Проверка соединения обнаруживает модели, но не подтверждает права тарифа.",
+  "glmModelEndpoint": "Адрес модели Coding Plan",
+  "glmCodingPlanHelp": "Введите ключ тарифа для выбранного региона. Если поле пустое, используется Z_AI_API_KEY или ключ, сохранённый glm-acp-agent. Вход в ZCode выполняется отдельно. Запросы к модели и проверка квоты используют выбранный адрес. Веб-поиск, чтение страниц и инструменты обработки изображений адаптера используют международные сервисы. Проверка подключения получает список моделей. Доступ по тарифу проверяет поставщик при запросе.",
   "externalAgentAutomaticDirectory": "Использовать автоматическую рабочую папку",
   "contextModeSeamless": "Continuous context (experimental)",
   "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."

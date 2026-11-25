@@ -302,9 +302,11 @@ imported. This key can authenticate the Coding Plan endpoint; it does not imply
 pay-as-you-go billing. Mainland and international endpoints must match the key's
 service. Select the region in the GLM Agent profile, enter the matching key and
 check the connection. Select **glm-5.4** in **Default Model** and save. Existing
-profiles keep their selected model until you change it. Changing the region
-clears the key entered in the form. Automatic region selection uses the adapter's
-configured endpoint. Z.AI lists GLM-5.4 for Lite, Pro and Max, and the mainland
+profiles keep their selected model until you change it. Changing the region keeps
+the key in the password field. Check the connection to verify the new configuration.
+Automatic selection uses the adapter's configured endpoint. The selected endpoint
+serves model and quota requests. The bundled adapter's web search, web reader and
+vision tools use international services. Z.AI lists GLM-5.4 for Lite, Pro and Max, and the mainland
 plan also lists GLM-5.3 and GLM-5.3-Flash. Quota eligibility depends on the
 provider's supported client and environment.
 [Z.AI model switching](https://docs.z.ai/devpack/latest-model) ·

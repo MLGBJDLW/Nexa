@@ -39,10 +39,10 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
   await expect(form.getByRole('alert')).toContainText('No prompt was sent');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   const planKey = form.getByLabel('GLM Coding Plan API key', { exact: true });
-  await planKey.fill('previous-region-fixture');
-  await selectControl(form.getByRole('combobox', { name: 'Region' }), 'https://open.bigmodel.cn/api/coding/paas/v4');
-  await expect(planKey).toHaveValue('');
   await planKey.fill('fixture-plan-key');
+  await selectControl(form.getByRole('combobox', { name: 'Coding Plan model endpoint' }), 'https://open.bigmodel.cn/api/coding/paas/v4');
+  await expect(planKey).toHaveValue('fixture-plan-key');
+  expect(await form.locator('textarea').last().inputValue()).not.toContain('fixture-plan-key');
   await probe.click();
   const picker = form.getByRole('combobox', { name: 'Default Model' });
   await expect(picker).toContainText('glm-5.4');

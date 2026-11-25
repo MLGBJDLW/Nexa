@@ -217,14 +217,14 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       <input className={inputClass} value={name} onChange={event => { setName(event.target.value); onDirtyChange(true); }} />
     </label>
     {(isGlmCodingPlan || isCursor) && <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3" data-testid={isCursor ? "cursor-credentials" : "glm-coding-plan-credentials"}>
-      {isGlmCodingPlan && <label className="block text-xs font-medium text-text-secondary">{t('settings.modelMetaRegion')}
-        <NexaSelect aria-label={t('settings.modelMetaRegion')} className={inputClass} disabled={!initialLaunch || !launchFieldsValid}
+      {isGlmCodingPlan && <label className="block text-xs font-medium text-text-secondary">{t('settings.glmModelEndpoint')}
+        <NexaSelect aria-label={t('settings.glmModelEndpoint')} className={inputClass} disabled={!initialLaunch || !launchFieldsValid}
           value={glmEndpoint} onChange={event => {
-            const env = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) =>
+            const advancedEnv = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) =>
               !['ACP_GLM_BASE_URL', credentialEnvName].includes(key.toUpperCase())));
-            if (event.target.value) env.ACP_GLM_BASE_URL = event.target.value;
-            setEnvText(Object.keys(env).length ? JSON.stringify(env, null, 2) : '');
-            changeLaunch({ ...launch, env });
+            if (event.target.value) advancedEnv.ACP_GLM_BASE_URL = event.target.value;
+            setEnvText(Object.keys(advancedEnv).length ? JSON.stringify(advancedEnv, null, 2) : '');
+            changeLaunch({ ...launch, env: credential ? { ...advancedEnv, [credentialEnvName]: credential } : advancedEnv });
           }}>
           <option value="">{t('chat.contextPolicyAutomatic')}</option>
           {glmPlanEndpoints.map(({ url, label }) => <option key={url} value={url}>{label}</option>)}

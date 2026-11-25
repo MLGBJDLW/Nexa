@@ -1197,7 +1197,8 @@
   "executionLimitsHelp": "Le mode automatique ne limite ni la durée, ni les tours d’outils, ni l’usage total. La concurrence protège les ressources. Définissez des limites uniquement pour un budget précis.",
   "executionLimitsCustom": "Limites personnalisées",
   "glmCodingPlanKey": "Clé API GLM Coding Plan",
-  "glmCodingPlanHelp": "Cet adaptateur utilise une clé API Coding Plan ; la connexion ZCode est distincte. Laissez vide pour utiliser Z_AI_API_KEY ou les identifiants de glm-acp-agent --setup. Le contrôle détecte les modèles sans vérifier les droits du forfait.",
+  "glmModelEndpoint": "Point de terminaison du modèle Coding Plan",
+  "glmCodingPlanHelp": "Utilisez la clé du forfait correspondant. Laissez ce champ vide pour utiliser Z_AI_API_KEY ou la clé enregistrée par glm-acp-agent. La connexion à ZCode est distincte. Les requêtes de modèle et de quota utilisent le point de terminaison choisi. La recherche web, la lecture de pages et les outils de vision de l’adaptateur utilisent les services internationaux. Le test de connexion liste les modèles. Le fournisseur vérifie les droits du forfait lors de la requête.",
   "externalAgentAutomaticDirectory": "Utiliser un espace de travail automatique",
   "contextModeSeamless": "Continuous context (experimental)",
   "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
