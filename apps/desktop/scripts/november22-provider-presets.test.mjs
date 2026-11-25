@@ -40,13 +40,16 @@ test('OpenRouter MiniMax M2.7 does not advertise unsupported structured output',
   assert.ok(!row.supportedParameters.includes('structured_outputs'));
 });
 
-test('native Grok Build tombstone does not retire the independent aggregator route', () => {
+test('native and OpenRouter Grok Build retirements retain independent evidence', () => {
   const row = find('xai', 'grok-build-0.1');
   assert.equal(row.status, 'removed');
   assert.equal(row.deprecationDate, '2026-11-19');
   assert.equal(row.replacementModelId, undefined);
   assert.equal(find('xai', 'grok-code-fast-1').replacementModelId, undefined);
-  assert.notEqual(find('openrouter', 'x-ai/grok-build-0.1').status, 'removed');
+  const gateway = find('openrouter', 'x-ai/grok-build-0.1');
+  assert.equal(gateway.status, 'removed');
+  assert.equal(gateway.documentationRef, 'https://openrouter.ai/api/v1/models/x-ai/grok-build-0.1/endpoints');
+  assert.equal(gateway.replacementModelId, undefined);
 });
 
 test('Liquid D1 variants have scoped retirement and opt-in stable guidance', () => {
@@ -54,7 +57,7 @@ test('Liquid D1 variants have scoped retirement and opt-in stable guidance', () 
   const row = id => models.find(m => m.id === id);
   assert.equal(row('liquid/d1').status, 'removed');
   assert.equal(row('liquid/d1').deprecationDate, '2026-11-20');
-  assert.equal(row('liquid/d1.1').status, 'deprecated');
+  assert.equal(row('liquid/d1.1').status, 'removed');
   assert.equal(row('liquid/d1.1').deprecationDate, '2026-11-24');
   assert.equal(row('liquid/d1').replacementModelId, 'liquid/d1.2');
   assert.equal(row('liquid/d1.1').replacementModelId, 'liquid/d1.2');

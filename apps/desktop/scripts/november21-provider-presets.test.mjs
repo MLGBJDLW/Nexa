@@ -14,7 +14,7 @@ test('Ark announces same-route migration guidance without removing saved models'
     ['deepseek-v4-pro-260425', '2026-11-24', 'deepseek-v4-1-flash-261017'],
   ]) {
     const row = model('doubao', id);
-    assert.equal(row.status, 'deprecated');
+    assert.equal(row.status, deadline === '2026-11-24' ? 'removed' : 'deprecated');
     assert.equal(row.deprecationDate, deadline);
     assert.equal(row.replacementModelId, replacement);
     assert.equal(model('doubao', replacement).status, 'active');
@@ -46,7 +46,7 @@ test('DaisyRose hosted boundaries remain distinct from other aggregator and open
   assert.equal(row.recommended, false);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-flash').contextTokens, 1_048_576);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-pro').contextTokens, 1_048_576);
-  assert.equal(model('openrouter', 'deepseek/deepseek-v4-flash-vision-exp').maxOutputTokens, 262_144);
+  assert.equal(model('openrouter', 'deepseek/deepseek-v4-flash-vision-exp').maxOutputTokens, 393_216);
 });
 
 test('Macaron Venti Pro is an opt-in Singapore cloud route, not a token-plan model', () => {
