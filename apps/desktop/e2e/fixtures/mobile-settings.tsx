@@ -5,7 +5,7 @@ import { PhoneWebSettings } from '../../../mobile/src/PhoneWebSettings';
 import { PhoneSpeechSettings } from '../../../mobile/src/PhoneSpeechSettings';
 import { ConversationStorageManager } from '../../src/components/settings/ConversationStorageManager';
 import { inputDefaults, outputDefaults } from '../../../mobile/src/PhoneCloudSpeechFields';
-import type { StorageService } from '../../src/lib/api';
+import type { StorageService, StorageUsage } from '../../src/lib/api';
 import { MobileDialog } from '../../src/features/remote/MobileChatShell';
 import '../../../mobile/src/mobile.css';
 
@@ -49,7 +49,11 @@ export function renderMobileSettings(kind = 'web') {
         failLink = false; throw new Error('speech_busy');
       }
       if (command === 'mobile_storage' && args.action === 'locations') return {data:'/phone/data',cache:'/phone/cache'};
-      if (command === 'mobile_storage') return {totalBytes:1024,categories:[{id:'chats',bytes:1024}],activeConversations:1,archivedConversations:0};
+      if (command === 'mobile_storage' && args.action === 'usage') return {
+        totalBytes: 1024, categories: [{ id: 'chats', bytes: 1024 }], partial: false,
+        activeConversations: 1, archivedConversations: 0,
+        database: { allocatedBytes: 1024, reusableBytes: 0, mainFileBytes: 1024, walBytes: 0 },
+      } satisfies StorageUsage;
       if (command === 'mobile_speech') {
         if (args.action === 'configure') { speech = { ...speech, ...args }; return speech; }
         if (args.action === 'listen') return new Promise(resolve => { finish = resolve; });

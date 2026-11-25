@@ -294,7 +294,8 @@ test('routed aliases retain compatibility and new embedding routes use supported
     assert.equal(model('google', id).status, 'deprecated');
     assert.equal(model('google', id).replacementModelId, replacement);
   }
-  assert.equal(model('openrouter', 'unbiased/pareto').replacementModelId, '~unbiased/pareto-latest');
+  assert.equal(model('openrouter', 'unbiased/pareto').replacementModelId, undefined);
+  assert.equal(model('openrouter', '~unbiased/pareto-latest').deprecationDate, '2026-11-25');
   const embeddings = read('embedding-provider-presets').find(row => row.id === 'openrouter').models;
   for (const [id, dimensions, context] of [
     ['liquid/lfm-2.5-embedding-350m:free', 1024, 512],

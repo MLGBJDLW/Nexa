@@ -62,7 +62,6 @@ const TOOL_GROUP_BY_NAME: Record<string, SubagentToolGroupId> = {
   list_dir: 'system',
   glob_files: 'system',
   search_files: 'system',
-  grep_files: 'system',
   read_file: 'system',
   read_files: 'system',
   get_document_info: 'system',
@@ -194,13 +193,6 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
     name: 'search_files',
     label: 'Search Files',
     description: 'Find source-scoped text matches with line numbers.',
-    enabledByDefault: true,
-    source: 'built_in',
-  },
-  {
-    name: 'grep_files',
-    label: 'Grep Files',
-    description: 'Alias for source-scoped text search using grep/rg terminology.',
     enabledByDefault: true,
     source: 'built_in',
   },
@@ -447,6 +439,8 @@ export function canonicalSubagentToolName(name: string): string {
   switch (name) {
     case 'compare':
       return 'compare_documents';
+    case 'grep_files':
+      return 'search_files';
     case 'date_search':
       return 'search_by_date';
     default:
@@ -483,7 +477,8 @@ export function buildMcpSubagentToolDescriptors(
 }
 
 export function getSubagentToolDescriptor(name: string, catalog: SubagentToolDescriptor[] = SUBAGENT_TOOL_CATALOG) {
-  return catalog.find(tool => tool.name === name) ?? null;
+  const canonical = canonicalSubagentToolName(name);
+  return catalog.find(tool => tool.name === canonical) ?? null;
 }
 
 export function normalizeSubagentToolSelection(
@@ -497,7 +492,7 @@ export function normalizeSubagentToolSelection(
 }
 
 export function usesDefaultSubagentToolSelection(selection: string[] | null | undefined): boolean {
-  const normalized = (selection ?? DEFAULT_SUBAGENT_TOOL_NAMES).map(canonicalSubagentToolName);
-  if (normalized.length !== DEFAULT_SUBAGENT_TOOL_NAMES.length) return false;
-  return DEFAULT_SUBAGENT_TOOL_NAMES.every(name => normalized.includes(name));
+  const normalized = new Set((selection ?? DEFAULT_SUBAGENT_TOOL_NAMES).map(canonicalSubagentToolName));
+  if (normalized.size !== DEFAULT_SUBAGENT_TOOL_NAMES.length) return false;
+  return DEFAULT_SUBAGENT_TOOL_NAMES.every(name => normalized.has(name));
 }

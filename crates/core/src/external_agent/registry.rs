@@ -128,20 +128,27 @@ impl Cache {
         if is_retired(provider) {
             return None;
         }
-        self.selected
+        let bundled = bundled_presets()
+            .iter()
+            .find(|preset| preset.provider == provider);
+        let mut resolved = self
+            .selected
             .get(provider)
-            .or_else(|| {
-                bundled_presets()
-                    .iter()
-                    .find(|preset| preset.provider == provider)
-            })
+            .or(bundled)
             .or_else(|| {
                 self.available
                     .iter()
                     .find(|preset| preset.provider == provider)
             })
             .filter(|preset| supported(preset))
-            .cloned()
+            .cloned()?;
+        if resolved.needs_glm_plan_defaults() {
+            if let Some(bundled) = bundled {
+                // The registry describes the package's older built-in inventory.
+                resolved.description.clone_from(&bundled.description);
+            }
+        }
+        Some(resolved)
     }
     fn snapshot(&self) -> RegistrySnapshot {
         let mut providers: Vec<_> = bundled_presets()
@@ -617,6 +624,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn glm_catalog_refresh_retains_plan_defaults_and_explicit_launch_overrides() {
+        let old = normalize(&directory("glm-acp-agent", "glm-acp-agent@1.17.1"))
+            .unwrap()
+            .remove(0);
+        let cache = Cache {
+            selected: BTreeMap::from([(old.provider.clone(), old)]),
+            ..Cache::default()
+        };
+        let resolved = cache.resolve("acp_glm_acp_agent").unwrap();
+        assert!(resolved.description.contains("GLM-5.4"));
+        let defaults = resolved.launch_env(&ExternalAgentLaunch::default());
+        if std::env::var_os("ACP_GLM_AVAILABLE_MODELS").is_none() {
+            assert_eq!(
+                defaults["ACP_GLM_AVAILABLE_MODELS"],
+                "glm-5.4,glm-5.3,glm-5.3-flash"
+            );
+            if std::env::var_os("ACP_GLM_MODEL").is_none() {
+                assert_eq!(defaults["ACP_GLM_MODEL"], "glm-5.4");
+            }
+        }
+        let env = BTreeMap::from([
+            ("ACP_GLM_MODEL".into(), "glm-5.3".into()),
+            ("ACP_GLM_AVAILABLE_MODELS".into(), "glm-5.3".into()),
+            (
+                "ACP_GLM_BASE_URL".into(),
+                "https://open.bigmodel.cn/api/coding/paas/v4".into(),
+            ),
+        ]);
+        let launch = ExternalAgentLaunch {
+            env: env.clone(),
+            ..Default::default()
+        };
+        assert_eq!(resolved.launch_env(&launch), env);
+        let custom = ExternalAgentLaunch {
+            env: BTreeMap::from([("ACP_GLM_MODEL".into(), "custom-id".into())]),
+            ..Default::default()
+        };
+        assert_eq!(resolved.launch_env(&custom), custom.env);
+        let newer = normalize(&directory("glm-acp-agent", "glm-acp-agent@1.18.0"))
+            .unwrap()
+            .remove(0);
+        assert!(newer.launch_env(&ExternalAgentLaunch::default()).is_empty());
+        let wrapper = ExternalAgentLaunch {
+            executable: Some("wrapper".into()),
+            ..Default::default()
+        };
+        assert!(resolved.launch_env(&wrapper).is_empty());
+    }
     #[test]
     fn directory_keeps_stable_provider_identity_and_requires_exact_packages() {
         let candidate = normalize(&directory("gemini", "@google/gemini-cli@2.0.0"))

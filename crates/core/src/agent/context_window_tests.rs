@@ -1130,7 +1130,7 @@ async fn manual_fork_during_streaming_waits_for_tools_or_final_answer_and_accept
         let mut tools = ToolRegistry::new();
         tools.register(Box::new(ContextFixtureTool { steering: None }));
         tools.register(Box::new(
-            crate::tools::context_history_tool::ContextHistoryTool,
+            crate::tools::context_history_tool::ContextHistoryTool::default(),
         ));
         let executor = AgentExecutor::new(
             Box::new(provider),

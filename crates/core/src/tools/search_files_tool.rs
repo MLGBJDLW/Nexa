@@ -1,5 +1,7 @@
 //! SearchFilesTool - source-scoped text search for local files.
 
+use std::collections::VecDeque;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -8,6 +10,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::RegexBuilder;
 use serde::Deserialize;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(test)]
 use crate::db::Database;
@@ -17,9 +20,7 @@ use super::path_utils::{resolve_path_for_file_access, PathKind};
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
-static GREP_DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/search_files.json");
-const GREP_DEF_JSON: &str = include_str!("../../prompts/tools/grep_files.json");
 
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const DEFAULT_MAX_RESULTS: usize = 50;
@@ -42,6 +43,8 @@ struct SearchFilesArgs {
     exclude_globs: Vec<String>,
     #[serde(default)]
     max_results: Option<usize>,
+    #[serde(default)]
+    offset: usize,
     #[serde(default)]
     context_lines: Option<usize>,
     #[serde(default)]
@@ -92,14 +95,9 @@ impl MatchMode {
 }
 
 impl Matcher {
-    fn new(
-        tool_name: &str,
-        query: &str,
-        regex: bool,
-        case_sensitive: bool,
-    ) -> Result<Self, String> {
+    fn new(query: &str, regex: bool, case_sensitive: bool) -> Result<Self, String> {
         if query.trim().is_empty() {
-            return Err(format!("{tool_name} query must not be empty."));
+            return Err("search_files query must not be empty.".into());
         }
 
         if regex {
@@ -109,14 +107,18 @@ impl Matcher {
                 .map(Self::Regex)
                 .map_err(|e| {
                     format!(
-                        "Invalid regex for {tool_name}: {e}. If you wanted exact text, omit \
+                        "Invalid regex for search_files: {e}. If you wanted exact text, omit \
                          regex or set \"regex\": false; only escape regex metacharacters such \
                          as | when regex mode is intentional."
                     )
                 })
         } else {
             Ok(Self::Literal {
-                query: query.to_string(),
+                query: if case_sensitive {
+                    query.to_owned()
+                } else {
+                    query.to_lowercase()
+                },
                 case_sensitive,
             })
         }
@@ -138,7 +140,7 @@ impl Matcher {
                 if *case_sensitive {
                     line.contains(query)
                 } else {
-                    line.to_lowercase().contains(&query.to_lowercase())
+                    line.to_lowercase().contains(query)
                 }
             }
             Self::Regex(regex) => regex.is_match(line),
@@ -147,7 +149,6 @@ impl Matcher {
 }
 
 pub struct SearchFilesTool;
-pub struct GrepFilesTool;
 
 #[async_trait]
 impl Tool for SearchFilesTool {
@@ -172,184 +173,165 @@ impl Tool for SearchFilesTool {
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
         let file_policy = super::file_access_policy_for_context(&context)?;
-        let crate::tools::ToolExecutionContext {
-            call_id, arguments, ..
-        } = context;
-        execute_search_files("search_files", call_id, arguments, file_policy).await
+        let args: SearchFilesArgs = serde_json::from_str(context.arguments)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid search_files arguments: {e}")))?;
+        let cancel = context
+            .cancel_token
+            .map(CancellationToken::child_token)
+            .unwrap_or_default();
+        // Dropping the future (e.g. on a tool timeout) also stops its blocking walk.
+        let _guard = cancel.clone().drop_guard();
+        let call_id = context.call_id.to_string();
+        tokio::task::spawn_blocking(move || search(call_id, args, file_policy, cancel))
+            .await
+            .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
     }
 }
 
-#[async_trait]
-impl Tool for GrepFilesTool {
-    fn name(&self) -> &str {
-        "grep_files"
-    }
-
-    fn description(&self) -> &str {
-        &ToolDef::from_json(&GREP_DEF, GREP_DEF_JSON).description
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        ToolDef::from_json(&GREP_DEF, GREP_DEF_JSON)
-            .parameters
-            .clone()
-    }
-
-    fn categories(&self) -> &'static [ToolCategory] {
-        &[ToolCategory::FileSystem]
-    }
-
-    async fn execute(
-        &self,
-        context: crate::tools::ToolExecutionContext<'_>,
-    ) -> Result<ToolResult, CoreError> {
-        let file_policy = super::file_access_policy_for_context(&context)?;
-        let crate::tools::ToolExecutionContext {
-            call_id, arguments, ..
-        } = context;
-        execute_search_files("grep_files", call_id, arguments, file_policy).await
-    }
-}
-
-async fn execute_search_files(
-    tool_name: &'static str,
-    call_id: &str,
-    arguments: &str,
+fn search(
+    call_id: String,
+    args: SearchFilesArgs,
     file_policy: super::FileAccessPolicy,
+    cancel: CancellationToken,
 ) -> Result<ToolResult, CoreError> {
-    let args: SearchFilesArgs = serde_json::from_str(arguments)
-        .map_err(|e| CoreError::InvalidInput(format!("Invalid {tool_name} arguments: {e}")))?;
+    check_cancelled(&cancel)?;
+    let matcher = Matcher::new(&args.query, args.regex, args.case_sensitive)
+        .map_err(CoreError::InvalidInput)?;
+    let match_mode = matcher.mode().as_str();
+    let max_results = args
+        .max_results
+        .unwrap_or(DEFAULT_MAX_RESULTS)
+        .clamp(1, MAX_RESULTS);
+    let context_lines = args.context_lines.unwrap_or(0).min(MAX_CONTEXT_LINES);
+    let include_set = build_globset(&args.include_globs)?;
+    let exclude_set = build_globset(&args.exclude_globs)?;
 
-    let call_id = call_id.to_string();
-    tokio::task::spawn_blocking(move || {
-        let matcher = Matcher::new(tool_name, &args.query, args.regex, args.case_sensitive)
-            .map_err(CoreError::InvalidInput)?;
-        let match_mode = matcher.mode().as_str();
-        let max_results = args
-            .max_results
-            .unwrap_or(DEFAULT_MAX_RESULTS)
-            .min(MAX_RESULTS);
-        let context_lines = args.context_lines.unwrap_or(0).min(MAX_CONTEXT_LINES);
-        let include_set = build_globset(&args.include_globs)?;
-        let exclude_set = build_globset(&args.exclude_globs)?;
+    let roots = resolve_search_roots(&args, &file_policy)?;
+    if roots.is_empty() {
+        return Ok(ToolResult {
+            call_id,
+            content: "No source directories are available to search.".to_string(),
+            is_error: true,
+            artifacts: None,
+        });
+    }
 
+    let mut page = MatchPage {
+        skip: args.offset,
+        limit: max_results,
+        matches: Vec::new(),
+        has_more: false,
+        cancel: &cancel,
+    };
+    let mut searched_files = 0usize;
+    let mut skipped_files = 0usize;
 
-        let roots = resolve_search_roots(&args, &file_policy)?;
-        if roots.is_empty() {
-            return Ok(ToolResult {
-                call_id,
-                content: "No source directories are available to search.".to_string(),
-                is_error: true,
-                artifacts: None,
-            });
-        }
-
-        let mut matches = Vec::new();
-        let mut searched_files = 0usize;
-        let mut skipped_files = 0usize;
-
-        'roots: for root in roots {
-            if root.root.is_file() {
-                if file_included(&root.root, &root.display_base, &include_set, &exclude_set) {
-                    searched_files += 1;
-                    search_file(
-                        &root.root,
-                        &root.display_base,
-                        &matcher,
-                        context_lines,
-                        max_results,
-                        &mut matches,
-                    )?;
-                }
-                if matches.len() >= max_results {
-                    break;
-                }
-                continue;
-            }
-
-            let mut builder = ignore::WalkBuilder::new(&root.root);
-            builder
-                .follow_links(false)
-                .hidden(!args.include_hidden)
-                .git_ignore(true)
-                .git_exclude(true)
-                .git_global(true)
-                .require_git(false)
-                .parents(true);
-
-            for entry in builder.build() {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(_) => {
-                        skipped_files += 1;
-                        continue;
-                    }
-                };
-                if !entry
-                    .file_type()
-                    .is_some_and(|file_type| file_type.is_file())
-                {
-                    continue;
-                }
-                let path = entry.path();
-                if !file_included(path, &root.display_base, &include_set, &exclude_set) {
-                    continue;
-                }
+    'roots: for root in roots {
+        check_cancelled(&cancel)?;
+        if root.root.is_file() {
+            if file_included(&root.root, &root.display_base, &include_set, &exclude_set) {
                 searched_files += 1;
                 search_file(
-                    path,
+                    &root.root,
                     &root.display_base,
                     &matcher,
                     context_lines,
-                    max_results,
-                    &mut matches,
+                    &mut page,
                 )?;
-                if matches.len() >= max_results {
-                    break 'roots;
+            }
+            if page.has_more {
+                break;
+            }
+            continue;
+        }
+
+        let mut builder = ignore::WalkBuilder::new(&root.root);
+        builder
+            .sort_by_file_name(|a, b| a.cmp(b))
+            .follow_links(false)
+            .hidden(!args.include_hidden)
+            .git_ignore(true)
+            .git_exclude(true)
+            .git_global(true)
+            .require_git(false)
+            .parents(true);
+
+        for entry in builder.build() {
+            check_cancelled(&cancel)?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    skipped_files += 1;
+                    continue;
                 }
+            };
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
+                continue;
+            }
+            let path = entry.path();
+            if !file_included(path, &root.display_base, &include_set, &exclude_set) {
+                continue;
+            }
+            searched_files += 1;
+            search_file(path, &root.display_base, &matcher, context_lines, &mut page)?;
+            if page.has_more {
+                break 'roots;
             }
         }
+    }
 
-        let truncated = matches.len() >= max_results;
-        let mut text = format!(
-            "Found {} matching line(s) for {:?} using {match_mode} matching across {} searched file(s).",
-            matches.len(),
-            args.query,
-            searched_files
-        );
-        if truncated {
-            text.push_str(&format!(" Results truncated at {max_results}."));
-        }
-        if skipped_files > 0 {
-            text.push_str(&format!(" Skipped {skipped_files} unreadable path(s)."));
-        }
-        text.push('\n');
+    let matches = page.matches;
+    let next_offset = page
+        .has_more
+        .then(|| args.offset.saturating_add(matches.len()));
+    let mut text = format!(
+        "Found {} matching line(s) for {:?} using {match_mode} matching across {searched_files} searched file(s).",
+        matches.len(),
+        args.query,
+    );
+    if let Some(offset) = next_offset {
+        text.push_str(&format!(
+            " More matches are available. Repeat this search with offset={offset}."
+        ));
+    }
+    if skipped_files > 0 {
+        text.push_str(&format!(" Skipped {skipped_files} unreadable path(s)."));
+    }
+    text.push('\n');
 
-        for item in &matches {
-            text.push_str(&format!(
-                "\n{}:{}: {}",
-                item.path, item.line_number, item.line
-            ));
-        }
+    for item in &matches {
+        text.push_str(&format!(
+            "\n{}:{}: {}",
+            item.path, item.line_number, item.line
+        ));
+    }
 
-        Ok(ToolResult {
-            call_id,
-            content: text,
-            is_error: false,
-            artifacts: Some(json!({
-                "kind": "fileSearchResults",
-                "query": args.query,
-                "regex": args.regex,
-                "matchMode": match_mode,
-                "caseSensitive": args.case_sensitive,
-                "truncated": truncated,
-                "searchedFiles": searched_files,
-                "matches": matches,
-            })),
-        })
+    Ok(ToolResult {
+        call_id,
+        content: text,
+        is_error: false,
+        artifacts: Some(json!({
+            "kind": "fileSearchResults",
+            "query": args.query,
+            "regex": args.regex,
+            "matchMode": match_mode,
+            "caseSensitive": args.case_sensitive,
+            "truncated": page.has_more,
+            "nextOffset": next_offset,
+            "searchedFiles": searched_files,
+            "matches": matches,
+        })),
     })
-    .await
-    .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
+}
+
+fn check_cancelled(cancel: &CancellationToken) -> Result<(), CoreError> {
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled("File search cancelled".into()));
+    }
+    Ok(())
 }
 
 fn resolve_search_roots(
@@ -396,6 +378,7 @@ fn resolve_search_roots(
             });
         }
     }
+    roots.sort_by(|a, b| a.root.cmp(&b.root));
     Ok(roots)
 }
 
@@ -456,26 +439,41 @@ fn normalize_path_for_glob(path: &Path) -> String {
         .join("/")
 }
 
+struct MatchPage<'a> {
+    cancel: &'a CancellationToken,
+    skip: usize,
+    limit: usize,
+    matches: Vec<FileMatch>,
+    has_more: bool,
+}
+
 fn search_file(
     path: &Path,
     base: &Path,
     matcher: &Matcher,
     context_lines: usize,
-    max_results: usize,
-    matches: &mut Vec<FileMatch>,
+    page: &mut MatchPage<'_>,
 ) -> Result<(), CoreError> {
     let metadata = match std::fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(()),
     };
-    if metadata.len() > MAX_FILE_BYTES {
+    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
         return Ok(());
     }
 
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(_) => return Ok(()),
+    let Ok(file) = std::fs::File::open(path) else {
+        return Ok(());
     };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_FILE_BYTES
+    {
+        return Ok(());
+    }
     if bytes.iter().take(8192).any(|byte| *byte == 0) {
         return Ok(());
     }
@@ -484,51 +482,62 @@ fn search_file(
         Err(_) => return Ok(()),
     };
 
-    let lines: Vec<&str> = content.lines().collect();
     let display_path = normalize_path_for_glob(path.strip_prefix(base).unwrap_or(path));
-
-    for (idx, line) in lines.iter().enumerate() {
-        if matches.len() >= max_results {
-            break;
+    let mut previous = VecDeque::with_capacity(context_lines);
+    let mut lines = content.lines();
+    let mut line_number = 0usize;
+    while let Some(line) = lines.next() {
+        if line_number.is_multiple_of(1024) {
+            check_cancelled(page.cancel)?;
         }
-        if !matcher.is_match(line) {
-            continue;
+        line_number += 1;
+        if matcher.is_match(line) {
+            if page.skip > 0 {
+                page.skip -= 1;
+            } else if page.matches.len() == page.limit {
+                page.has_more = true;
+                break;
+            } else {
+                let before = previous
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, &text)| ContextLine {
+                        line_number: line_number - previous.len() + offset,
+                        text: truncate_line(text),
+                    })
+                    .collect();
+                let after = lines
+                    .clone()
+                    .take(context_lines)
+                    .enumerate()
+                    .map(|(offset, text)| ContextLine {
+                        line_number: line_number + offset + 1,
+                        text: truncate_line(text),
+                    })
+                    .collect();
+                page.matches.push(FileMatch {
+                    path: display_path.clone(),
+                    line_number,
+                    line: truncate_line(line),
+                    before,
+                    after,
+                });
+            }
         }
-
-        let before_start = idx.saturating_sub(context_lines);
-        let before = lines[before_start..idx]
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| ContextLine {
-                line_number: before_start + offset + 1,
-                text: truncate_line(text),
-            })
-            .collect();
-        let after_end = (idx + 1 + context_lines).min(lines.len());
-        let after = lines[idx + 1..after_end]
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| ContextLine {
-                line_number: idx + offset + 2,
-                text: truncate_line(text),
-            })
-            .collect();
-
-        matches.push(FileMatch {
-            path: display_path.clone(),
-            line_number: idx + 1,
-            line: truncate_line(line),
-            before,
-            after,
-        });
+        if context_lines > 0 {
+            if previous.len() == context_lines {
+                previous.pop_front();
+            }
+            previous.push_back(line);
+        }
     }
-
     Ok(())
 }
 
 fn truncate_line(line: &str) -> String {
-    let mut out = line.chars().take(MAX_DISPLAY_CHARS).collect::<String>();
-    if line.chars().count() > MAX_DISPLAY_CHARS {
+    let mut chars = line.chars();
+    let mut out = chars.by_ref().take(MAX_DISPLAY_CHARS).collect::<String>();
+    if chars.next().is_some() {
         out.push_str("...");
     }
     out
@@ -619,7 +628,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grep_files_treats_pipe_as_literal_by_default() {
+    async fn search_files_treats_pipe_as_literal_by_default() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("query.txt"),
@@ -628,7 +637,7 @@ mod tests {
         .unwrap();
 
         let db = setup_db_with_source(dir.path());
-        let tool = GrepFilesTool;
+        let tool = SearchFilesTool;
         let args = serde_json::json!({
             "query": "alpha|beta",
             "max_results": 10
@@ -655,7 +664,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grep_files_supports_regex_alternation_when_opted_in() {
+    async fn search_files_supports_regex_alternation_when_opted_in() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("query.txt"),
@@ -664,7 +673,7 @@ mod tests {
         .unwrap();
 
         let db = setup_db_with_source(dir.path());
-        let tool = GrepFilesTool;
+        let tool = SearchFilesTool;
         let args = serde_json::json!({
             "query": "alpha|beta",
             "regex": true,
@@ -692,12 +701,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grep_files_invalid_regex_error_points_to_literal_mode() {
+    async fn legacy_search_calls_page_matches_in_stable_order() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("b.txt"), "x").unwrap();
+        std::fs::write(dir.path().join("a.txt"), "x").unwrap();
+        let db = setup_db_with_source(dir.path());
+        let registry = super::super::default_tool_registry().filtered(&["grep_files".into()]);
+        for (offset, name, path, next) in [
+            (0, "grep_files", "a.txt", Some(1)),
+            (1, "search_files", "b.txt", None),
+        ] {
+            let args = json!({"query": "x", "offset": offset, "max_results": 1}).to_string();
+            let result = registry
+                .execute(
+                    name,
+                    crate::tools::ToolExecutionContext::new("page", &args, &db, &[]),
+                )
+                .await
+                .unwrap();
+            let evidence = result.artifacts.unwrap();
+            assert_eq!(evidence["matches"][0]["path"], path);
+            assert_eq!(evidence["nextOffset"], json!(next));
+            assert_eq!(evidence["truncated"], next.is_some());
+        }
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut context =
+            crate::tools::ToolExecutionContext::new("stop", r#"{"query":"x"}"#, &db, &[]);
+        context.cancel_token = Some(&cancel);
+        assert!(matches!(
+            SearchFilesTool.execute(context).await,
+            Err(CoreError::Cancelled(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn search_files_invalid_regex_error_points_to_literal_mode() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("query.txt"), "alpha item\n").unwrap();
 
         let db = setup_db_with_source(dir.path());
-        let tool = GrepFilesTool;
+        let tool = SearchFilesTool;
         let args = serde_json::json!({
             "query": "(",
             "regex": true
@@ -714,7 +758,7 @@ mod tests {
             .unwrap_err()
             .to_string();
 
-        assert!(err.contains("grep_files"), "{err}");
+        assert!(err.contains("search_files"), "{err}");
         assert!(err.contains("Invalid regex"), "{err}");
         assert!(err.contains("\"regex\": false"), "{err}");
     }

@@ -132,8 +132,9 @@ impl Database {
     }
 
     fn storage_usage_on_reader(&self) -> Result<StorageUsage, CoreError> {
-        let database = self.storage_stats()?;
-        let conn = self.conn();
+        let mut reader = self.conn();
+        let conn = reader.transaction()?;
+        let database = self.storage_stats_on(&conn)?;
         let (active, archived) = conn.query_row(
             "SELECT COUNT(*) FILTER (WHERE archived_at IS NULL), COUNT(*) FILTER (WHERE archived_at IS NOT NULL)
              FROM conversations WHERE parent_conversation_id IS NULL", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -176,18 +177,15 @@ impl Database {
             .allocated_bytes
             .max(database.main_file_bytes.unwrap_or(0));
         let used: u64 = sizes.values().sum();
-        if used == 0 {
-            sizes.insert(
-                "databaseOther".into(),
-                allocated.saturating_sub(database.reusable_bytes),
-            );
-        } else {
-            *sizes.entry("databaseOther".into()).or_default() += allocated
-                .saturating_sub(used)
-                .saturating_sub(database.reusable_bytes);
-        }
-        sizes.insert("reusable".into(), database.reusable_bytes);
-        sizes.insert("wal".into(), database.wal_bytes.unwrap_or(0));
+        // Free pages still belong to the database. Their reusable status is
+        // reported separately in DatabaseStorageStats.
+        *sizes.entry("databaseOther".into()).or_default() += allocated.saturating_sub(used);
+        // Newly allocated pages may exist only in the WAL until checkpoint.
+        // They are already charged to their database categories above.
+        let main_bytes = database.main_file_bytes.unwrap_or(allocated);
+        let pending_growth = allocated.saturating_sub(main_bytes);
+        let wal_bytes = database.wal_bytes.unwrap_or(0);
+        sizes.insert("wal".into(), wal_bytes.saturating_sub(pending_growth));
         let categories = sizes
             .into_iter()
             .map(|(id, bytes)| {
@@ -221,7 +219,8 @@ impl Database {
             agent_access: false,
             total_bytes: categories.iter().map(|item| item.bytes).sum(),
             categories,
-            partial: false,
+            partial: db_path.is_some()
+                && (database.main_file_bytes.is_none() || pending_growth > wal_bytes),
             active_conversations: active,
             archived_conversations: archived,
             database,
@@ -387,14 +386,26 @@ mod tests {
     fn storage_categories_partition_allocated_pages_and_nested_files_once() {
         let root = tempfile::tempdir().unwrap();
         let db = Database::new(root.path().join("nexa.db")).unwrap();
+        db.execute_batch_for_test(
+            "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA wal_autocheckpoint=0;
+             CREATE TABLE scratch (payload BLOB);
+             INSERT INTO scratch VALUES (zeroblob(1048576));
+             DROP TABLE scratch;",
+        )
+        .unwrap();
         let mut usage = db.storage_usage().unwrap();
+        assert!(usage.database.reusable_bytes > 0);
+        assert!(usage.database.allocated_bytes > usage.database.main_file_bytes.unwrap());
+        assert!(usage.categories.iter().all(|item| item.id != "reusable"));
+        let other = usage
+            .categories
+            .iter()
+            .find(|item| item.id == "databaseOther")
+            .unwrap();
+        assert!(other.bytes >= usage.database.reusable_bytes);
         assert_eq!(
             usage.total_bytes,
-            usage
-                .database
-                .allocated_bytes
-                .max(usage.database.main_file_bytes.unwrap())
-                + usage.database.wal_bytes.unwrap()
+            usage.database.main_file_bytes.unwrap() + usage.database.wal_bytes.unwrap()
         );
         let previous = usage.total_bytes;
         let models = root.path().join("models");

@@ -815,7 +815,7 @@ fn test_route_user_turn_treats_tool_repair_as_file_operation() {
         .route_categories
         .contains(&ToolCategory::FileSystem));
     assert!(route.prompt_section.contains("code_intelligence"));
-    assert!(route.prompt_section.contains("grep_files/search_files"));
+    assert!(route.prompt_section.contains("search_files"));
     assert!(route.prompt_section.contains("read it directly"));
     assert!(route.prompt_section.contains("do not repeat discovery"));
     assert!(route.prompt_section.contains("project_tool"));
@@ -7509,6 +7509,97 @@ async fn test_prompt_cache_trace_compares_previous_turn_snapshot_with_new_execut
     assert!(observation["estimatedReusablePrefixTokens"]
         .as_u64()
         .is_some_and(|tokens| tokens > 0));
+}
+
+#[tokio::test]
+async fn code_mode_provider_receives_one_result_for_parallel_workspace_reads() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("first.txt"), "private-a marker-a").unwrap();
+    std::fs::write(workspace.path().join("second.txt"), "private-b marker-b").unwrap();
+    let mut tools = crate::tools::default_tool_registry()
+        .filtered(&["read_file".into(), "context_history".into()])
+        .with_workspace(Some(
+            crate::workspace::Workspace::validate(&[workspace
+                .path()
+                .to_string_lossy()
+                .into_owned()])
+            .unwrap(),
+        ));
+    crate::tools::context_history_tool::ContextHistoryTool::enable_code_mode(&mut tools);
+    let script = r#"local results = call_tools({
+        {name="read_file",arguments={path="first.txt"}},
+        {name="read_file",arguments={path="second.txt"}}
+    })
+    return string.match(results[1], "marker%-(%w)") .. string.match(results[2], "marker%-(%w)")"#;
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = CapturingScriptedProvider {
+        requests: requests.clone(),
+        stream_calls: Arc::new(AtomicUsize::new(0)),
+        first_chunks: vec![StreamChunk {
+            delta: String::new(),
+            tool_call_delta: Some(ToolCallDelta {
+                id: "cell".into(),
+                name: Some("context_history".into()),
+                arguments_delta: serde_json::json!({"action":"code_mode","code":script})
+                    .to_string()
+                    .into(),
+                index: Some(0),
+                thought_signature: None,
+            }),
+            finish_reason: Some(crate::llm::FinishReason::Stop),
+            usage: None,
+            thinking_delta: None,
+        }],
+        final_answer: "ab",
+    };
+    let executor = AgentExecutor::new(
+        Box::new(provider),
+        tools,
+        AgentConfig {
+            model: Some("mock-model".into()),
+            ..Default::default()
+        },
+    );
+    let db = Database::open_memory().unwrap();
+    let mut settings = db.load_app_config().unwrap();
+    settings.experimental_code_mode = true;
+    db.save_app_config(&settings).unwrap();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "mock".into(),
+            model: "mock-model".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    let (tx, _rx) = mpsc::channel(128);
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "Compare the markers in both local reports".into(),
+            }],
+            &db,
+            Some(&conversation.id),
+            None,
+            tx,
+            1,
+        )
+        .await
+        .unwrap();
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let supplied: Vec<_> = requests[1]
+        .iter()
+        .filter(|(role, _)| *role == Role::Tool)
+        .map(|(_, text)| text.as_str())
+        .collect();
+    assert_eq!(supplied, [r#""ab""#]);
+    assert!(requests[1]
+        .iter()
+        .all(|(_, text)| !text.contains("private-a") && !text.contains("private-b")));
 }
 
 #[tokio::test]

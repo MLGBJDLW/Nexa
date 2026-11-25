@@ -19,6 +19,10 @@ const isNativeReasoning = (option: ExternalAgentConfigOption) => option.category
   || (!option.category && ['reasoning_effort','effort','thought_level'].includes(option.id));
 const isModelDependent = (option: ExternalAgentConfigOption) => option.category === 'model_config' || option.category === 'thought_level'
   || (!option.category && ['reasoning_effort', 'effort', 'thought_level'].includes(option.id));
+const glmPlanEndpoints = [
+  { url: 'https://api.z.ai/api/coding/paas/v4', label: 'Z.AI · api.z.ai' },
+  { url: 'https://open.bigmodel.cn/api/coding/paas/v4', label: '智谱 · open.bigmodel.cn' },
+];
 
 export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave, onCancel, isSaving, onDirtyChange }: {
   preset: ProviderPreset; config?: AgentConfig; onSave: (input: SaveAgentConfigInput, launch?: ExternalAgentLaunch) => Promise<void>;
@@ -38,6 +42,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
   const [argsText, setArgsText] = useState('');
   const [envText, setEnvText] = useState('');
   const credential = Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === credentialEnvName)?.[1] ?? '';
+  const glmEndpoint = Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === 'ACP_GLM_BASE_URL')?.[1] ?? '';
   function parseAdvancedFields(args: string, env: string) {
     const fields = parseExternalLaunchFields(args, env);
     if (credentialEnvName && Object.keys(fields.env ?? {}).some(key => key.toUpperCase() === credentialEnvName)) {
@@ -212,6 +217,21 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       <input className={inputClass} value={name} onChange={event => { setName(event.target.value); onDirtyChange(true); }} />
     </label>
     {(isGlmCodingPlan || isCursor) && <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3" data-testid={isCursor ? "cursor-credentials" : "glm-coding-plan-credentials"}>
+      {isGlmCodingPlan && <label className="block text-xs font-medium text-text-secondary">{t('settings.glmModelEndpoint')}
+        <NexaSelect aria-label={t('settings.glmModelEndpoint')} className={inputClass} disabled={!initialLaunch || !launchFieldsValid}
+          value={glmEndpoint} onChange={event => {
+            const advancedEnv = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) =>
+              !['ACP_GLM_BASE_URL', credentialEnvName].includes(key.toUpperCase())));
+            if (event.target.value) advancedEnv.ACP_GLM_BASE_URL = event.target.value;
+            setEnvText(Object.keys(advancedEnv).length ? JSON.stringify(advancedEnv, null, 2) : '');
+            changeLaunch({ ...launch, env: credential ? { ...advancedEnv, [credentialEnvName]: credential } : advancedEnv });
+          }}>
+          <option value="">{t('chat.contextPolicyAutomatic')}</option>
+          {glmPlanEndpoints.map(({ url, label }) => <option key={url} value={url}>{label}</option>)}
+          {glmEndpoint && !glmPlanEndpoints.some(({ url }) => url === glmEndpoint) &&
+            <option value={glmEndpoint}>{t('chat.contextPolicyCustom')}</option>}
+        </NexaSelect>
+      </label>}
       <label className="block text-xs font-medium text-text-secondary">{t(isCursor ? 'settings.cursorApiKey' : 'settings.glmCodingPlanKey')}
         <input type="password" autoComplete="off" spellCheck={false} className={inputClass} disabled={!initialLaunch}
           value={credential}
@@ -306,6 +326,9 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
     <div data-settings-actions className="flex flex-wrap gap-2">
       <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving || !!authTerminal || !launchFieldsValid} onClick={() => void probe()}>{t(packageRunner ? 'settings.externalAgentPackageProbe' : 'settings.externalAgentProbe')}</Button>
+      {isGlmCodingPlan && error && model && <Button size="sm" variant="secondary"
+        disabled={loading || saving || !launchFieldsValid}
+        onClick={() => void probe('', { ...launch, configOptionsModel: undefined, configOptions: {} })}>{t('settings.refreshModelCatalog')}</Button>}
       <Button size="sm" loading={saving || isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
       <Button size="sm" variant="secondary" onClick={() => { generation.current++; cancelSetup(); onCancel(); }}>{t('common.cancel')}</Button>
     </div>

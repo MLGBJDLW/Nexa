@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Database;
 use crate::error::CoreError;
 
-/// Hard cap on stored scratchpad content (~1 000 tokens worth).
-/// Keeps the prompt budget predictable.
+/// Maximum number of Unicode scalar values retained in the working note.
 pub const MAX_SCRATCHPAD_CHARS: usize = 4_000;
 
 /// Marker prepended to a scratchpad after FIFO truncation.
@@ -86,18 +85,15 @@ impl Database {
 
 /// FIFO-truncate content to fit within `MAX_SCRATCHPAD_CHARS`.
 pub(crate) fn enforce_cap(content: &str) -> String {
-    if content.len() <= MAX_SCRATCHPAD_CHARS {
+    if content.chars().nth(MAX_SCRATCHPAD_CHARS).is_none() {
         return content.to_string();
     }
-    // Drop leading bytes so only the most recent fit.
-    let overflow = content
-        .len()
-        .saturating_sub(MAX_SCRATCHPAD_CHARS.saturating_sub(TRIM_MARKER.len()));
-    // Align to a char boundary.
-    let mut cut = overflow;
-    while cut < content.len() && !content.is_char_boundary(cut) {
-        cut += 1;
-    }
+    let retained = MAX_SCRATCHPAD_CHARS - TRIM_MARKER.chars().count();
+    let (cut, _) = content
+        .char_indices()
+        .rev()
+        .nth(retained - 1)
+        .expect("overflowing scratchpad contains the full retained suffix");
     format!("{}{}", TRIM_MARKER, &content[cut..])
 }
 
@@ -163,10 +159,14 @@ mod tests {
 
     #[test]
     fn enforces_cap_fifo() {
-        let big = "x".repeat(MAX_SCRATCHPAD_CHARS + 500);
-        let out = enforce_cap(&big);
-        assert!(out.len() <= MAX_SCRATCHPAD_CHARS);
-        assert!(out.starts_with("...[older notes trimmed]"));
+        for ch in ['x', '记', '📎'] {
+            let full = ch.to_string().repeat(MAX_SCRATCHPAD_CHARS);
+            assert_eq!(enforce_cap(&full), full);
+            let out = enforce_cap(&format!("{full}end"));
+            assert_eq!(out.chars().count(), MAX_SCRATCHPAD_CHARS);
+            assert!(out.starts_with(TRIM_MARKER));
+            assert!(out.ends_with("end"));
+        }
     }
 
     #[test]

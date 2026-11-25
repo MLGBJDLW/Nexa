@@ -148,9 +148,14 @@ pub async fn build_desktop_agent_session_dependencies(
     let parent_runtime = agent_runtime.clone();
     let image_subscription = agent_runtime.clone();
     let image_model = executor_config.model.clone();
-    let image_source = db
+    let (image_source, code_mode) = db
         .load_app_config()
-        .map(|config| config.image_generation.source)
+        .map(|config| {
+            (
+                config.image_generation.source,
+                config.experimental_code_mode,
+            )
+        })
         .unwrap_or_default();
 
     let skill_select_started = Instant::now();
@@ -430,6 +435,9 @@ pub async fn build_desktop_agent_session_dependencies(
         );
     }
     tools = tools.with_workspace(workspace);
+    if code_mode {
+        nexa_core::tools::context_history_tool::ContextHistoryTool::enable_code_mode(&mut tools);
+    }
     // Delegated workers inherit the already-filtered root registry and can
     // only narrow it further through their own role/tool policy.
     if let Some(runtime) = delegation_runtime.as_ref() {

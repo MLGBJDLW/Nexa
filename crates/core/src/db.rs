@@ -157,7 +157,13 @@ impl Database {
     /// Constant-size metadata queries; never scan payload tables or VACUUM an
     /// active database merely because a settings panel was opened.
     pub fn storage_stats(&self) -> Result<DatabaseStorageStats, CoreError> {
-        let conn = self.conn();
+        self.storage_stats_on(&self.conn())
+    }
+
+    pub(crate) fn storage_stats_on(
+        &self,
+        conn: &Connection,
+    ) -> Result<DatabaseStorageStats, CoreError> {
         let page_size: u64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
         let page_count: u64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
         let free_pages: u64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;

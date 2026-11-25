@@ -882,9 +882,14 @@ impl AgentExecutor {
                 return Err(CoreError::InvalidInput("Saved execution checkpoint is missing its task plan; reconcile the checkpoint before resuming this workflow".into()));
             }
             if let Some(workflow) = saved.workflow.as_mut() {
-                let available = self.tools.tool_names();
+                let available: HashSet<String> = self.tools.tool_names().into_iter().collect();
                 for node in &mut workflow.nodes {
-                    node.allowed_tools.retain(|tool| available.contains(tool));
+                    node.allowed_tools = node
+                        .allowed_tools
+                        .iter()
+                        .filter_map(|name| available.get(crate::tools::canonical_tool_name(name)))
+                        .cloned()
+                        .collect();
                 }
                 workflow.max_parallel = workflow
                     .max_parallel

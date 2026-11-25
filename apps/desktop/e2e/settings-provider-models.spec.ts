@@ -14,8 +14,12 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
     host.invoke = async (command: string, args: any) => {
-      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_glm_acp_agent' && !args.launch.env?.Z_AI_API_KEY) {
-        throw new Error('GLM Agent needs a Coding Plan API key. ZCode account sign-in does not authenticate this ACP adapter. No prompt was sent.');
+      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_glm_acp_agent') {
+        if (!args.launch.env?.Z_AI_API_KEY) {
+          throw new Error('GLM Agent needs a Coding Plan API key. ZCode account sign-in does not authenticate this ACP adapter. No prompt was sent.');
+        }
+        return { models: ['glm-5.4', 'glm-5.3', 'glm-5.3-flash'].map(id => ({ id, name: id, reasoningEfforts: [] })),
+          configOptions: [], commands: [] };
       }
       return original(command, args);
     };
@@ -34,12 +38,24 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
   await probe.click();
   await expect(form.getByRole('alert')).toContainText('No prompt was sent');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await form.getByLabel('GLM Coding Plan API key', { exact: true }).fill('fixture-plan-key');
+  const planKey = form.getByLabel('GLM Coding Plan API key', { exact: true });
+  await planKey.fill('fixture-plan-key');
+  await selectControl(form.getByRole('combobox', { name: 'Coding Plan model endpoint' }), 'https://open.bigmodel.cn/api/coding/paas/v4');
+  await expect(planKey).toHaveValue('fixture-plan-key');
+  expect(await form.locator('textarea').last().inputValue()).not.toContain('fixture-plan-key');
   await probe.click();
+  const picker = form.getByRole('combobox', { name: 'Default Model' });
+  await expect(picker).toContainText('glm-5.4');
+  await selectControl(picker, 'glm-5.3');
+  await selectControl(picker, 'glm-5.4');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.screenshot({ path: testInfo.outputPath('glm-coding-plan-setup.png') });
   await form.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.env?.Z_AI_API_KEY)).toBe('fixture-plan-key');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch)).toMatchObject({
+    env: { Z_AI_API_KEY: 'fixture-plan-key', ACP_GLM_BASE_URL: 'https://open.bigmodel.cn/api/coding/paas/v4' },
+    configOptionsModel: 'glm-5.4',
+  });
+  expect(await page.evaluate(() => (window as any).__savedAgentConfig.model)).toBe('glm-5.4');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.workingDirectory)).toBe('');
 });
 
@@ -111,7 +127,10 @@ test('usage groups providers and compares models without collapsing filter choic
         cacheReadTokens: sum('cacheReadTokens'), cacheMissTokens: sum('cacheMissTokens'), cacheCreationTokens: 0,
         providerReportedPercent: 100, normalizedPercent: 0, estimatedPercent: 0, unknownPercent: 0, estimatedCostMicros: null };
       return { totals, byModel: rows, byOperation: [],
-        timeSeries: [{ date: new Date().toISOString().slice(0, 10), ...totals }],
+        timeSeries: [1, 10_000, 25_000, 50_000, 1_000_000, 25_000, ...Array.from({ length: 90 }, (_, i) => i + 2)].map((factor, day) => ({
+          ...totals, date: new Date(Date.now() - day * 86_400_000).toISOString().slice(0, 10),
+          totalTokens: totals.totalTokens * factor,
+        })),
         availableFilters: { providers: ['open_ai', 'open_router', 'anthropic'], models: ['shared-model', 'openai/shared-model', 'small-model', 'claude-test'], operations: ['agent_main'] } };
     };
   });
@@ -129,7 +148,17 @@ test('usage groups providers and compares models without collapsing filter choic
   await selectControl(page.getByRole('combobox', { name: 'All models', exact: true }), 'shared-model');
   await expect(page.getByTestId('usage-model-group')).toHaveCount(1);
   await expect(shared.getByTestId('usage-model-row')).toHaveCount(2);
-  await expect(page.getByTestId('usage-contribution-heatmap').getByRole('gridcell', { name: /2K Tokens/ })).toHaveCount(1);
+  const activity = page.getByTestId('usage-contribution-heatmap');
+  await expect(activity.getByRole('gridcell', { name: /· 2,000 Tokens$/ })).toHaveCount(1);
+  const busyDays = activity.getByRole('gridcell', { name: /· (20,000,000|50,000,000|100,000,000) Tokens$/ });
+  await expect(busyDays).toHaveCount(4);
+  expect(await busyDays.evaluateAll(cells => new Set(cells.map(cell => getComputedStyle(cell).backgroundColor)).size)).toBe(3);
+  await busyDays.first().click();
+  await expect(activity.getByText(/· 50,000,000 Tokens$/)).toBeVisible();
+  await selectControl(page.getByRole('combobox', { name: 'Usage trend' }), 'requests');
+  await expect(activity.getByRole('gridcell', { name: /· 7 Requests$/ })).toHaveCount(96);
+  expect(await activity.getByRole('gridcell', { name: /· 7 Requests$/ }).evaluateAll(cells =>
+    new Set(cells.map(cell => getComputedStyle(cell).backgroundColor)).size)).toBe(1);
   await selectControl(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
   await expect(breakdown.getByText('No usage records in this range.', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'All models', exact: true }).click();
@@ -177,6 +206,9 @@ test('expanded settings keep compact spacing and controls inside narrow content'
       await search.getByLabel('Default Search Limit').fill('37');
       await search.getByLabel('Min Search Similarity').fill('0');
       await page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true }).click();
+      const codeMode = page.getByRole('switch', { name: 'Code Mode (experimental)', exact: true });
+      await expect(codeMode).not.toBeChecked();
+      await codeMode.click();
       await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { defaultSearchLimit?: number } }).__savedAppConfig?.defaultSearchLimit)).toBe(37);
       await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.minSearchSimilarity)).toBe(0);
@@ -186,6 +218,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
       await expect(search.getByLabel('Default Search Limit')).toHaveValue('37');
       await expect(search.getByLabel('Min Search Similarity')).toHaveValue('0');
       await expect(page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true })).toBeChecked();
+      await expect(codeMode).toBeChecked();
       await selectControl(page.getByLabel('Context management', { exact: true }), 'history');
       await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig)).toMatchObject({ defaultSearchLimit: 37, minSearchSimilarity: 0, dynamicToolVisibility: true, contextManagementMode: 'history' });

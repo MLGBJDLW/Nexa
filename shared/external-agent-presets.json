@@ -911,7 +911,7 @@
     "requiresApiKey": false,
     "models": [],
     "icon": "/provider-icons/agents/glm-acp-agent.svg",
-    "description": "ACP agent powered by Zhipu AI's GLM Coding Plan models (glm-5.1, glm-5-turbo, glm-4.7, glm-4.5-air). Supports streaming, tool calls, mid-session model switching, image input via Z.AI Coding Plan Vision MCP, and session load/fork/resume with on-disk persistence.",
+    "description": "Connect a GLM Coding Plan key and select GLM-5.4, GLM-5.3 or GLM-5.3-Flash in the agent.",
     "command": "npx",
     "args": [
       "--yes",

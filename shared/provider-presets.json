@@ -2951,6 +2951,120 @@
         ]
       },
       {
+        "id": "upstage/solar-pro-4-contributor",
+        "name": "Upstage: Solar Pro 4 Contributor (training data sharing)",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/upstage/solar-pro-4-contributor/endpoints",
+        "contextTokens": 524288,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": false
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "parallel_tool_calls",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "access": "public"
+      },
+      {
+        "id": "upstage/solar-mini-4-5",
+        "name": "Upstage: Solar Mini 4.5 (Preview)",
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/upstage/solar-mini-4-5/endpoints",
+        "contextTokens": 524288,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": false
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "parallel_tool_calls",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "access": "public"
+      },
+      {
         "id": "cohere/command-a-plus",
         "name": "Cohere: Command A+",
         "source": "official",
@@ -3372,6 +3486,59 @@
         ]
       },
       {
+        "id": "xiaomi/mimo-v2.6-flash-mopd",
+        "name": "Xiaomi: MiMo-V2.6-Flash-MOPD",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.6-flash-mopd/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ],
+        "access": "public",
+        "recommended": false
+      },
+      {
         "id": "xiaomi/mimo-v2.6-pro",
         "name": "Xiaomi: MiMo-V2.6-Pro",
         "source": "official",
@@ -3667,7 +3834,6 @@
           "tools",
           "top_p"
         ],
-        "replacementModelId": "~unbiased/pareto-latest",
         "recommended": false
       },
       {
@@ -3735,10 +3901,10 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/~deepseek/deepseek-flash-latest",
         "contextTokens": 1048576,
-        "maxOutputTokens": 393216,
+        "maxOutputTokens": 943718,
         "inputModalities": [
           "text",
           "image"
@@ -5547,7 +5713,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-20",
+        "lastVerifiedAt": "2026-11-25",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -5560,7 +5726,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -5760,7 +5926,7 @@
         "maxOutputTokens": 131072,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-25",
         "modalities": [
           "text",
           "image",
@@ -5793,8 +5959,10 @@
           "include_reasoning",
           "logprobs",
           "max_tokens",
+          "min_p",
           "presence_penalty",
           "reasoning",
+          "repetition_penalty",
           "response_format",
           "seed",
           "stop",
@@ -6332,7 +6500,7 @@
             "defaultEnabled": true
           }
         },
-        "contextTokens": 262144,
+        "contextTokens": 256000,
         "inputModalities": [
           "text",
           "image",
@@ -6348,23 +6516,19 @@
           "include_reasoning",
           "logprobs",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
           "reasoning_effort",
-          "repetition_penalty",
           "response_format",
-          "seed",
           "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
-          "top_k",
           "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/stepfun/step-3.7-flash",
         "maxOutputTokens": 230400
       },
@@ -6559,9 +6723,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/x-ai/grok-build-0.1",
-        "maxOutputTokens": 230400
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/x-ai/grok-build-0.1/endpoints",
+        "maxOutputTokens": 230400,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "google/gemini-3.7-flash",
@@ -8144,9 +8310,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/tencent/hy3-preview",
-        "maxOutputTokens": 235929
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hy3-preview/endpoints",
+        "maxOutputTokens": 235929,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "xiaomi/mimo-v2.5-pro",
@@ -8187,9 +8355,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
-        "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.5-pro",
-        "maxOutputTokens": 235929
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.5-pro/endpoints",
+        "maxOutputTokens": 235929,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "xiaomi/mimo-v2.5",
@@ -8235,9 +8405,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.5",
-        "maxOutputTokens": 65536
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.5/endpoints",
+        "maxOutputTokens": 65536,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-5.4-image-2",
@@ -10489,7 +10661,7 @@
             "defaultEnabled": true
           }
         },
-        "contextTokens": 198000,
+        "contextTokens": 65536,
         "inputModalities": [
           "text"
         ],
@@ -10499,26 +10671,22 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "supportedParameters": [
-          "frequency_penalty",
           "include_reasoning",
           "logprobs",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
           "response_format",
-          "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
-          "top_k",
           "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/minimax/minimax-m2.5",
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 58982
       },
       {
         "id": "z-ai/glm-5",
@@ -10830,11 +10998,8 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logprobs",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
-          "repetition_penalty",
           "response_format",
           "seed",
           "stop",
@@ -10843,11 +11008,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2.5/endpoints",
         "maxOutputTokens": 235929,
         "status": "active",
@@ -12476,9 +12640,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/moonshotai/kimi-k2-thinking",
-        "maxOutputTokens": 98304
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2-thinking/endpoints",
+        "maxOutputTokens": 98304,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "amazon/nova-premier-v1",
@@ -13202,7 +13368,6 @@
         "supportedParameters": [
           "frequency_penalty",
           "logit_bias",
-          "logprobs",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -13215,11 +13380,10 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-vl-30b-a3b-instruct",
         "maxOutputTokens": 16384
       },
@@ -14027,9 +14191,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/moonshotai/kimi-k2-0905",
-        "maxOutputTokens": 98304
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2-0905/endpoints",
+        "maxOutputTokens": 98304,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "qwen/qwen3-30b-a3b-thinking-2507",
@@ -14245,9 +14411,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/mistralai/mistral-medium-3.1",
-        "maxOutputTokens": 104857
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/mistralai/mistral-medium-3.1/endpoints",
+        "maxOutputTokens": 104857,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "baidu/ernie-4.5-21b-a3b",
@@ -15231,9 +15399,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/moonshotai/kimi-k2",
-        "maxOutputTokens": 98304
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2/endpoints",
+        "maxOutputTokens": 98304,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "mistralai/devstral-medium",
@@ -15860,9 +16030,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/mistralai/mistral-medium-3",
-        "maxOutputTokens": 104857
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/mistralai/mistral-medium-3/endpoints",
+        "maxOutputTokens": 104857,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "google/gemini-2.5-pro-preview-05-06",
@@ -19669,7 +19841,6 @@
           "max_tokens",
           "presence_penalty",
           "reasoning",
-          "repetition_penalty",
           "response_format",
           "seed",
           "stop",
@@ -19682,7 +19853,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/inclusionai/ling-3.1-flash",
         "maxOutputTokens": 262144,
         "capabilities": {
@@ -19751,7 +19922,7 @@
       {
         "id": "unbiased/pareto-26.10-preview",
         "name": "Pareto 26.10 Preview",
-        "status": "preview",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19774,13 +19945,14 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/unbiased/pareto-26.10-preview",
         "maxOutputTokens": 131072,
         "capabilities": {
           "vision": true,
           "reasoning": null
-        }
+        },
+        "deprecationDate": "2026-11-25"
       },
       {
         "id": "nvidia/switchyard",
@@ -20138,9 +20310,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-vision-exp",
-        "maxOutputTokens": 262144,
+        "maxOutputTokens": 393216,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -20321,7 +20493,7 @@
       {
         "id": "dots-studio/dots-3-note-preview:free",
         "name": "Dots Studio: Dots3-Note Preview (free)",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -20347,8 +20519,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
-        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/dots-studio/dots-3-note-preview:free/endpoints",
         "maxOutputTokens": 460800,
         "capabilities": {
           "vision": true,
@@ -21437,6 +21609,7 @@
           "response_format",
           "seed",
           "stop",
+          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
@@ -21445,7 +21618,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/inclusionai/ling-3.0-flash",
         "maxOutputTokens": 32768,
         "capabilities": {
@@ -21603,7 +21776,7 @@
       {
         "id": "meituan/longcat-2.0",
         "name": "Meituan: LongCat 2.0",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -21634,8 +21807,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/meituan/longcat-2.0",
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/meituan/longcat-2.0/endpoints",
         "maxOutputTokens": 262144,
         "capabilities": {
           "vision": false,
@@ -21925,28 +22098,22 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "supportedParameters": [
-          "frequency_penalty",
           "include_reasoning",
           "max_completion_tokens",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
           "reasoning_effort",
-          "repetition_penalty",
           "response_format",
-          "seed",
           "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
-          "tools",
-          "top_k",
-          "top_p"
+          "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/tencent/hy3",
-        "maxOutputTokens": 235929,
+        "maxOutputTokens": 128000,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -22098,7 +22265,7 @@
       {
         "id": "cohere/north-mini-code:free",
         "name": "Cohere: North Mini Code (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -22126,8 +22293,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/cohere/north-mini-code:free",
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://openrouter.ai/api/v1/models/cohere/north-mini-code:free/endpoints",
         "maxOutputTokens": 64000,
         "capabilities": {
           "vision": false,
@@ -22441,11 +22608,11 @@
         "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-25",
         "inputModalities": [
           "text",
           "image"
@@ -22465,7 +22632,8 @@
         "capabilities": {
           "vision": true
         },
-        "documentationRef": "https://openrouter.ai/~unbiased/pareto-latest"
+        "documentationRef": "https://openrouter.ai/~unbiased/pareto-latest",
+        "deprecationDate": "2026-11-25"
       },
       {
         "id": "unbiased/pareto-26.9",
@@ -22473,11 +22641,11 @@
         "contextTokens": 262144,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-25",
         "inputModalities": [
           "text",
           "image"
@@ -22498,7 +22666,8 @@
         "capabilities": {
           "vision": true
         },
-        "documentationRef": "https://openrouter.ai/unbiased/pareto-26.9"
+        "documentationRef": "https://openrouter.ai/unbiased/pareto-26.9",
+        "deprecationDate": "2026-11-25"
       },
       {
         "id": "liquid/lfm-2.5-24b-a2b",
@@ -23219,14 +23388,14 @@
         "id": "unbiased/pareto-26.10",
         "name": "Pareto 26.10",
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "product_ready",
         "recommended": false,
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-10-18",
+        "lastVerifiedAt": "2026-11-25",
         "releaseDate": "2026-10-15",
         "inputModalities": [
           "text",
@@ -23250,7 +23419,8 @@
           "tool_choice",
           "tools",
           "top_p"
-        ]
+        ],
+        "deprecationDate": "2026-11-25"
       },
       {
         "id": "minimax/minimax-m3.1-flash:free",
@@ -24090,7 +24260,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-22",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-mini/endpoints",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -24106,6 +24276,7 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
+          "logit_bias",
           "logprobs",
           "max_completion_tokens",
           "max_tokens",
@@ -24266,7 +24437,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://openrouter.ai/tencent/hy4-flash",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -24283,7 +24454,6 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
-          "logprobs",
           "max_completion_tokens",
           "max_tokens",
           "min_p",
@@ -24298,7 +24468,6 @@
           "tool_choice",
           "tools",
           "top_k",
-          "top_logprobs",
           "top_p"
         ],
         "capabilities": {
@@ -31259,19 +31428,20 @@
         "id": "XingChenAGI/Xing4.0-29B",
         "name": "XingChenAGI/Xing4.0-29B",
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.siliconflow.cn/models",
+        "lastVerifiedAt": "2026-11-25",
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
         "supportsTools": true,
         "capabilities": {
           "vision": false,
           "reasoning": null
         },
         "contextTokens": 262144,
-        "supportsStructuredOutput": true
+        "supportsStructuredOutput": true,
+        "deprecationDate": "2026-12-04"
       },
       {
         "id": "meituan-longcat/LongCat-2.0",
@@ -36677,11 +36847,11 @@
         "id": "deepseek-v4-pro-260425",
         "name": "deepseek-v4-pro-260425",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-21",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "contextTokens": 1024000,
         "maxOutputTokens": 384000,
@@ -36703,11 +36873,11 @@
         "id": "doubao-seed-2-0-code-preview-260215",
         "name": "doubao-seed-2-0-code-preview-260215",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-21",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "contextTokens": 256000,
         "maxOutputTokens": 128000,
@@ -36730,11 +36900,11 @@
         "id": "glm-5-1-260428",
         "name": "glm-5-1-260428",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "account_enablement",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-21",
+        "lastVerifiedAt": "2026-11-25",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
         "inputModalities": [
           "text"

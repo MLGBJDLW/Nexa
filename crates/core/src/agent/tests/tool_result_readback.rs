@@ -191,7 +191,7 @@ async fn run_readback(split_channels: bool) {
         split_channels,
     }));
     tools.register(Box::new(
-        crate::tools::context_history_tool::ContextHistoryTool,
+        crate::tools::context_history_tool::ContextHistoryTool::default(),
     ));
     let executor = AgentExecutor::new(
         Box::new(ReadbackProvider {

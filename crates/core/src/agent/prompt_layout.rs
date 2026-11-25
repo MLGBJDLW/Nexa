@@ -14,7 +14,6 @@ const CACHE_STABLE_RESIDENT_TOOL_NAMES: &[&str] = &[
     "create_file",
     "edit_file",
     "glob_files",
-    "grep_files",
     "list_dir",
     "manage_skill",
     "read_file",

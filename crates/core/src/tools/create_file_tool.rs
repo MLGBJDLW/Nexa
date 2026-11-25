@@ -46,7 +46,7 @@ impl FileWriteMode {
 }
 
 #[derive(Deserialize)]
-struct CreateFileArgs {
+pub(super) struct CreateFileArgs {
     path: String,
     content: String,
     #[serde(default)]
@@ -175,21 +175,7 @@ impl Tool for CreateFileTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
-        let file_changes = crate::turn_file_changes::FileChangeScope::from_context(&context);
-        let mutation_cancel = context
-            .cancel_token
-            .map(tokio_util::sync::CancellationToken::child_token)
-            .unwrap_or_default();
-        let _cancel_mutation_on_drop = mutation_cancel.clone().drop_guard();
-        let file_policy = super::file_access_policy_for_context(&context)?;
-        let crate::tools::ToolExecutionContext {
-            call_id,
-            arguments,
-            db,
-            conversation_id,
-            ..
-        } = context;
-        let args: CreateFileArgs = serde_json::from_str(arguments).map_err(|error| {
+        let args: CreateFileArgs = serde_json::from_str(context.arguments).map_err(|error| {
             CoreError::InvalidInput(format!("Invalid create_file arguments: {error}"))
         })?;
         tracing::info!(
@@ -200,6 +186,40 @@ impl Tool for CreateFileTool {
             compatibility_hit = args.overwrite,
             "tool protocol invocation"
         );
+        args.write(context, "create_file").await
+    }
+}
+
+impl CreateFileArgs {
+    pub(super) fn new_file(path: String, content: String) -> Self {
+        Self {
+            path,
+            content,
+            mode: None,
+            overwrite: false,
+            expected_bytes: None,
+        }
+    }
+
+    pub(super) async fn write(
+        self,
+        context: crate::tools::ToolExecutionContext<'_>,
+        tool_name: &'static str,
+    ) -> Result<ToolResult, CoreError> {
+        let args = self;
+        let file_changes = crate::turn_file_changes::FileChangeScope::from_context(&context);
+        let mutation_cancel = context
+            .cancel_token
+            .map(tokio_util::sync::CancellationToken::child_token)
+            .unwrap_or_default();
+        let _cancel_mutation_on_drop = mutation_cancel.clone().drop_guard();
+        let file_policy = super::file_access_policy_for_context(&context)?;
+        let crate::tools::ToolExecutionContext {
+            call_id,
+            db,
+            conversation_id,
+            ..
+        } = context;
         let mode = normalized_mode(&args).map_err(CoreError::InvalidInput)?;
 
         if has_path_traversal(&args.path) {
@@ -313,7 +333,7 @@ impl Tool for CreateFileTool {
             let checkpoint = db.create_file_checkpoint(CreateFileCheckpointInput {
                 conversation_id: conversation_id.as_deref(),
                 tool_call_id: &call_id,
-                tool_name: "create_file",
+                tool_name,
                 operation: mode.as_str(),
                 path: &args.path,
                 absolute_path: &canonical,
@@ -322,9 +342,9 @@ impl Tool for CreateFileTool {
             if mutation_cancel.is_cancelled() { return Err(CoreError::InvalidInput("File mutation cancelled before writing".into())); }
             let bytes_written = args.content.len() as u64;
             let write_result = match mode {
-                FileWriteMode::Create | FileWriteMode::Overwrite => {
-                    std::fs::write(&canonical, args.content.as_bytes())
-                }
+                FileWriteMode::Create => std::fs::File::create_new(&canonical)
+                    .and_then(|mut file| file.write_all(args.content.as_bytes())),
+                FileWriteMode::Overwrite => std::fs::write(&canonical, args.content.as_bytes()),
                 FileWriteMode::Append => {
                     let mut file = match std::fs::OpenOptions::new()
                         .append(true)
@@ -377,6 +397,14 @@ impl Tool for CreateFileTool {
                 diff,
                 Some(0),
             );
+            if tool_name == "edit_file" {
+                return Ok(ToolResult {
+                    call_id,
+                    content: format!("Created file '{}' ({} bytes).\nCheckpoint: {}", args.path, bytes_after, checkpoint.id),
+                    is_error: false,
+                    artifacts: Some(artifacts),
+                });
+            }
             if let Some(map) = artifacts.as_object_mut() {
                 map.insert(
                     "writeProgress".to_string(),

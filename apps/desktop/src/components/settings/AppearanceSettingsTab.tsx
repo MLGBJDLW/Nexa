@@ -263,6 +263,7 @@ export function AppearanceSettingsTab({
           <CollapsiblePanel title={t('settings.agentBehaviorGroup')} testId="agent-behavior-preferences">
             {([
               ['dynamicToolVisibility', 'settings.dynamicTools', 'settings.dynamicToolsDesc', false],
+              ['experimentalCodeMode', 'settings.codeMode', 'settings.codeModeDesc', false],
               ['traceEnabled', 'settings.traceEnabled', 'settings.traceEnabledDesc', true],
               ['autoMemoryExtraction', 'settings.autoMemoryExtraction', 'settings.autoMemoryExtractionDesc', true],
               ['autoSkillLearning', 'settings.autoSkillLearning', 'settings.autoSkillLearningDesc', true],

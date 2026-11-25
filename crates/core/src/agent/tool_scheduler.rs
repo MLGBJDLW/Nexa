@@ -65,9 +65,10 @@ impl ToolSchedulerPolicy {
             && crate::tools::unified_control::is_backend(&invocation.tool_name)
             && !self.registered_tool_names.contains(&invocation.tool_name);
 
+        let requested_name = crate::tools::canonical_tool_name(&call.name);
         let hidden_registered_tool = self.dynamic_tool_visibility
-            && !self.offered_tool_names.contains(&call.name)
-            && self.registered_tool_names.contains(&call.name);
+            && !self.offered_tool_names.contains(requested_name)
+            && self.registered_tool_names.contains(requested_name);
         let synthetic_result = if unavailable_control_backend {
             Some(crate::tools::structured_tool_error_result_with_side_effect(
                 &call.id,
@@ -79,7 +80,7 @@ impl ToolSchedulerPolicy {
                 Some(false),
             ))
         } else if self.dynamic_tool_visibility
-            && !self.offered_tool_names.contains(&call.name)
+            && !self.offered_tool_names.contains(requested_name)
             && !hidden_registered_tool
         {
             Some(structured_tool_error_result(
@@ -110,7 +111,7 @@ impl ToolSchedulerPolicy {
             } else if synthetic_result.is_some()
                 && !hidden_registered_tool
                 && self.dynamic_tool_visibility
-                && !self.offered_tool_names.contains(&call.name)
+                && !self.offered_tool_names.contains(requested_name)
             {
                 "blockedByToolVisibility"
             } else if synthetic_result.is_some() {

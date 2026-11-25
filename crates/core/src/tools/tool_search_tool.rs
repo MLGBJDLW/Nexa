@@ -90,7 +90,7 @@ impl ToolSearchTool {
                 if super::unified_control::is_backend(&term) && registry.contains(&term) {
                     super::unified_control::TOOL_NAME.to_string()
                 } else {
-                    term
+                    super::canonical_tool_name(&term).to_owned()
                 }
             })
             .collect::<Vec<_>>();
@@ -275,7 +275,7 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
-        assert!(result.content.contains("grep_files") || result.content.contains("search_files"));
+        assert!(result.content.contains("search_files"));
     }
 
     #[tokio::test]

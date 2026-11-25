@@ -110,8 +110,10 @@ and [Meta Muse Spark](https://dev.meta.ai/docs/muse-spark).
 Settings → AI Usage shows a daily contribution heatmap for the past 365 days.
 Provider, model and operation filters apply to it; the date range controls the
 summary metrics and breakdown below. The separate horizontal trend is removed.
-Heatmap intensity uses the canonical total, so reported reasoning details are not
-counted again on top of an inclusive provider total.
+The heatmap divides the observed range within the filtered year into up to six
+shades, splitting the widest occupied intervals first on a square-root scale.
+Equal totals share a shade. Select a day to see its exact token or request count. Token
+counts use the canonical provider total.
 
 The breakdown can group by provider or compare a model across providers. Public
 vendor prefixes and Anthropic version punctuation are normalized for comparison,
