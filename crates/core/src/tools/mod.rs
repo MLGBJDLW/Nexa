@@ -925,6 +925,14 @@ fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefi
     definitions
 }
 
+/// Resolve a retired spelling before looking up the current registry or an allowlist.
+pub fn canonical_tool_name(name: &str) -> &str {
+    match name {
+        "grep_files" => "search_files",
+        other => other,
+    }
+}
+
 const RESIDENT_DISCOVERY_TOOL_NAMES: &[&str] = &["tool_search"];
 
 impl ToolRegistry {
@@ -981,6 +989,12 @@ impl ToolRegistry {
                 "computer_use is the registry projection of existing control adapters, not a separate executable tool".into(),
             ));
         }
+        if canonical_tool_name(tool.name()) != tool.name() {
+            return Err(CoreError::InvalidInput(format!(
+                "Reserved legacy tool name: {}",
+                tool.name()
+            )));
+        }
         let identity = tool.canonical_identity();
         if self.tools.iter().any(|existing| {
             existing.name() == tool.name()
@@ -1028,6 +1042,7 @@ impl ToolRegistry {
 
     /// Look up a tool by name.
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
+        let name = canonical_tool_name(name);
         self.tools
             .iter()
             .find(|t| t.name() == name)
@@ -1036,6 +1051,7 @@ impl ToolRegistry {
 
     /// Check whether a tool name is already registered.
     pub fn contains(&self, name: &str) -> bool {
+        let name = canonical_tool_name(name);
         self.tools.iter().any(|tool| {
             tool.name() == name
                 || (name == unified_control::TOOL_NAME && unified_control::is_backend(tool.name()))
@@ -1062,7 +1078,10 @@ impl ToolRegistry {
 
     /// Build a filtered registry preserving the original tool order.
     pub fn filtered(&self, allowed_names: &[String]) -> ToolRegistry {
-        let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
+        let allowed: HashSet<&str> = allowed_names
+            .iter()
+            .map(|name| canonical_tool_name(name))
+            .collect();
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
@@ -1084,7 +1103,10 @@ impl ToolRegistry {
     /// Narrow an execution allowlist while retaining its rule-control dependency.
     /// Plain filtering stays exact for package authority and prompt projections.
     pub fn filtered_for_execution(&self, allowed_names: &[String]) -> ToolRegistry {
-        let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
+        let allowed: HashSet<&str> = allowed_names
+            .iter()
+            .map(|name| canonical_tool_name(name))
+            .collect();
         // Rule acknowledgement is a prerequisite of scoped filesystem/process
         // tools. Keep that read-only control available to narrowed workers;
         // otherwise their first guarded mutation can never be retried.
@@ -1107,7 +1129,10 @@ impl ToolRegistry {
 
     /// Build a filtered registry excluding the provided tool names.
     pub fn without_names(&self, blocked_names: &[&str]) -> ToolRegistry {
-        let blocked: HashSet<&str> = blocked_names.iter().copied().collect();
+        let blocked: HashSet<&str> = blocked_names
+            .iter()
+            .map(|name| canonical_tool_name(name))
+            .collect();
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
@@ -2440,7 +2465,6 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(tool_search_tool::ToolSearchTool));
     registry.register(Box::new(glob_files_tool::GlobFilesTool));
     registry.register(Box::new(search_files_tool::SearchFilesTool));
-    registry.register(Box::new(search_files_tool::GrepFilesTool));
     registry.register(Box::new(code_intelligence_tool::CodeIntelligenceTool));
     registry.register(Box::new(project_tool::ProjectTool));
     registry.register(Box::new(workspace_rules_tool::WorkspaceRulesTool));
@@ -2721,13 +2745,7 @@ mod tests {
             );
         }
 
-        let allowed = [
-            "read_file",
-            "grep_files",
-            "search_files",
-            "web_search",
-            "tool_search",
-        ];
+        let allowed = ["read_file", "search_files", "web_search", "tool_search"];
         for allowed in allowed {
             assert!(
                 names.iter().any(|name| name == allowed),
@@ -3131,7 +3149,14 @@ mod tests {
         assert!(names.iter().any(|name| name == "code_intelligence"));
         assert!(names.iter().any(|name| name == "project_tool"));
         assert!(names.iter().any(|name| name == "search_files"));
-        assert!(names.iter().any(|name| name == "grep_files"));
+        assert!(!names.iter().any(|name| name == "grep_files"));
+        let legacy = registry.filtered_for_execution(&["grep_files".into()]);
+        assert_eq!(legacy.get("grep_files").unwrap().name(), "search_files");
+        assert!(legacy
+            .without_names(&["grep_files"])
+            .get("search_files")
+            .is_none());
+        assert!(!ToolRegistry::new().contains("grep_files"));
         assert!(names.iter().any(|name| name == "run_shell"));
     }
 

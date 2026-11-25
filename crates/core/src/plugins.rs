@@ -343,7 +343,6 @@ const FILE_WORKSPACE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDe
         "list_dir",
         "glob_files",
         "search_files",
-        "grep_files",
         "code_intelligence",
         "edit_file",
         "create_file",
@@ -512,7 +511,7 @@ pub fn builtin_capability_manifests() -> Vec<CapabilityPackageManifest> {
 }
 
 pub fn capability_owner_for_tool(name: &str) -> CapabilityOwner {
-    capability_for_tool_name(name).info()
+    capability_for_tool_name(crate::tools::canonical_tool_name(name)).info()
 }
 
 fn capability_for_tool_name(name: &str) -> CapabilityPackageDeclaration {

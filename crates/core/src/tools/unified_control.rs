@@ -37,6 +37,7 @@ pub fn model_name(name: &str) -> &str {
 pub fn expand_allowed_names(requested: &[String], available: &[String]) -> Vec<String> {
     let mut expanded = Vec::new();
     for name in requested {
+        let name = super::canonical_tool_name(name);
         for candidate in available {
             if (name == candidate || (name == TOOL_NAME && is_backend(candidate)))
                 && !expanded.contains(candidate)

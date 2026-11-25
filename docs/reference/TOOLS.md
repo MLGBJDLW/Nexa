@@ -53,7 +53,6 @@ and [subscription execution](../guides/SUBSCRIPTION_AGENTS.md).
 | [`get_related_concepts`](../../crates/core/prompts/tools/get_related_concepts.json) | Explore the knowledge base at a high level: browse the wiki index, generate a Map of Content for a topic, find hot concepts, get exploration suggestions, view query trends, or i... |
 | [`get_statistics`](../../crates/core/prompts/tools/get_statistics.json) | Get knowledge base statistics including total sources, documents, chunks, storage size, and last indexed time |
 | [`glob_files`](../../crates/core/prompts/tools/glob_files.json) | Find files and directories by glob pattern inside registered source directories using a safe ripgrep-style traversal that respects source scope, hidden-file settings, and gitign... |
-| [`grep_files`](../../crates/core/prompts/tools/grep_files.json) | Alias of search_files using familiar grep/rg terminology |
 | [`judge_subagent_results`](../../crates/core/prompts/tools/judge_subagent_results.json) | Adjudicate or rank multiple delegated worker results using a structured rubric |
 | [`list_dir`](../../crates/core/prompts/tools/list_dir.json) | List contents of a directory |
 | [`list_documents`](../../crates/core/prompts/tools/list_documents.json) | List documents in a specific knowledge-base source |
@@ -232,7 +231,7 @@ Use this quick routing guide when a request is about files or documents:
 |-----------|----------------|--------------------|----------------------------|-------|
 | Locate a file or browse a folder | `list_dir` | Any file/folder inside a source | yes | Best first step when the exact path is unknown or ambiguous |
 | Locate files by glob | `glob_files` | Any source-scoped file path | yes | Safe ripgrep-style traversal; respects hidden settings and gitignore files |
-| Search inside local files by text or regex | `search_files` / `grep_files` | Plain-text files inside a source | yes | Safe rg-style search with line numbers; use after/beside KB search when exact file locations matter |
+| Search inside local files by text or regex | `search_files` | Plain-text files inside a source | yes | Safe rg-style search with line numbers; use after/beside KB search when exact file locations matter |
 | Find code symbols or references | `code_intelligence` | Code/text files inside a source | yes | Lightweight declaration/reference lookup before broad reads; use for functions, types, components, commands, and domain terms |
 | Discover or run repo-defined workflows | `project_tool` | `.nexa/tools/*.json`, `.agents/tools/*.json` | yes | Project-local manifest API for repeatable lint/test/codegen/diagnostic commands; `run` requires approval |
 | Read a named file | `read_file` | Text, PDF, DOCX, XLSX, PPTX, image text extraction | yes | Supports line windows via `start_line` and `max_lines` |
@@ -364,12 +363,13 @@ Search plain-text files by content inside registered source directories. This is
 | `include_globs` | string[] | no | Include patterns such as `*.md` or `notes/**/*.txt` |
 | `exclude_globs` | string[] | no | Exclude patterns such as `**/archive/**` |
 | `max_results` | integer | no | Max matching lines, 1-200 (default 50) |
+| `offset` | integer | no | Skip matching lines. Pass the previous `nextOffset` to continue the same search in path and line order. |
 | `context_lines` | integer | no | Surrounding lines before/after each match, 0-3 (default 0) |
 | `include_hidden` | boolean | no | Include dotfiles and hidden directories (default false) |
 
 > **Example:** Find every source-scoped Markdown line mentioning a project name before editing the relevant note.
 
-`grep_files` is an alias with the same parameters for users and prompts that naturally ask to grep or rg local files.
+Existing calls and saved tool selections using `grep_files` resolve to `search_files` with the same permissions.
 
 ---
 

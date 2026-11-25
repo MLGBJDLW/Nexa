@@ -103,7 +103,7 @@ fn prompt_section_for_requirements(
         AgentRouteKind::CollectionFocused => "## Active Routing Plan\nUse the current collection and its saved evidence as your primary working set. Stay anchored to that collection first, and only widen beyond it if the collection is clearly insufficient. If you widen scope, explain why.".to_string(),
         AgentRouteKind::SourceManagement => "## Active Routing Plan\nThis is a source/index management request. Prefer direct, operational handling over exploratory retrieval, and avoid unnecessary long-form analysis.".to_string(),
         AgentRouteKind::CodebaseOperation => format!(
-            "## Active Routing Plan\nThis is a codebase or tooling request. If an exact path or relevant search match is already known, read it directly with read_file/read_files. Otherwise locate the relevant code once: use code_intelligence for symbols and references, or grep_files/search_files/glob_files for files and lines. After locating evidence, inspect it and execute the task; do not repeat discovery without a new scope, pagination cursor, or concrete failure. Call available tools directly without searching for them again. {} Then modify with text-edit tools, and verify with project_tool run or focused run_shell commands when appropriate.",
+            "## Active Routing Plan\nThis is a codebase or tooling request. If an exact path or relevant search match is already known, read it directly with read_file/read_files. Otherwise locate the relevant code once: use code_intelligence for symbols and references, or search_files/glob_files for files and lines. After locating evidence, inspect it and execute the task; do not repeat discovery without a new scope, pagination cursor, or concrete failure. Call available tools directly without searching for them again. {} Then modify with text-edit tools, and verify with project_tool run or focused run_shell commands when appropriate.",
             run_shell_contract::route_guidance()
         ),
         AgentRouteKind::FileOperation => "## Active Routing Plan\nThis request is file-centric. Prefer reading, comparing, generating, or editing the relevant files directly before broad knowledge-base search. For DOCX/XLSX/PPTX work, use the office_artifact candidate lifecycle for typed creation, modification, validation, evidence, publication, and restore; pair it with docx-document-design, pptx-presentation-design, or xlsx-workbook-design. Use run_shell + doc-script-editor for PDF work, compatibility operations, rendering/conversion, or low-level OOXML escape hatches.".to_string(),
@@ -156,7 +156,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
             "## Route Pack: Codebase and Shell Work\n\
              - Read relevant implementation before changing code, but start by locating it efficiently.\n\
              - For named symbols, prefer code_intelligence symbols/references before broad search.\n\
-             - For general coding exploration, use grep_files/search_files with high-signal identifiers, error text, imports, routes, tests, config keys, or tool names before read_file/read_files.\n\
+             - For general coding exploration, use search_files with high-signal identifiers, error text, imports, routes, tests, config keys, or tool names before read_file/read_files.\n\
              - After search or code_intelligence returns candidate paths and line numbers, read only the relevant files or ranges needed to understand and edit safely.\n\
              - Keep edits scoped to the request and local patterns; verify with the narrowest useful test, project_tool run, or focused run_shell command.\n\
              - Prefer dedicated file/project tools for plain-text reads and edits. Use run_shell when a command, build, test, generated artifact, or scripted workflow is the right tool; external commands automatically detach when still running, so continue through activity_observe instead of guessing a timeout.\n\
@@ -168,7 +168,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
                 .to_string(),
         AgentRouteKind::FileOperation =>
             "## Route Pack: File and Office Work\n\
-             - Use list_dir, glob_files, search_files, grep_files, read_file, or read_files to locate and inspect plain-text files.\n\
+             - Use list_dir, glob_files, search_files, read_file, or read_files to locate and inspect plain-text files.\n\
              - Use edit_file or create_file for plain-text changes. Do not use ad hoc scripts for ordinary plain-text reads or edits.\n\
              - For DOCX/XLSX/PPTX/PDF creation or editing, use run_shell plus the relevant document skill/script workflow; do not use plain-text edit tools on Office/PDF binaries.\n\
              - Keep large generation specs in files or stdin instead of one giant tool argument; validate or render artifacts when the format requires it."

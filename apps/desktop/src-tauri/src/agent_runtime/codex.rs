@@ -65,7 +65,7 @@ fn is_workspace_tool(name: &str) -> bool {
         name,
         "list_dir"
             | "glob_files"
-            | "grep_files"
+            | "search_files"
             | "read_file"
             | "read_files"
             | "create_file"
