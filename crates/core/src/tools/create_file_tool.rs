@@ -397,6 +397,14 @@ impl CreateFileArgs {
                 diff,
                 Some(0),
             );
+            if tool_name == "edit_file" {
+                return Ok(ToolResult {
+                    call_id,
+                    content: format!("Created file '{}' ({} bytes).\nCheckpoint: {}", args.path, bytes_after, checkpoint.id),
+                    is_error: false,
+                    artifacts: Some(artifacts),
+                });
+            }
             if let Some(map) = artifacts.as_object_mut() {
                 map.insert(
                     "writeProgress".to_string(),

@@ -958,6 +958,7 @@ mod tests {
         assert!(result.content.contains("Created file"));
         let artifact = result.artifacts.as_ref().unwrap();
         assert_eq!(artifact["checkpoint"]["toolName"], "edit_file");
+        assert!(artifact.get("writeProgress").is_none());
         assert_eq!(artifact["diff"]["operation"], "create");
         assert_eq!(artifact["diff"]["additions"], 2);
         assert_eq!(artifact["diff"]["deletions"], 0);
