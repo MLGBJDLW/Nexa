@@ -190,6 +190,9 @@ test('expanded settings keep compact spacing and controls inside narrow content'
       await search.getByLabel('Default Search Limit').fill('37');
       await search.getByLabel('Min Search Similarity').fill('0');
       await page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true }).click();
+      const codeMode = page.getByRole('switch', { name: 'Code Mode (experimental)', exact: true });
+      await expect(codeMode).not.toBeChecked();
+      await codeMode.click();
       await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { defaultSearchLimit?: number } }).__savedAppConfig?.defaultSearchLimit)).toBe(37);
       await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.minSearchSimilarity)).toBe(0);
@@ -199,6 +202,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
       await expect(search.getByLabel('Default Search Limit')).toHaveValue('37');
       await expect(search.getByLabel('Min Search Similarity')).toHaveValue('0');
       await expect(page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true })).toBeChecked();
+      await expect(codeMode).toBeChecked();
       await selectControl(page.getByLabel('Context management', { exact: true }), 'history');
       await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig)).toMatchObject({ defaultSearchLimit: 37, minSearchSimilarity: 0, dynamicToolVisibility: true, contextManagementMode: 'history' });
