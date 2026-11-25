@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.21.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0) (2026-11-25)
+
+### Breaking changes
+
+- Experimental Code Mode returns the selected script value directly. Each live tool call has its own activity receipt. Enable the feature in Agent behavior to use it.
+
+### Improvements
+
+- GLM Coding Plan users can choose the mainland China or international endpoint and select GLM-5.4 as their default. Switching regions keeps the entered key. Existing model selections are preserved.
+- The AI usage calendar adapts its color scale to the last 365 days and the active provider, model and operation filters. Days above 20 million tokens can now have different intensities. Select a day to see its exact usage.
+- Storage settings show reusable SQLite pages as a striped portion of the database allocation. The report also accounts for growth still held in the write-ahead log without counting it twice.
+- File search now uses one paginated tool for content matches across workspace files. Saved workflows and permissions keep working with the earlier tool name. Long searches can be cancelled, and multilingual working notes use their full character allowance.
+- Experimental Code Mode lets the agent call local file and knowledge tools from a script. It can chain dependent reads, batch independent reads and return a short answer to the model. Individual tool calls appear in the activity trace.
+- The model catalog includes three additional OpenRouter routes and removes unavailable OpenRouter and Ark entries from new selections. Saved model IDs are preserved.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 9833efe36037f4ec825b9664dc1ba955a6fa8b63 -->
+
+### What's Changed
+* feat(agent)!: introduce programmatic tool calls, support GLM-5.4 and refine usage and storage by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/601
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.20.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.2...nexa-monorepo-v0.20.3) (2026-11-24)
 
 
