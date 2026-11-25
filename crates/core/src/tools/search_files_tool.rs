@@ -1,5 +1,6 @@
 //! SearchFilesTool - source-scoped text search for local files.
 
+use std::collections::VecDeque;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -287,11 +288,10 @@ fn search(
         .has_more
         .then(|| args.offset.saturating_add(matches.len()));
     let mut text = format!(
-            "Found {} matching line(s) for {:?} using {match_mode} matching across {} searched file(s).",
-            matches.len(),
-            args.query,
-            searched_files
-        );
+        "Found {} matching line(s) for {:?} using {match_mode} matching across {searched_files} searched file(s).",
+        matches.len(),
+        args.query,
+    );
     if let Some(offset) = next_offset {
         text.push_str(&format!(
             " More matches are available. Repeat this search with offset={offset}."
@@ -482,59 +482,62 @@ fn search_file(
         Err(_) => return Ok(()),
     };
 
-    let lines: Vec<&str> = content.lines().collect();
     let display_path = normalize_path_for_glob(path.strip_prefix(base).unwrap_or(path));
-
-    for (idx, line) in lines.iter().enumerate() {
-        if idx % 1024 == 0 {
+    let mut previous = VecDeque::with_capacity(context_lines);
+    let mut lines = content.lines();
+    let mut line_number = 0usize;
+    while let Some(line) = lines.next() {
+        if line_number.is_multiple_of(1024) {
             check_cancelled(page.cancel)?;
         }
-        if !matcher.is_match(line) {
-            continue;
+        line_number += 1;
+        if matcher.is_match(line) {
+            if page.skip > 0 {
+                page.skip -= 1;
+            } else if page.matches.len() == page.limit {
+                page.has_more = true;
+                break;
+            } else {
+                let before = previous
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, &text)| ContextLine {
+                        line_number: line_number - previous.len() + offset,
+                        text: truncate_line(text),
+                    })
+                    .collect();
+                let after = lines
+                    .clone()
+                    .take(context_lines)
+                    .enumerate()
+                    .map(|(offset, text)| ContextLine {
+                        line_number: line_number + offset + 1,
+                        text: truncate_line(text),
+                    })
+                    .collect();
+                page.matches.push(FileMatch {
+                    path: display_path.clone(),
+                    line_number,
+                    line: truncate_line(line),
+                    before,
+                    after,
+                });
+            }
         }
-        if page.skip > 0 {
-            page.skip -= 1;
-            continue;
+        if context_lines > 0 {
+            if previous.len() == context_lines {
+                previous.pop_front();
+            }
+            previous.push_back(line);
         }
-        if page.matches.len() == page.limit {
-            page.has_more = true;
-            break;
-        }
-
-        let before_start = idx.saturating_sub(context_lines);
-        let before = lines[before_start..idx]
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| ContextLine {
-                line_number: before_start + offset + 1,
-                text: truncate_line(text),
-            })
-            .collect();
-        let after_end = (idx + 1 + context_lines).min(lines.len());
-        let after = lines[idx + 1..after_end]
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| ContextLine {
-                line_number: idx + offset + 2,
-                text: truncate_line(text),
-            })
-            .collect();
-
-        page.matches.push(FileMatch {
-            path: display_path.clone(),
-            line_number: idx + 1,
-            line: truncate_line(line),
-            before,
-            after,
-        });
     }
-
     Ok(())
 }
 
 fn truncate_line(line: &str) -> String {
-    let mut out = line.chars().take(MAX_DISPLAY_CHARS).collect::<String>();
-    if line.chars().count() > MAX_DISPLAY_CHARS {
+    let mut chars = line.chars();
+    let mut out = chars.by_ref().take(MAX_DISPLAY_CHARS).collect::<String>();
+    if chars.next().is_some() {
         out.push_str("...");
     }
     out
