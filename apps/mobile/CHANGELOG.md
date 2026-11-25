@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.2...nexa-mobile-v0.5.0) (2026-11-25)
+
+### Breaking changes
+
+- Experimental Code Mode returns the selected script value directly. Each live tool call has its own activity receipt. Enable the feature in Agent behavior to use it.
+
+### Improvements
+
+- Enable experimental Code Mode in Agent behavior to call local tools from a script. The phone can read several files, combine their results and return just the answer to the model. A chat running on a paired computer uses that computer’s setting.
+- Data & Privacy shows how much of the database allocation SQLite can reuse. A striped portion marks reusable pages. The storage total counts recent writes in the write-ahead log once.
+
 ## [0.4.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.1...nexa-mobile-v0.4.2) (2026-11-24)
 
 ### Improvements
