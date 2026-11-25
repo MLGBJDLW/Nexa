@@ -309,6 +309,10 @@ plan also lists GLM-5.3 and GLM-5.3-Flash. Quota eligibility depends on the
 provider's supported client and environment.
 [Z.AI model switching](https://docs.z.ai/devpack/latest-model) ·
 [Mainland Coding Plan](https://docs.bigmodel.cn/cn/coding-plan/overview).
+The model supports a 1M-token context. Version 1.17.1 of the ACP adapter reports
+its 128,000-token fallback for models missing from its own metadata, including
+GLM-5.4. The context meter reflects the adapter's report.
+[Adapter model metadata](https://github.com/stefandevo/glm-acp-agent/blob/v1.17.1/src/llm/glm-client.ts).
 The adapter's ACP `authenticate` acknowledgement is a no-op. Discovery confirms
 the connection and available models, not key validity, quota or subscription
 entitlement. A missing key is reported before any prompt is sent.
