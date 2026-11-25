@@ -1,6 +1,7 @@
 use super::{CoreError, Database, ReadResult};
 use mlua::{
-    chunk::ChunkMode, serde::SerializeOptions, Lua, LuaOptions, LuaSerdeExt, StdLib, Value, VmState,
+    chunk::ChunkMode, serde::SerializeOptions, Lua, LuaOptions, LuaSerdeExt, LuaString, StdLib,
+    Value, VmState,
 };
 use serde_json::{json, Value as Json};
 use std::time::{Duration, Instant};
@@ -15,6 +16,13 @@ const VALUE_BYTES: usize = crate::tools::MAX_TOOL_CALL_ARGUMENT_BYTES;
 const CELL_BUDGET: Duration = Duration::from_secs(30);
 // Keep concurrent VM heaps within 32 MiB on a phone. Further calls queue.
 static WORKERS: Semaphore = Semaphore::const_new(2);
+
+fn readback_id(id: LuaString) -> mlua::Result<String> {
+    if id.as_bytes().len() > VALUE_BYTES {
+        return Err(mlua::Error::runtime("readback identifier exceeds 1 MiB"));
+    }
+    Ok(id.to_str()?.to_string())
+}
 
 pub(super) async fn run(
     db: Database,
@@ -97,7 +105,8 @@ fn evaluate(
     env.raw_set(
         "list_results",
         lua.create_function(
-            move |lua, (turn, offset): (Option<String>, Option<usize>)| {
+            move |lua, (turn, offset): (Option<LuaString>, Option<usize>)| {
+                let turn = turn.map(readback_id).transpose()?;
                 let page = list_db
                     .context_tool_result_refs(
                         &list_conversation,
@@ -114,21 +123,21 @@ fn evaluate(
         lua.create_function(
             move |lua,
                   (turn_id, tool_call_id, result_id, offset, expected_digest): (
-                String,
-                String,
-                Option<String>,
+                LuaString,
+                LuaString,
+                Option<LuaString>,
                 Option<usize>,
-                Option<String>,
+                Option<LuaString>,
             )| {
                 if read_cancel.is_cancelled() {
                     return Err(mlua::Error::runtime("cancelled"));
                 }
                 let request = ReadResult {
-                    turn_id: Some(turn_id),
-                    tool_call_id: Some(tool_call_id),
-                    result_id,
+                    turn_id: Some(readback_id(turn_id)?),
+                    tool_call_id: Some(readback_id(tool_call_id)?),
+                    result_id: result_id.map(readback_id).transpose()?,
                     offset,
-                    expected_digest,
+                    expected_digest: expected_digest.map(readback_id).transpose()?,
                     max_chars: Some(16_000),
                 };
                 let page = request
@@ -140,7 +149,7 @@ fn evaluate(
     )?;
     env.raw_set(
         "decode_json",
-        lua.create_function(move |lua, text: mlua::LuaString| {
+        lua.create_function(move |lua, text: LuaString| {
             if text.as_bytes().len() > VALUE_BYTES {
                 return Err(mlua::Error::runtime("decode_json input exceeds 1 MiB"));
             }
@@ -210,6 +219,11 @@ mod tests {
             .await
             .is_err());
         assert!(eval("return string.rep('x', 1048577)").await.is_err());
+        let oversized_id =
+            eval("local id = string.rep('x', 1048577); return read_result(id, id, id, 0, id)")
+                .await
+                .unwrap_err();
+        assert!(oversized_id.to_string().contains("identifier exceeds"));
         assert!(eval("return string.rep('x', 67108864)").await.is_err());
         assert!(eval(&" ".repeat(MAX_SOURCE_BYTES + 1)).await.is_err());
     }

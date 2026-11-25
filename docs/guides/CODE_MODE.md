@@ -13,7 +13,11 @@ The model calls `context_history` with `action` set to `code_mode` and a `code` 
 This cell counts bytes across all pages of one recorded output. A script can select multiple identities, parse JSON with `decode_json`, compare fields and return a scalar. JSON null is available as `json_null`.
 
 ```lua
-local r = list_results().results[1]
+local refs = list_results()
+while not refs.results[1] and refs.nextTurnId do
+    refs = list_results(refs.nextTurnId, refs.nextOffset)
+end
+local r = refs.results[1]
 if not r then return 0 end
 local offset, digest, bytes = 0, nil, 0
 repeat
