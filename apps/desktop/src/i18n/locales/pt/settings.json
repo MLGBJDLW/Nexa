@@ -1,6 +1,6 @@
 {
   "codeMode": "Modo de código (experimental)",
-  "codeModeDesc": "Permite que o agente processe no dispositivo os resultados anteriores das ferramentas desta conversa com scripts Luau. A ativação entra em vigor no próximo turno.",
+  "codeModeDesc": "Permite que o agente chame ferramentas locais de arquivos e conhecimento em scripts Luau e envie um resultado conciso ao modelo. A alteração vale a partir do próximo turno.",
   "storageCleanupChats": "Remova conversas no gerenciamento de chats.",
   "storageCleanupKnowledge": "Remova a fonte nas configurações de conhecimento para liberar o índice.",
   "storageCleanupModels": "Remova downloads sem uso nos modelos locais.",

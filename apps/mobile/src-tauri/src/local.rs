@@ -477,11 +477,8 @@ impl LocalRuntime {
                 ))),
             ));
         }
-        tools.register(Box::new(
-            nexa_core::tools::context_history_tool::ContextHistoryTool::new(
-                app_config.experimental_code_mode,
-            ),
-        ));
+        use nexa_core::tools::context_history_tool::ContextHistoryTool;
+        tools.register(Box::new(ContextHistoryTool::default()));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
         tools.register(Box::new(WebResearchContextTool));
@@ -491,6 +488,9 @@ impl LocalRuntime {
             tools.register(Box::new(
                 nexa_core::tools::automation_tool::AutomationTool::phone(),
             ));
+        }
+        if app_config.experimental_code_mode {
+            ContextHistoryTool::enable_code_mode(&mut tools);
         }
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
             provider_type,

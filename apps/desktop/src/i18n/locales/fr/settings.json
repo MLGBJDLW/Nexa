@@ -1,6 +1,6 @@
 {
   "codeMode": "Mode code (expérimental)",
-  "codeModeDesc": "Autorisez l’agent à traiter les résultats d’outils précédents de cette conversation avec des scripts Luau exécutés localement. L’activation prend effet au tour suivant.",
+  "codeModeDesc": "L’agent peut appeler les outils locaux de fichiers et de connaissances dans des scripts Luau, puis transmettre une synthèse au modèle. Prend effet au tour suivant.",
   "storageCleanupChats": "Supprimez les conversations depuis la gestion des discussions.",
   "storageCleanupKnowledge": "Supprimez la source dans les réglages des connaissances pour libérer son index.",
   "storageCleanupModels": "Supprimez les téléchargements inutilisés depuis les modèles locaux.",

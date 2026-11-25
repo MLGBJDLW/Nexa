@@ -9,6 +9,7 @@ static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/context_history.json");
 
 mod code_mode;
+pub(crate) mod live;
 
 #[derive(Default)]
 pub struct ContextHistoryTool {
@@ -87,7 +88,12 @@ impl Tool for ContextHistoryTool {
         "context_history"
     }
     fn description(&self) -> &str {
-        &ToolDef::from_json(&DEF, DEF_JSON).description
+        let description = &ToolDef::from_json(&DEF, DEF_JSON).description;
+        if self.code_mode {
+            static ENABLED: OnceLock<String> = OnceLock::new();
+            return ENABLED.get_or_init(|| format!("{description} Use action=code_mode to chain live tools, filter results locally and return one answer."));
+        }
+        description
     }
     fn parameters_schema(&self) -> serde_json::Value {
         let mut schema = ToolDef::from_json(&DEF, DEF_JSON).parameters.clone();
@@ -99,7 +105,7 @@ impl Tool for ContextHistoryTool {
             schema["properties"]["code"] = serde_json::json!({
                 "type": "string",
                 "maxLength": code_mode::MAX_SOURCE_BYTES,
-                "description": "For code_mode, run a fresh local Luau script on past tool results in this conversation. list_results(turn_id?, offset?) returns results with turnId, toolCallId, resultId and toolName. Start with no arguments. Follow nextTurnId/nextOffset for older results. read_result(turn_id, tool_call_id, result_id?, offset?, expected_digest?) returns a text page. Follow nextOffset using its contentDigest; missing fields are nil. decode_json(text) parses JSON. Return a string, finite number, boolean or nil. Example: local r = list_results().results[1]; return read_result(r.turnId, r.toolCallId, r.resultId).totalChars."
+                "description": "Local Luau. list_tools() gives callable names; tool_schema(name) gives arguments. call_tool(name,{key=value}) returns live text. call_tools({{name=...,arguments={...}},...}) batches independent reads in input order. Chain calls, filter their results and return a short string, number, boolean or nil. decode_json(text) parses JSON. For past results, list_results(turn_id?,offset?) and read_result(turnId,toolCallId,resultId?,offset?,expectedDigest?) return pages with nextTurnId/nextOffset or contentDigest."
             });
         }
         schema
@@ -136,7 +142,12 @@ impl Tool for ContextHistoryTool {
             let value =
                 code_mode::run(context.db.clone(), conversation, code, context.cancel_token)
                     .await?;
-            return history_result(context.call_id, &value);
+            return Ok(ToolResult {
+                call_id: context.call_id.into(),
+                content: serde_json::to_string(&value)?,
+                is_error: false,
+                artifacts: None,
+            });
         }
         let db = context.db.clone();
         let value = tokio::task::spawn_blocking(move || match args.action.as_str() {

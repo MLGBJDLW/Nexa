@@ -1,6 +1,6 @@
 {
   "codeMode": "Code-Modus (experimentell)",
-  "codeModeDesc": "Der Agent darf frühere Werkzeugergebnisse dieses Chats mit lokalen Luau-Skripten verarbeiten. Die Aktivierung gilt ab dem nächsten Durchgang.",
+  "codeModeDesc": "Der Agent kann lokale Datei- und Wissenswerkzeuge aus Luau-Skripten aufrufen, die Ergebnisse zusammenführen und eine kurze Antwort an das Modell senden. Gilt ab dem nächsten Gesprächsschritt.",
   "storageCleanupChats": "Unter „Chats verwalten“ lassen sich Gespräche löschen.",
   "storageCleanupKnowledge": "In den Wissenseinstellungen die Quelle entfernen, um ihren Index freizugeben.",
   "storageCleanupModels": "Ungenutzte Downloads unter „Lokale Modelle“ entfernen.",

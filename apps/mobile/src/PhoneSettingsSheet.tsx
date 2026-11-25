@@ -247,11 +247,11 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
       {group('web', open && <PhoneWebSettings connections={state.connections}/>)}
       {group('agent', <section className="mobile-settings-section">
         <label className="mobile-overlay-toggle"><span>{t('settings.codeMode')}</span>
-          <input type="checkbox" checked={state.experimentalCodeMode ?? false} disabled={busy} onChange={event => {
+          <input type="checkbox" aria-describedby="phone-code-mode-description" checked={state.experimentalCodeMode ?? false} disabled={busy} onChange={event => {
             const enabled = event.target.checked;
             void action(async () => { await invoke('mobile_set_code_mode', { enabled }); });
           }}/>
-        </label><p className="mobile-section-hint">{t('settings.codeModeDesc')}</p>
+        </label><p id="phone-code-mode-description" className="mobile-section-hint">{t('settings.codeModeDesc')}</p>
       </section>)}
       {group('storage', open && matches('storage') && isExpanded('storage') && <PhoneStorageSettings/>)}
       {group('language', <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>)}

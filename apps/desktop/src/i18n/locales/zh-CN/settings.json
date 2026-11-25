@@ -1,6 +1,6 @@
 {
   "codeMode": "代码模式（实验性）",
-  "codeModeDesc": "允许助手在本机用 Luau 脚本处理当前对话已有的工具结果。启用后从下一轮生效。",
+  "codeModeDesc": "允许助手用 Luau 脚本调用本地文件和知识库工具，合并结果后只把所需内容发给模型。从下一轮生效。",
   "storageCleanupChats": "通过“管理对话”删除不需要的记录。",
   "storageCleanupKnowledge": "在知识库中移除来源可释放对应索引。",
   "storageCleanupModels": "可在本地模型设置中移除不用的下载。",

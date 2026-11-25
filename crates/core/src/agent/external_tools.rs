@@ -152,6 +152,159 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn code_mode_chains_live_workspace_tools_and_keeps_intermediate_results_out_of_chat() {
+        let directory = tempfile::tempdir().unwrap();
+        let filename = format!("ledger-{}.txt", Uuid::new_v4().simple());
+        let sample = "entry: 2026 quarter four; invoice amount 49.81\n".repeat(80);
+        std::fs::write(directory.path().join(&filename), sample).unwrap();
+        let (fixture, _, mut events) = session(8);
+        let mut input = fixture.input;
+        let db = input.db.clone();
+        let conversation = input.conversation_id.clone();
+        let mut settings = db.load_app_config().unwrap();
+        settings.experimental_code_mode = true;
+        db.save_app_config(&settings).unwrap();
+        input.tools = crate::tools::default_tool_registry()
+            .filtered(&[
+                "list_dir".into(),
+                "read_file".into(),
+                "context_history".into(),
+            ])
+            .with_workspace(Some(
+                crate::workspace::Workspace::validate(&[directory
+                    .path()
+                    .to_string_lossy()
+                    .into_owned()])
+                .unwrap(),
+            ));
+        crate::tools::context_history_tool::ContextHistoryTool::enable_code_mode(&mut input.tools);
+        let host = ExternalToolSession::new(input).unwrap();
+        let invoke = |name: &str, args: serde_json::Value| {
+            host.execute(ToolCallRequest {
+                id: Uuid::new_v4().simple().to_string(),
+                name: name.into(),
+                arguments: args.to_string(),
+                thought_signature: None,
+            })
+        };
+        let script = r#"local listing = call_tool("list_dir", {path="."})
+local file = string.match(listing, "ledger%-%x+%.txt")
+local content = call_tool("read_file", {path=file})
+local _, count = string.gsub(content, "invoice amount", "")
+return count"#;
+        let cell_args = serde_json::json!({"action":"code_mode","code":script});
+        let cell = invoke("context_history", cell_args.clone())
+            .await
+            .unwrap()
+            .result;
+        assert!(!cell.is_error, "{}", cell.content);
+        assert_eq!(cell.content, "80");
+        let transcript = db.get_messages(&conversation).unwrap();
+        let model_results: Vec<_> = transcript.iter().filter(|m| m.role == Role::Tool).collect();
+        assert_eq!(model_results.len(), 1);
+        assert_eq!(model_results[0].content, "80");
+        let mut completed = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            if let AgentEvent::ToolRunCompleted { run } = event {
+                completed.push(run.tool_name);
+            }
+        }
+        assert_eq!(completed, ["list_dir", "read_file", "context_history"]);
+        let list_args = serde_json::json!({"path":"."});
+        let listing = invoke("list_dir", list_args.clone()).await.unwrap().result;
+        assert!(listing.content.contains(&filename));
+        let read_args = serde_json::json!({"path":filename});
+        let reading = invoke("read_file", read_args.clone()).await.unwrap().result;
+        assert_eq!(reading.content.matches("invoice amount").count(), 80);
+        let tokens = |s: &str| crate::conversation::memory::estimate_tokens_for_model("gpt-4o", s);
+        let separate = tokens(&listing.content)
+            + tokens(&reading.content)
+            + tokens(&list_args.to_string())
+            + tokens(&read_args.to_string());
+        let programmed = tokens(&cell_args.to_string()) + tokens(&cell.content);
+        let baseline =
+            crate::tools::context_history_tool::ContextHistoryTool::default().definition();
+        let enabled = host.input.tools.definition("context_history").unwrap();
+        let schema_delta = tokens(&serde_json::to_string(&enabled).unwrap())
+            .saturating_sub(tokens(&serde_json::to_string(&baseline).unwrap()));
+        eprintln!("Code Mode fixture, estimated argument + result tokens: ordinary={separate}, cell={programmed}, added schema={schema_delta}");
+        assert!(programmed + schema_delta < separate);
+        let denied = invoke("context_history", serde_json::json!({"action":"code_mode","code":"return call_tool('list_documents',{})"})).await.unwrap().result;
+        assert!(
+            denied.is_error && denied.content.contains("unavailable"),
+            "{}",
+            denied.content
+        );
+        let over_budget = invoke("context_history", serde_json::json!({"action":"code_mode","code":"return #call_tools({{name='list_dir',arguments={path='.'}},{name='list_dir',arguments={path='.'}}})"})).await.unwrap().result;
+        assert!(
+            over_budget.is_error && over_budget.content.contains("budget"),
+            "{}",
+            over_budget.content
+        );
+        assert!(host.tool_budget_rejected().await);
+        settings.experimental_code_mode = false;
+        db.save_app_config(&settings).unwrap();
+        assert!(
+            invoke("context_history", cell_args)
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+    }
+
+    #[tokio::test]
+    async fn code_mode_honors_child_approval_denial_before_execution() {
+        struct ProtectedRead;
+        #[async_trait::async_trait]
+        impl Tool for ProtectedRead {
+            fn name(&self) -> &str {
+                "get_statistics"
+            }
+            fn description(&self) -> &str {
+                "Read protected local statistics"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type":"object","properties":{}})
+            }
+            fn requires_confirmation(&self, _: &serde_json::Value) -> bool {
+                true
+            }
+            async fn execute(&self, _: ToolExecutionContext<'_>) -> Result<ToolResult, CoreError> {
+                panic!("a denied child must never execute")
+            }
+        }
+        let (fixture, _, _events) = session(4);
+        let mut input = fixture.input;
+        let mut settings = input.db.load_app_config().unwrap();
+        settings.experimental_code_mode = true;
+        input.db.save_app_config(&settings).unwrap();
+        input.tools = ToolRegistry::new();
+        input.tools.register(Box::new(ProtectedRead));
+        input.tools.register(Box::new(
+            crate::tools::context_history_tool::ContextHistoryTool::new(true),
+        ));
+        input.config.tool_approval_mode = crate::approval::ToolApprovalMode::Ask;
+        let prompts = Arc::new(AtomicUsize::new(0));
+        let prompted = prompts.clone();
+        input.approval = Arc::new(move |request| {
+            assert_eq!(request.tool_name, "get_statistics");
+            prompted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { crate::approval::ApprovalDecision::Deny })
+        });
+        let host = ExternalToolSession::new(input).unwrap();
+        let call = ToolCallRequest {id:"cell".into(),name:"context_history".into(),
+            arguments:serde_json::json!({"action":"code_mode","code":"return call_tool('get_statistics')"}).to_string(), thought_signature:None};
+        let result = host.execute(call).await.unwrap().result;
+        assert!(
+            result.is_error && result.content.contains("denied"),
+            "{}",
+            result.content
+        );
+        assert_eq!(prompts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn codex_host_callbacks_read_edit_and_verify_the_selected_workspace() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().to_str().unwrap();
@@ -1799,6 +1952,7 @@ impl ExternalToolSession {
             trace_items,
             next_sort_order,
             rounds,
+            tool_budget_rejected,
             action_reconciliation,
             desktop_resume_workflow,
             desktop_profile,
@@ -1846,11 +2000,15 @@ impl ExternalToolSession {
             &batch,
             block,
             &mut started,
+            super::tool_dispatch::DispatchOrigin::Model {
+                child_budget: Some(limit.saturating_sub(*rounds).saturating_sub(1)),
+            },
         )
         .await?;
         if spends_tool_budget {
-            *rounds = rounds.saturating_add(1);
+            *rounds = rounds.saturating_add(1).saturating_add(outcome.child_calls);
         }
+        *tool_budget_rejected |= outcome.child_budget_rejected;
         let execution_calls: Vec<_> = batch
             .as_slice()
             .iter()

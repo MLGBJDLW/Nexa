@@ -1,6 +1,6 @@
 {
   "codeMode": "코드 모드(실험적)",
-  "codeModeDesc": "에이전트가 이 대화의 이전 도구 결과를 기기에서 Luau 스크립트로 처리하도록 허용합니다. 활성화하면 다음 턴부터 적용됩니다.",
+  "codeModeDesc": "에이전트가 Luau 스크립트에서 로컬 파일 및 지식 도구를 호출하고 결과를 종합해 필요한 내용만 모델에 전달합니다. 다음 턴부터 적용됩니다.",
   "storageCleanupChats": "대화 관리에서 불필요한 대화를 삭제하세요.",
   "storageCleanupKnowledge": "지식 설정에서 출처를 제거하면 색인이 해제됩니다.",
   "storageCleanupModels": "로컬 모델 설정에서 사용하지 않는 다운로드를 제거하세요.",

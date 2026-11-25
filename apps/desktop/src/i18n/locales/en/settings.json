@@ -1,6 +1,6 @@
 {
   "codeMode": "Code Mode (experimental)",
-  "codeModeDesc": "Allow the agent to run local Luau scripts over earlier tool results in this conversation. Enable for subsequent turns.",
+  "codeModeDesc": "Let the agent call local file and knowledge tools from Luau scripts, combine their results and send a concise answer back to the model. Takes effect on the next turn.",
   "storageCleanupChats": "Remove conversations with Manage chats.",
   "storageCleanupKnowledge": "Remove the source in Knowledge settings to release its index.",
   "storageCleanupModels": "Remove unused downloads from Local models.",

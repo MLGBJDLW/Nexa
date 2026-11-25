@@ -3,6 +3,7 @@
 use super::*;
 use crate::approval::ApprovalDecision;
 use crate::llm::{CacheBoundaryHint, PromptStability};
+use crate::tools::context_history_tool::live;
 
 const MAX_EPHEMERAL_TOOL_IMAGE_BASE64_BYTES: usize = 16 * 1024 * 1024;
 const MAX_EPHEMERAL_UI_IMAGE_BASE64_BYTES: usize = 6 * 1024 * 1024;
@@ -762,8 +763,23 @@ pub(super) struct ToolDispatchSummary {
 
 pub(super) struct ToolDispatchOutcome {
     pub(super) summaries: Vec<ToolDispatchSummary>,
+    pub(super) child_calls: u32,
+    pub(super) child_budget_rejected: bool,
     pub(super) terminal_loop_guard_reason: Option<String>,
     pub(super) continuation_guidance: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DispatchOrigin {
+    Model { child_budget: Option<u32> },
+    CodeMode,
+}
+
+#[derive(Default)]
+struct CellDispatch {
+    used: u32,
+    budget_rejected: bool,
+    stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -844,18 +860,78 @@ impl AgentExecutor {
             verified_tool_calls,
             tool_dispatch_block,
             tool_run_started_ids,
+            DispatchOrigin::Model { child_budget: None },
         )
         .await
     }
 }
 
 impl ToolDispatchRuntime<'_> {
+    async fn dispatch_cell_batch(
+        &self,
+        ctx: ToolDispatchContext<'_>,
+        registry: &ToolRegistry,
+        request: live::Request,
+        origin: DispatchOrigin,
+        accounting: &mut CellDispatch,
+        started: &mut HashSet<String>,
+    ) {
+        let live::Request {
+            calls,
+            cancel,
+            reply,
+        } = request;
+        if cancel.is_cancelled() {
+            return;
+        }
+        let result = async {
+            if !ctx.db.load_app_config()?.experimental_code_mode {
+                return Err(CoreError::InvalidInput("Code Mode was disabled".into()));
+            }
+            if let Some(reason) = &accounting.stop_reason {
+                return Err(CoreError::InvalidInput(reason.clone()));
+            }
+            let count = calls.len() as u32;
+            if matches!(origin, DispatchOrigin::Model { child_budget: Some(limit) } if count > limit.saturating_sub(accounting.used)) {
+                accounting.budget_rejected = true;
+                return Err(CoreError::InvalidInput("The current session tool budget is exhausted".into()));
+            }
+            for call in &calls {
+                let parsed = serde_json::from_str(&call.arguments)?;
+                if !live::supports(registry, &call.name, &parsed) {
+                    return Err(CoreError::InvalidInput("This operation requires an ordinary tool call".into()));
+                }
+            }
+            let batch = VerifiedToolCallBatch::seal(calls, false, true)
+                .map_err(|_| CoreError::InvalidInput("Invalid Code Mode tool arguments".into()))?;
+            if let Some(block) = ctx.loop_guard.observe_model_step("", batch.as_slice()) {
+                if block.action == LoopGuardAction::StopLoop { accounting.stop_reason = Some(block.reason.clone()); }
+                return Err(CoreError::InvalidInput(block.reason));
+            }
+            accounting.used = accounting.used.saturating_add(count);
+            let runtime = ToolDispatchRuntime { cancel_token: &cancel, ..*self };
+            let outcome = Box::pin(runtime.dispatch_tool_calls(ctx, &batch, None, started, DispatchOrigin::CodeMode)).await?;
+            if let Some(reason) = outcome.terminal_loop_guard_reason {
+                accounting.stop_reason = Some(reason.clone());
+                return Err(CoreError::InvalidInput(reason));
+            }
+            outcome.summaries.into_iter().map(|result| {
+                if result.content.len() > crate::tools::MAX_TOOL_CALL_ARGUMENT_BYTES {
+                    return Err(CoreError::InvalidInput("Live result exceeds 1 MiB; narrow or paginate the tool request".into()));
+                }
+                if result.is_error { Err(CoreError::Agent(result.content)) } else { Ok(result.content) }
+            }).collect()
+        }.await;
+        let _ = reply.send(result.map_err(|error| error.to_string()));
+    }
+
     pub(super) async fn dispatch_tool_calls(
         &self,
         ctx: ToolDispatchContext<'_>,
         verified_tool_calls: &VerifiedToolCallBatch,
         tool_dispatch_block: Option<ToolDispatchBlock>,
         tool_run_started_ids: &mut HashSet<String>,
+        origin: DispatchOrigin,
     ) -> Result<ToolDispatchOutcome, CoreError> {
         let tool_calls = verified_tool_calls.as_slice();
         let ToolDispatchContext {
@@ -904,6 +980,7 @@ impl ToolDispatchRuntime<'_> {
                 .with_workspace(isolation_workspace.clone())
         });
         let discovery_tools = scoped_registry.as_ref().unwrap_or(self.tools);
+        let mut cell = CellDispatch::default();
         let execution_conversation_id = self
             .tool_scope
             .map(|scope| scope.0.as_str())
@@ -1045,10 +1122,26 @@ impl ToolDispatchRuntime<'_> {
             // those later actions must see the fence before they can start.
             let batch_action_reconciliation_pending = dispatch_action_reconciliation;
             let mut tool_futures = FuturesUnordered::new();
+            let is_cell = |index: usize| {
+                tool_calls[index].name == "context_history"
+                    && scheduling[index]
+                        .as_ref()
+                        .is_some_and(|s| s.invocation.arguments["action"] == "code_mode")
+            };
+            let mut live_tools = (matches!(origin, DispatchOrigin::Model { .. })
+                && tool_batch.iter().copied().any(is_cell))
+            .then(|| live::Bridge::channel(discovery_tools));
             for &index in &tool_batch {
                 let scheduling = scheduling[index]
                     .take()
                     .expect("each scheduled call executes once");
+                let bridge = live_tools
+                    .as_ref()
+                    .filter(|_| {
+                        tool_calls[index].name == "context_history"
+                            && scheduling.invocation.arguments["action"] == "code_mode"
+                    })
+                    .map(|(bridge, _)| bridge.clone());
                 let tc = tool_calls[index].clone();
                 let execution_call = execution_calls[index]
                     .as_ref()
@@ -1547,6 +1640,12 @@ impl ToolDispatchRuntime<'_> {
                                     event_tx: Some(&progress_tx),
                                 },
                             );
+                            let exec_fut = async {
+                                match bridge {
+                                    Some(bridge) => live::BRIDGE.scope(bridge, exec_fut).await,
+                                    None => exec_fut.await,
+                                }
+                            };
                             tokio::pin!(exec_fut);
                             let mut activity_events = self.activity_runtime.subscribe();
                             let observed_activity_id = match execution_call.name.as_str() {
@@ -1699,7 +1798,32 @@ impl ToolDispatchRuntime<'_> {
                 );
             }
 
-            while let Some(finished_tool) = tool_futures.next().await {
+            loop {
+                let finished_tool = if let Some((_, receiver)) = &mut live_tools {
+                    tokio::select! {
+                        done = tool_futures.next() => done,
+                        Some(request) = receiver.recv() => {
+                            if let Some(reason) = &terminal_loop_guard_reason {
+                                let _ = request.reply.send(Err(reason.clone()));
+                                continue;
+                            }
+                            let batch_id = Uuid::new_v4().to_string();
+                            let child_ctx = ToolDispatchContext {
+                                delegated_recovery, db, tx, conversation_id, turn_id, execution_batch_id: &batch_id,
+                                source_scope, model, privacy_cfg, route_kind, tool_round_index, tool_defs,
+                                messages: &mut Vec::new(), persisted_trace_items, task_plan, loop_recorder, loop_guard,
+                                trace, sort_order, pending_action_reconciliation, workspace_isolation,
+                            };
+                            self.dispatch_cell_batch(child_ctx, discovery_tools, request, origin, &mut cell, tool_run_started_ids).await;
+                            continue;
+                        }
+                    }
+                } else {
+                    tool_futures.next().await
+                };
+                let Some(finished_tool) = finished_tool else {
+                    break;
+                };
                 let tc = finished_tool.call;
                 let execution_call = execution_calls[finished_tool.index]
                     .as_ref()
@@ -2222,6 +2346,32 @@ impl ToolDispatchRuntime<'_> {
             }
         }
 
+        // A child has already produced its normal redacted receipt, UI events
+        // and durable trace. Only the cell's final value is a provider tool result.
+        if matches!(origin, DispatchOrigin::CodeMode) {
+            if let Some(error) = admission_failure {
+                return Err(error);
+            }
+            if let Some(guard) = delegated_recovery {
+                guard.check()?;
+            }
+            return Ok(ToolDispatchOutcome {
+                summaries: completed_for_context
+                    .into_iter()
+                    .flatten()
+                    .map(|c| ToolDispatchSummary {
+                        call_id: c.call.id,
+                        content: c.content,
+                        is_error: c.is_error,
+                        artifacts: None,
+                    })
+                    .collect(),
+                child_calls: 0,
+                child_budget_rejected: false,
+                terminal_loop_guard_reason,
+                continuation_guidance: post_tool_loop_guard_prompt,
+            });
+        }
         let mut summaries = Vec::with_capacity(completed_for_context.len());
         let mut provider_tool_results = Vec::with_capacity(completed_for_context.len());
         let mut visual_context_messages = Vec::new();
@@ -2394,7 +2544,9 @@ impl ToolDispatchRuntime<'_> {
         }
         Ok(ToolDispatchOutcome {
             summaries,
-            terminal_loop_guard_reason,
+            child_calls: cell.used,
+            child_budget_rejected: cell.budget_rejected,
+            terminal_loop_guard_reason: terminal_loop_guard_reason.or(cell.stop_reason),
             continuation_guidance: post_tool_loop_guard_prompt,
         })
     }

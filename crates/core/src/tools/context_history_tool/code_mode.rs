@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 // the lifetime of the task. The caller's cancellation/timeout stops the VM.
 pub(super) const MAX_SOURCE_BYTES: usize = 64 * 1024;
 const VM_MEMORY_BYTES: usize = 16 * 1024 * 1024;
-const VALUE_BYTES: usize = crate::tools::MAX_TOOL_CALL_ARGUMENT_BYTES;
+pub(super) const VALUE_BYTES: usize = crate::tools::MAX_TOOL_CALL_ARGUMENT_BYTES;
 const CELL_BUDGET: Duration = Duration::from_secs(30);
 // Keep concurrent VM heaps within 32 MiB on a phone. Further calls queue.
 static WORKERS: Semaphore = Semaphore::const_new(2);
@@ -44,6 +44,7 @@ pub(super) async fn run(
         permit = WORKERS.acquire() => permit.expect("Code Mode semaphore stays open"),
         _ = cancel.cancelled() => return Err(CoreError::Cancelled("Code Mode was cancelled.".into())),
     };
+    let bridge = super::live::BRIDGE.try_with(Clone::clone).ok();
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         if !db.load_app_config()?.experimental_code_mode {
@@ -61,7 +62,14 @@ pub(super) async fn run(
                 Some(move || cancelled.is_cancelled() || Instant::now() >= deadline),
             )?;
         }
-        let result = evaluate(reader, conversation, &code, cancel.clone(), deadline);
+        let result = evaluate(
+            reader,
+            conversation,
+            &code,
+            cancel.clone(),
+            deadline,
+            bridge,
+        );
         if cancel.is_cancelled() {
             return Err(CoreError::Cancelled("Code Mode was cancelled.".into()));
         }
@@ -77,6 +85,7 @@ fn evaluate(
     code: &str,
     cancel: CancellationToken,
     deadline: Instant,
+    bridge: Option<super::live::Bridge>,
 ) -> mlua::Result<Json> {
     let lua = Lua::new_with(
         StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
@@ -90,6 +99,9 @@ fn evaluate(
     globals.raw_set("loadstring", Value::Nil)?;
     lua.sandbox(true)?;
     let env = lua.create_table()?;
+    if let Some(bridge) = bridge {
+        bridge.bind(&lua, &env, cancel.clone(), deadline)?;
+    }
     for name in [
         "pairs", "ipairs", "next", "select", "tonumber", "tostring", "type", "math", "string",
         "table", "utf8",
@@ -259,6 +271,7 @@ mod tests {
             "while true do end",
             CancellationToken::new(),
             Instant::now() + Duration::from_millis(25),
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("time budget"), "{err}");

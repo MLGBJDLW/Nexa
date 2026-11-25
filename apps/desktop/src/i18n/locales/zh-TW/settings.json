@@ -1,6 +1,6 @@
 {
   "codeMode": "程式碼模式（實驗性）",
-  "codeModeDesc": "允許助理在本機使用 Luau 指令碼處理目前對話中已有的工具結果。啟用後自下一輪生效。",
+  "codeModeDesc": "允許助理用 Luau 指令碼呼叫本機檔案和知識庫工具，合併結果後只把所需內容傳給模型。從下一輪生效。",
   "storageCleanupChats": "透過「管理對話」刪除不需要的記錄。",
   "storageCleanupKnowledge": "在知識庫移除來源可釋放對應索引。",
   "storageCleanupModels": "可在本機模型設定移除不用的下載。",
