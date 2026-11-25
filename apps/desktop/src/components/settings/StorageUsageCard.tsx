@@ -16,9 +16,10 @@ const categories: Record<string, { label: TranslationKey; color: string }> = {
   chats: { label: 'settings.storageChats', color: '#818cf8' }, knowledge: { label: 'settings.storageKnowledge', color: '#38bdf8' },
   models: { label: 'settings.storageModels', color: '#c084fc' }, files: { label: 'settings.storageFiles', color: '#2dd4bf' },
   runtime: { label: 'settings.storageRuntime', color: '#fbbf24' }, extensions: { label: 'settings.storageExtensions', color: '#f472b6' },
-  databaseOther: { label: 'settings.storageDatabaseOther', color: '#94a3b8' }, reusable: { label: 'settings.storageReusable', color: '#64748b' },
+  databaseOther: { label: 'settings.storageDatabaseOther', color: '#94a3b8' },
   wal: { label: 'settings.storageWal', color: '#fb923c' },
 };
+const reusePattern = 'repeating-linear-gradient(135deg, transparent 0 2px, #334155 2px 4px)';
 
 const cleanupHints: Record<string, TranslationKey> = {
   chats: 'settings.storageCleanupChats', knowledge: 'settings.storageCleanupKnowledge',
@@ -59,7 +60,20 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
       {stats && <>
         <p className="text-2xl font-semibold tabular-nums">{size(stats.totalBytes)}</p>
         <div className="flex h-3 overflow-hidden rounded-full bg-surface-3" role="img" aria-label={t('settings.storageDistribution')}>
-          {stats.categories.filter(category => category.bytes > 0).map(category => <span key={category.id} title={`${t(categories[category.id]?.label ?? 'settings.storageFiles')}: ${size(category.bytes)}`} style={{ width: `${category.bytes / Math.max(1, stats.totalBytes) * 100}%`, backgroundColor: categories[category.id]?.color ?? '#94a3b8' }}/>)}</div>
+          {stats.categories.filter(category => category.bytes > 0).map(category => (
+            <span key={category.id} className="flex justify-end" title={`${t(categories[category.id]?.label ?? 'settings.storageFiles')} · ${size(category.bytes)}`}
+              style={{ width: `${category.bytes / Math.max(1, stats.totalBytes) * 100}%`, backgroundColor: categories[category.id]?.color ?? '#94a3b8' }}>
+              {category.id === 'databaseOther' && stats.database.reusableBytes > 0 && (
+                <span style={{ width: `${Math.min(1, stats.database.reusableBytes / category.bytes) * 100}%`, backgroundImage: reusePattern }} />
+              )}
+            </span>
+          ))}
+        </div>
+        {stats.database.reusableBytes > 0 && <div className="flex items-baseline gap-2 text-xs text-text-secondary">
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: categories.databaseOther.color, backgroundImage: reusePattern }} />
+          <div><p>{t('settings.storageReusable', { size: size(stats.database.reusableBytes) })}</p>
+            <p className="mt-0.5 text-text-tertiary">{t('settings.storageReuseHint')}</p></div>
+        </div>}
         <div className="divide-y divide-border/50 text-xs">{stats.categories.filter(category => category.bytes > 0).map(category =>
           <details key={category.id} className="group">
             <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded py-2 focus-visible:outline-accent">
@@ -82,7 +96,6 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
         {stats.partial && <p role="status" className="text-xs text-warning">{t('settings.storagePartial')}</p>}
         <div className="grid grid-cols-2 gap-3"><StatCard label={t('settings.storageActiveChats')} value={stats.activeConversations}/><StatCard label={t('chat.archivedConversations')} value={stats.archivedConversations}/></div>
       </>}
-      <p className="text-xs leading-5 text-text-tertiary">{t('settings.storageReuseHint')}</p>
       <Button size="sm" variant="secondary" onClick={() => setManage(true)}>{t('settings.storageManageChats')}</Button>
       {manage && <ConversationStorageManager mobile={mobile} service={service} onClose={() => setManage(false)} onChanged={refresh}/>}
     </div>

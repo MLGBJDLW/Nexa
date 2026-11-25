@@ -5,6 +5,8 @@ test('storage management measures categories and archives or deletes an explicit
   await page.goto('/e2e/fixtures/storage-settings.html');
   await expect(page.getByRole('img',{name:'Storage by category'})).toBeVisible();
   await expect(page.getByText('Local models',{exact:true})).toBeVisible();
+  await expect(page.getByText('Includes 256.0 KiB of reusable database space')).toBeVisible();
+  await expect(page.getByTestId('storage-usage').locator('summary')).toHaveCount(3);
   await page.getByRole('button',{name:'Manage conversations',exact:true}).click();
   await page.getByRole('button',{name:'Select All',exact:true}).click();
   await expect(page.getByText('101 selected',{exact:true})).toBeVisible();

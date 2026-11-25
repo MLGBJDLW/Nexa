@@ -7,7 +7,7 @@ let rows = Array.from({ length: 103 }, (_, index) => ({ id: `chat-${index}`, tit
 const mutations: { action: string; ids: string[] }[] = [];
 Object.assign(window, { storageMutations: mutations });
 const service: StorageService = {
-  async usage() { return { totalBytes: 1024 * 1024, partial: false, categories:[{id:'chats',bytes:512*1024},{id:'models',bytes:256*1024},{id:'reusable',bytes:256*1024}],
+  async usage() { return { totalBytes: 1024 * 1024, partial: false, categories:[{id:'chats',bytes:512*1024},{id:'models',bytes:256*1024},{id:'databaseOther',bytes:256*1024}],
     activeConversations: rows.filter(row => !row.archivedAt).length, archivedConversations: rows.filter(row => row.archivedAt).length,
     database: {allocatedBytes:768*1024,reusableBytes:256*1024,mainFileBytes:768*1024,walBytes:0} }; },
   async page(scope, cursor) { const matching = rows.filter(row => scope === 'all' || (scope === 'archived') === Boolean(row.archivedAt));

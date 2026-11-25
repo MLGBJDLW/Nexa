@@ -21,11 +21,12 @@ external agents retain their own native discovery. See [workspace rules](WORKSPA
 
 ## Database storage
 
-Settings → Data & Privacy shows the measured usage bar and category breakdown, including local models, managed
-files, conversations, reusable database space and the write-ahead log. Use
-**Manage conversations** to inspect and act on selected conversations. Reusable space can serve future
-writes without shrinking the main file. The diagnostic is read-only and does not
-run VACUUM or delete conversation history.
+Settings → Data & Privacy breaks down storage used by conversations, knowledge,
+local models, managed files, other database space and journal overhead. Stripes
+mark the part of the database allocation SQLite can reuse for future writes.
+Freed pages remain in the total while the file occupies disk space. New data
+pages that still reside in the write-ahead log count toward their owning category
+once. Use **Manage conversations** to inspect and act on selected conversations.
 
 Storage scans use a separate read-only database connection and a blocking worker,
 so opening this panel does not queue conversation or model reads behind a disk
