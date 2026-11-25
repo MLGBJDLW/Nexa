@@ -75,6 +75,24 @@ pub struct PackageDistribution {
 }
 
 impl ExternalAgentPreset {
+    fn needs_glm_plan_defaults(&self) -> bool {
+        let package = self
+            .distribution
+            .as_ref()
+            .and_then(|distribution| distribution.npx.as_ref());
+        self.provider == "acp_glm_acp_agent"
+            && matches!(
+                package.map(|package| package.package.as_str()),
+                Some(
+                    "glm-acp-agent@1.14.0"
+                        | "glm-acp-agent@1.15.0"
+                        | "glm-acp-agent@1.16.0"
+                        | "glm-acp-agent@1.17.0"
+                        | "glm-acp-agent@1.17.1"
+                )
+            )
+    }
+
     pub fn platform_launch(&self) -> Option<&BinaryDistribution> {
         let os = if cfg!(target_os = "macos") {
             "darwin"
@@ -128,6 +146,9 @@ impl ExternalAgentPreset {
         }
         for (key, value) in &launch.env {
             launch::set_env(&mut env, key, value.clone());
+        }
+        if self.needs_glm_plan_defaults() && launch.executable.is_none() {
+            launch::apply_glm_model_defaults(&mut env);
         }
         env
     }

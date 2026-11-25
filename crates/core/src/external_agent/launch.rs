@@ -136,6 +136,27 @@ pub fn set_env(env: &mut BTreeMap<String, String>, key: &str, value: String) {
     env.insert(key.into(), value);
 }
 
+/// The adapter's environment controls both its ACP model picker and outgoing
+/// requests. Both regional plan FAQs list these IDs. A custom inventory also
+/// owns its default selection, including a default set in the login shell.
+pub(super) fn apply_glm_model_defaults(env: &mut BTreeMap<String, String>) {
+    const MODELS: [&str; 3] = ["glm-5.4", "glm-5.3", "glm-5.3-flash"];
+    if env_value(env, "ACP_GLM_AVAILABLE_MODELS").is_some()
+        || std::env::var_os("ACP_GLM_AVAILABLE_MODELS").is_some()
+    {
+        return;
+    }
+    let inherited_model = std::env::var("ACP_GLM_MODEL").ok();
+    match env_value(env, "ACP_GLM_MODEL").or(inherited_model.as_deref()) {
+        Some(id) if !MODELS.contains(&id) => return,
+        None => {
+            env.insert("ACP_GLM_MODEL".into(), MODELS[0].into());
+        }
+        Some(_) => {}
+    }
+    env.insert("ACP_GLM_AVAILABLE_MODELS".into(), MODELS.join(","));
+}
+
 fn append_paths(paths: &mut Vec<PathBuf>, value: &std::ffi::OsStr) {
     for path in std::env::split_paths(value) {
         if path.is_absolute() && !paths.contains(&path) {

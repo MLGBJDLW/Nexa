@@ -61,8 +61,11 @@ const presets = registry.agents.filter(agent => !retired.has(agent.id)).map(agen
     // Preserve installed-CLI ownership, including native argv, across imports.
     command = existing.command; args = existing.args;
   }
+  // Our GLM description reflects the plan defaults supplied for this package.
+  const keepGlmDescription = agent.id === 'glm-acp-agent' && existing?.distribution?.npx
+    && existing.distribution.npx.package === distribution.npx?.package;
   return { id:existing?.id ?? `acp-${agent.id}`,name:existing?.name ?? agent.name,provider,runtime:'acp',baseUrl:'',requiresApiKey:false,models:[],
-    icon,description:agent.description,command,args,env,docsUrl:agent.website ?? agent.repository,
+    icon,description:keepGlmDescription ? existing.description : agent.description,command,args,env,docsUrl:agent.website ?? agent.repository,
     registryId:agent.id,registryVersion:agent.version,registrySource:'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json',
     distribution };
 });
