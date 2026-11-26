@@ -11,7 +11,8 @@ import {
   shouldUseCatalogModelSelect,
   type ModelDescriptor,
 } from '../src/lib/modelCatalog';
-import { providerModelCatalogCacheKey } from '../src/lib/providerModelCatalog';
+import { providerModelCatalogCacheKey, type ProviderModelCatalogSnapshot } from '../src/lib/providerModelCatalog';
+import { resolveProviderModelCatalog } from '../src/lib/providerPresets';
 // @ts-expect-error The contract runner intentionally omits Node ambient types.
 import { readFileSync } from 'node:fs';
 // @ts-expect-error The contract runner intentionally omits Node ambient types.
@@ -481,6 +482,74 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   }
 }
 
+function testContributorDisclosureSurvivesFreshAndLegacyCachedSnapshots(): void {
+  const id = 'upstage/solar-pro-4-contributor';
+  const sibling = 'upstage/solar-mini-4-5';
+  const bareName = 'Upstage: Solar Pro 4 Contributor';
+  const snapshot: ProviderModelCatalogSnapshot = {
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    refreshedAt: '2026-11-27T00:00:00Z',
+    liveDiscoverySucceeded: true,
+    models: [
+      {
+        id, name: bareName, recommended: false, source: 'official', status: 'active',
+        regions: ['global'], lastVerifiedAt: '2026-11-27',
+        modalities: ['text'], supportsTools: true, supportsStructuredOutput: true, reasoningEfforts: [],
+      },
+      {
+        id: sibling, name: 'Updated Solar Mini name', recommended: false, source: 'official', status: 'active',
+        regions: ['global'], lastVerifiedAt: '2026-11-27',
+        modalities: ['text'], supportsTools: true, supportsStructuredOutput: true, reasoningEfforts: [],
+      },
+    ],
+  };
+  for (const descriptors of [
+    undefined,
+    snapshot.models.map(row => descriptor({
+      id: row.id, displayName: row.name, providerId: 'openrouter', endpointIds: ['text:openrouter'],
+      lastVerifiedAt: '2026-11-27', productReadiness: 'callable', availableToCredential: true,
+    })),
+  ]) {
+    const models = resolveProviderModelCatalog({ ...snapshot, descriptors }).models;
+    const contributor = models.find(model => model.id === id);
+    assert(contributor, 'contributor remains selectable');
+    assert(contributor.name.startsWith('Data sharing:') && contributor.name.includes('Upstage may use prompts and outputs'), 'chooser name discloses contributor data use');
+    assertEqual(contributor.descriptor.displayName, contributor.name, 'canonical and chooser labels agree');
+    assertEqual(contributor.recommended, false, 'contributor is not recommended');
+    assertEqual(isImplicitDefaultEligible(contributor.descriptor), false, 'contributor is not an implicit default');
+    assertEqual(models.find(model => model.id === sibling)?.name, 'Updated Solar Mini name', 'sibling still receives upstream name updates');
+    const custom = resolveProviderModelCatalog({ ...snapshot, descriptors, baseUrl: 'https://private.example/v1' }).models;
+    assertEqual(custom.find(model => model.id === id)?.name, bareName, 'alternate endpoint does not inherit external data terms');
+  }
+}
+
+function testQwenPreviewRoutingChangeSurvivesNewerCache(): void {
+  const id = 'qwen4-max-preview';
+  const bareName = 'Qwen4 Max Preview';
+  for (const region of ['cn-beijing', 'ap-southeast-1']) {
+    const snapshot: ProviderModelCatalogSnapshot = {
+      provider: 'qwen',
+      baseUrl: `https://token-plan.${region}.maas.aliyuncs.com/compatible-mode/v1`,
+      refreshedAt: '2026-11-27T00:00:00Z',
+      liveDiscoverySucceeded: true,
+      models: [{
+        id, name: bareName, recommended: false, source: 'official', status: 'preview',
+        regions: [region], lastVerifiedAt: '2026-11-27', modalities: ['text'],
+        supportsTools: true, supportsStructuredOutput: true, reasoningEfforts: [],
+      }],
+    };
+    const resolved = resolveProviderModelCatalog(snapshot);
+    const model = resolved.models.find(model => model.id === id);
+    assert(model, 'still-callable Token Plan model remains selectable');
+    assertEqual(model.descriptor.lifecycle, 'deprecated', 'current catalog keeps the route advisory');
+    assertEqual(model.descriptor.replacementModelId, 'qwen4-max', 'replacement is advisory only');
+    assertEqual(model.descriptor.deprecationDate, '2026-11-25', 'vendor retirement date is scoped');
+    assert(model.name.includes('standard rate'), 'chooser exposes the vendor billing change');
+    assertEqual(resolved.isRemoved(id), false, 'vendor redirect is not a hard shutdown');
+  }
+}
+
 testImplicitDefaultsRespectLifecycleAccessAndReadiness();
 testLegacyImagePresetProjectsCanonicalMetadata();
 testRecommendationDoesNotFabricateProductReadiness();
@@ -490,3 +559,5 @@ testSavedExternalEndpointIdentityRequiresAnUnchangedScope();
 testWizardRequiresAnExplicitNonEmptyModel();
 testUncataloguedImageModelsRemainEditable();
 testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities();
+testContributorDisclosureSurvivesFreshAndLegacyCachedSnapshots();
+testQwenPreviewRoutingChangeSurvivesNewerCache();

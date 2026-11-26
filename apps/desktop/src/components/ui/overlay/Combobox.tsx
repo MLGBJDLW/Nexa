@@ -12,6 +12,7 @@ export interface NexaComboboxOption {
   value: string;
   label: string;
   description?: string;
+  wrapLabel?: boolean;
   keywords?: string[];
   disabled?: boolean;
   badge?: ReactNode;
@@ -61,6 +62,7 @@ export function NexaCombobox({
           data-nexa-select-trigger
           data-value={value ?? ''}
           data-testid={dataTestId}
+          title={selected?.wrapLabel ? selected.label : undefined}
         >
           <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
           <ChevronDown className="nexa-select-chevron ml-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -87,7 +89,7 @@ export function NexaCombobox({
               >
                 <Check className={`h-3.5 w-3.5 ${option.value === value ? 'opacity-100' : 'opacity-0'}`} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-text-primary">{option.label}</span>
+                  <span className={`block text-xs font-medium text-text-primary ${option.wrapLabel ? "whitespace-normal break-words" : "truncate"}`}>{option.label}</span>
                   {option.description && (
                     <span className="block truncate text-[11px] text-text-tertiary">{option.description}</span>
                   )}

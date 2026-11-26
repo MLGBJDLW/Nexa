@@ -271,6 +271,11 @@ export function projectModelDescriptor(
   };
 }
 
+// Only a catalog row carrying the already scoped warning should wrap in compact pickers.
+export function hasVisibleContributorDisclosure(model: { id: string; name: string }): boolean {
+  return model.id === 'upstage/solar-pro-4-contributor' && model.name.startsWith('Data sharing:');
+}
+
 export function isImplicitDefaultEligible(model: ModelDescriptor): boolean {
   return model.lifecycle === 'active'
     && model.access === 'public'

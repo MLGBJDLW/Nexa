@@ -1706,6 +1706,42 @@ test("provider refresh keeps account-discovered models selectable and cached", a
     .some((key) => key.startsWith("nexa-provider-model-catalog-v1:")))).toBe(true);
 });
 
+test("OpenRouter contributor keeps its data-use warning in the chooser after an account refresh", async ({ page }) => {
+  await page.goto("/settings");
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      const result = await original(command, args);
+      if (command !== "refresh_provider_model_catalog_cmd" || args.config.provider !== "openrouter") return result;
+      return {
+        ...result,
+        refreshedAt: "2026-11-27T00:00:00Z",
+        models: [...result.models, {
+          id: "upstage/solar-pro-4-contributor", name: "Upstage: Solar Pro 4 Contributor", source: "official",
+          status: "active", recommended: false, regions: ["global"], lastVerifiedAt: "2026-11-27",
+          modalities: ["text"], supportsTools: true, supportsStructuredOutput: true, reasoningEfforts: [],
+        }],
+      };
+    };
+  });
+  await page.getByRole("tab", { name: "AI Providers" }).click();
+  await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("button", { name: /^OpenRouter/ }).click();
+  await page.getByPlaceholder("sk-...").fill("router-fixture");
+  await page.getByRole("button", { name: "Refresh models" }).click();
+  await expect(page.getByTestId("provider-model-catalog-status")).toContainText("Live account catalog");
+  const chooser = page.getByTestId("default-model-field").locator("[data-nexa-select-trigger]");
+  await expectNexaValue(chooser, "google/gemini-4-hydrogen");
+  await chooser.click();
+  await page.locator("[cmdk-input]").fill("Solar Pro 4 Contributor");
+  const disclosure = page.locator('[role="option"][data-value="upstage/solar-pro-4-contributor"]')
+    .getByText(/Data sharing:.*Upstage may use prompts and outputs/);
+  await expect(disclosure).toBeVisible();
+  await expect(disclosure).toHaveCSS("white-space", "normal");
+  await expect(disclosure).not.toHaveCSS("text-overflow", "ellipsis");
+});
+
 test("an edited public base URL cannot inherit catalog identity or capabilities", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "AI Providers" }).click();

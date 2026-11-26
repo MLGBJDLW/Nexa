@@ -11,7 +11,8 @@ use crate::model_catalog::{
     ModelLifecycle, ModelModality, ReasoningCapability, ThinkingBudgetCapability,
 };
 use crate::provider_catalog::{
-    build_effective_model_catalog, ModelLifecycleStatus, ProviderModelCatalogSnapshot,
+    build_effective_model_catalog, find_provider_preset, ModelLifecycleStatus,
+    ProviderModelCatalogSnapshot,
 };
 
 use super::{is_openrouter_config, OpenAiProvider};
@@ -19,6 +20,7 @@ use super::{is_openrouter_config, OpenAiProvider};
 const CATALOG_TTL: Duration = Duration::from_secs(300);
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_CACHED_ACCOUNTS: usize = 32;
+const UPSTAGE_CONTRIBUTOR_MODEL_ID: &str = "upstage/solar-pro-4-contributor";
 
 #[derive(Clone, Deserialize)]
 #[serde(from = "RawModelEntry")]
@@ -350,8 +352,10 @@ fn snapshot_from_models(
     refreshed_at: Option<&str>,
     verified_model: Option<&str>,
 ) -> ProviderModelCatalogSnapshot {
+    let provider_key =
+        crate::provider_registry::canonical_provider_key(provider.config.provider_type);
     let mut snapshot = build_effective_model_catalog(
-        crate::provider_registry::canonical_provider_key(provider.config.provider_type),
+        provider_key,
         provider.config.base_url.as_deref(),
         models.map(|models| models.iter().map(|model| model.id.clone()).collect()),
         verified_model,
@@ -367,6 +371,8 @@ fn snapshot_from_models(
         );
         return snapshot;
     }
+    let native_openrouter = find_provider_preset(provider_key, provider.config.base_url.as_deref())
+        .is_some_and(|preset| preset.id == "openrouter");
     for model in models.into_iter().flatten() {
         let Some(descriptor) = snapshot
             .descriptors
@@ -375,7 +381,16 @@ fn snapshot_from_models(
         else {
             continue;
         };
-        if let Some(name) = model.name.as_deref().filter(|name| !name.trim().is_empty()) {
+        // The provider's bare name omits the curated data-use warning on this exact route.
+        let keep_disclosure = native_openrouter
+            && descriptor
+                .id
+                .eq_ignore_ascii_case(UPSTAGE_CONTRIBUTOR_MODEL_ID);
+        if let Some(name) = model
+            .name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty() && !keep_disclosure)
+        {
             descriptor.display_name = name.to_string();
         }
         if let Some(architecture) = &model.architecture {
@@ -686,6 +701,46 @@ mod tests {
             .descriptors
             .iter()
             .all(|m| m.id != sol.id || m.deprecation_date.is_none()));
+    }
+
+    #[test]
+    fn openrouter_live_catalog_retains_the_exact_contributor_disclosure() {
+        let models: ModelsResponse = serde_json::from_value(serde_json::json!({"data":[
+            {"id":UPSTAGE_CONTRIBUTOR_MODEL_ID,"name":"Upstage: Solar Pro 4 Contributor",
+                "context_length":524288},
+            {"id":"upstage/solar-mini-4-5","name":"New upstream Solar Mini name"}
+        ]}))
+        .unwrap();
+        let provider = provider();
+        let snapshot = snapshot_from_models(&provider, Some(&models.data), None, None);
+        let contributor = snapshot
+            .descriptors
+            .iter()
+            .find(|row| row.id == UPSTAGE_CONTRIBUTOR_MODEL_ID)
+            .unwrap();
+        assert!(contributor
+            .display_name
+            .contains("Upstage may use prompts and outputs"));
+        assert_eq!(contributor.limits.context_tokens, Some(524288));
+        assert!(!contributor.recommended);
+        assert!(snapshot
+            .models
+            .iter()
+            .any(|row| row.id == contributor.id && row.name == contributor.display_name));
+        assert!(snapshot
+            .models
+            .iter()
+            .any(|row| row.id == "upstage/solar-mini-4-5"
+                && row.name == "New upstream Solar Mini name"));
+
+        let mut alternate = provider;
+        alternate.config.base_url = Some("https://private.example/v1".into());
+        let alternate = snapshot_from_models(&alternate, Some(&models.data), None, None);
+        assert!(alternate
+            .models
+            .iter()
+            .any(|row| row.id == UPSTAGE_CONTRIBUTOR_MODEL_ID
+                && row.name == "Upstage: Solar Pro 4 Contributor"));
     }
 
     #[test]

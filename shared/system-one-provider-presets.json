@@ -156,7 +156,8 @@
     "lastVerifiedAt": "2026-10-08",
     "models": [
       {"id":"decision-model-preview","name":"Decision Model Preview","status":"preview","access":"account_enablement"},
-      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"}
+      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"},
+      {"id":"decision-model","name":"Decision Model","status":"active","access":"account_enablement","source":"official","productReadiness":"known","recommended":false,"releaseDate":"2026-11-25","lastVerifiedAt":"2026-11-26","documentationRef":"https://docs.modelstudio.console.alibabacloud.com/en/model-studio/decision-model-api","contextTokens":268288,"regions":["cn-beijing"],"inputModalities":["text","image"],"outputModalities":["decisions"]}
     ]
   },
   {
@@ -168,7 +169,8 @@
     "lastVerifiedAt": "2026-10-08",
     "models": [
       {"id":"decision-model-preview","name":"Decision Model Preview","status":"preview","access":"account_enablement"},
-      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"}
+      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"},
+      {"id":"decision-model","name":"Decision Model","status":"active","access":"account_enablement","source":"official","productReadiness":"known","recommended":false,"releaseDate":"2026-11-25","lastVerifiedAt":"2026-11-26","documentationRef":"https://docs.modelstudio.console.alibabacloud.com/en/model-studio/decision-model-api","contextTokens":268288,"regions":["ap-southeast-1"],"inputModalities":["text","image"],"outputModalities":["decisions"]}
     ]
   }
 ]

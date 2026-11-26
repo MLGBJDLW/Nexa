@@ -852,6 +852,39 @@ mod tests {
     }
 
     #[test]
+    fn alibaba_stable_decision_model_uses_the_existing_workspace_contract() {
+        let request: DecisionRequest = serde_json::from_value(json!({
+            "model": "decision-model",
+            "state": "Customer asks for a refund",
+            "questions": {
+                "refund": {"type": "noul", "instructions": "Does the customer ask for a refund?"}
+            }
+        }))
+        .unwrap();
+        let db = crate::db::Database::open_memory().unwrap();
+        let policy = crate::privacy::ChatPrivacyPolicy::load(&db.conn()).unwrap();
+        for (provider, region) in [
+            ("alibaba-model-studio-cn", "cn-beijing"),
+            ("alibaba-model-studio-intl", "ap-southeast-1"),
+        ] {
+            let base = format!("https://workspace.{region}.maas.aliyuncs.com/compatible-mode/v1");
+            let config = SystemOneConfig {
+                provider: provider.into(),
+                base_url: Some(base.clone()),
+                model: "decision-model-preview".into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                endpoint(&config).unwrap().as_str(),
+                format!("{base}/systemone")
+            );
+            let routed = prepare_request(&config, &request, &policy).unwrap();
+            assert_eq!(routed.model.as_deref(), Some("decision-model"));
+            assert_eq!(config.model, "decision-model-preview");
+        }
+    }
+
+    #[test]
     fn system_one_endpoint_and_model_catalog_are_provider_and_region_scoped() {
         let mut config = SystemOneConfig::default();
         assert_eq!(
