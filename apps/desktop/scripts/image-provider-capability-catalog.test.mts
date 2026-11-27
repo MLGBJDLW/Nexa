@@ -121,6 +121,8 @@ test('OpenRouter image sunsets preserve exact selections and never point free at
   const catalogs = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
   const router = catalogs.find(preset => preset.id === 'openrouter-images')!;
   for (const [id, deadline] of [
+    ['microsoft/mai-image-2.5', '2026-11-27'],
+    ['microsoft/mai-image-2.5-pro', '2026-11-27'],
     ['recraft/recraft-v4.1-flash-v2:free', '2026-11-28'],
     ['openai/gpt-image-1-mini', '2026-12-01'],
     ['openai/gpt-5-image-mini', '2026-12-01'],
@@ -140,4 +142,10 @@ test('OpenRouter image sunsets preserve exact selections and never point free at
   assert.deepEqual(free.descriptor.outputModalities, ['image']);
   assert.equal(paid.descriptor.lifecycle, 'active');
   assert.equal(paid.descriptor.deprecationDate, null);
+  for (const id of ['microsoft/mai-image-2.7', 'microsoft/mai-image-2.7-flash']) {
+    const sibling = router.models.find(row => row.id === id)!;
+    assert.equal(sibling.descriptor.lifecycle, 'active');
+    assert.equal(sibling.descriptor.deprecationDate, null);
+    assert.equal(sibling.descriptor.recommended, false);
+  }
 });

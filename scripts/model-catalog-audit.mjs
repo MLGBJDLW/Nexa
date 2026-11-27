@@ -10,6 +10,8 @@ import {
   normalizeCatalogModel,
   normalizeGoogleCatalog,
   supportsCatalogOperation,
+  summarizeSpeechInventory,
+  summarizeTranscriptionInventory,
 } from './model-catalog-audit-lib.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -217,6 +219,20 @@ async function probeEndpoint(endpoint) {
   }
 }
 
+async function probePublicOperationInventory(source, project) {
+  if (!livePublicCatalogs) return { source, status: 'skipped', reason: 'live_public_not_enabled' };
+  try {
+    const rows = await fetchCatalogPages(source);
+    const models = project(rows);
+    if (rows.length > 0 && models.length === 0) return { source, status: 'error', reason: 'invalid_operation_contract' };
+    return { source, status: 'ok', discoveredCount: models.length, models };
+  } catch (error) {
+    const reason = error instanceof Error && error.name === 'TimeoutError' ? 'timeout'
+      : /^http_\d+$|^invalid_pagination$|^invalid_catalog$|^incomplete_catalog$/.test(error?.message) ? error.message : 'request_failed';
+    return { source, status: 'error', reason };
+  }
+}
+
 function markdownReport(report) {
   const lines = [
     '# Model Catalog Drift Report',
@@ -255,10 +271,28 @@ function markdownReport(report) {
   lines.push(`Discovery coverage: ${report.coverage.probedEndpoints} of ${report.staticValidation.endpointCount} endpoints returned a catalog. Unprobed endpoints are not verified by this report.`, '',
     'New and unavailable IDs are review candidates. Catalog presence alone does not verify inference support; absence alone is not a retirement notice. This audit never rewrites saved models or presets.', '',
     'No authenticated inference was requested. No credentials, request headers, or provider response bodies are stored in this report.', '');
+  for (const [operation, inventory] of [
+    ['text to speech', report.discoveryOnly.openRouterSpeech],
+    ['transcription', report.discoveryOnly.openRouterTranscription],
+  ]) {
+    lines.push(`## Public OpenRouter ${operation} inventory (discovery only)`, '',
+      `Source: ${inventory.source}`, `Status: ${inventory.status}`,
+      ...(inventory.status === 'ok' ? [`Models: ${inventory.discoveredCount}; scoped metadata is in report.json.`]
+        : [`Reason: ${inventory.reason}`]),
+      'This is not counted as an implemented Nexa endpoint or evidence of runtime or account availability.', '');
+  }
   return lines.join('\n');
 }
 
 const staticCatalog = await buildStaticCatalog();
+const speechInventoryPromise = probePublicOperationInventory(
+  'https://openrouter.ai/api/v1/audio/speech/models',
+  summarizeSpeechInventory,
+);
+const transcriptionInventoryPromise = probePublicOperationInventory(
+  'https://openrouter.ai/api/v1/models?output_modalities=transcription',
+  summarizeTranscriptionInventory,
+);
 const probes = [];
 for (const endpoint of staticCatalog.endpoints) {
   probes.push(await probeEndpoint(endpoint));
@@ -271,6 +305,7 @@ const allAttemptedProbesSucceeded = attemptedProbeCount > 0 && failedProbeCount 
 const hasDrift = staticCatalog.errors.length > 0
   || failedProbeCount > 0
   || probes.some((probe) => probe.status === 'ok' && driftDetected(probe));
+const [speechInventory, transcriptionInventory] = await Promise.all([speechInventoryPromise, transcriptionInventoryPromise]);
 const report = {
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
@@ -290,6 +325,7 @@ const report = {
     errors: staticCatalog.errors,
   },
   probes,
+  discoveryOnly: { openRouterSpeech: speechInventory, openRouterTranscription: transcriptionInventory },
 };
 
 await mkdir(outputDir, { recursive: true });

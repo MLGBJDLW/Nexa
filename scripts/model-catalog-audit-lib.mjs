@@ -280,3 +280,38 @@ export function driftDetected(comparison) {
   return ['newIds', 'relistedIds', 'missingIds', 'capabilityChanged', 'lifecycleChanged', 'expirationChanged', 'regionChanged', 'limitChanged', 'modalityChanged', 'parameterChanged']
     .some(field => comparison[field]?.length > 0);
 }
+
+/** Operation-specific speech listings, never a Nexa adapter or selection. */
+export function summarizeSpeechInventory(rows) {
+  const speech = row => (Array.isArray(row?.output_modalities) ? row.output_modalities : [])
+    .find(modality => modality?.type === 'speech');
+  const values = item => item?.type === 'enum' ? stringArray(item.values) : undefined;
+  const capabilities = output => ({
+    ...(values(output?.supported_parameters?.voice) ? { voices: [...new Set(output.supported_parameters.voice.values)] } : {}),
+    ...(values(output?.supported_parameters?.response_format) ? { formats: [...new Set(output.supported_parameters.response_format.values)] } : {}),
+  });
+  return rows.flatMap(row => {
+    const output = speech(row);
+    if (!output || typeof row?.id !== 'string' || !row.id.trim()) return [];
+    const endpoints = (Array.isArray(row.endpoints) ? row.endpoints : []).flatMap(endpoint => {
+      const provider = endpoint?.provider_slug;
+      const endpointOutput = speech(endpoint);
+      return typeof provider === 'string' && provider && endpointOutput
+        ? [{ provider, ...capabilities(endpointOutput) }] : [];
+    });
+    return [{ id: row.id, ...capabilities(output), endpoints }];
+  });
+}
+
+/** A general audio listing is not evidence of the transcription operation. */
+export function summarizeTranscriptionInventory(rows) {
+  return rows.flatMap(row => {
+    const inputs = row?.architecture?.input_modalities;
+    const outputs = row?.architecture?.output_modalities;
+    return typeof row?.id === 'string' && row.id.trim()
+      && Array.isArray(inputs) && inputs.includes('audio')
+      && Array.isArray(outputs) && outputs.includes('transcription')
+      && Array.isArray(row.endpoints) && row.endpoints.includes('/api/v1/audio/transcriptions')
+      ? [{ id: row.id }] : [];
+  });
+}

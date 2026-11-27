@@ -2951,6 +2951,47 @@
         ]
       },
       {
+        "id": "inclusionai/lingsante-3.1-air-vl",
+        "name": "inclusionAI: LingSante 3.1 Air VL",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-27",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/lingsante-3.1-air-vl/endpoints",
+        "contextTokens": 131072,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
         "id": "tngtech/deepseek-r1t2-chimera",
         "name": "TNG: DeepSeek R1T2 Chimera",
         "source": "official",
@@ -11961,17 +12002,11 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
-          "frequency_penalty",
           "include_reasoning",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
-          "repetition_penalty",
-          "response_format",
-          "seed",
-          "stop",
           "temperature",
           "tool_choice",
           "tools",
@@ -11979,8 +12014,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/z-ai/glm-4.6v",
+        "lastVerifiedAt": "2026-11-27",
+        "documentationRef": "https://openrouter.ai/api/v1/models/z-ai/glm-4.6v/endpoints",
         "maxOutputTokens": 32768
       },
       {

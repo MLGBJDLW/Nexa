@@ -9,6 +9,8 @@ import {
   normalizeCatalogModel,
   normalizeDiscoveredModel,
   normalizeGoogleCatalog,
+  summarizeSpeechInventory,
+  summarizeTranscriptionInventory,
 } from './model-catalog-audit-lib.mjs';
 
 const endpoint = {
@@ -208,3 +210,54 @@ for (const metadata of [{}, { expiration_date: undefined }, { expiration_date: '
   assert.deepEqual(compareEndpointModels(datedEndpoint, [{ id: 'model-a', ...metadata }]).expirationChanged, []);
 }
 assert.deepEqual(compareEndpointModels(endpoint, [{ id: 'model-a', expiration_date: null }]).expirationChanged, []);
+
+const speechOutput = (voices, formats) => ({
+  type: 'speech',
+  supported_parameters: {
+    voice: { type: 'enum', values: voices },
+    response_format: { type: 'enum', values: formats },
+    instructions: { type: 'unknown' },
+  },
+});
+const googleVoices = Array.from({ length: 30 }, (_, i) => `voice-${i}`);
+const heygenVoices = Array.from({ length: 10 }, (_, i) => `preset-${i}`);
+assert.deepEqual(summarizeSpeechInventory([
+  {
+    id: 'google/gemini-2.5-flash-tts',
+    output_modalities: [speechOutput(googleVoices, ['pcm', 'wav'])],
+    endpoints: [{ provider_slug: 'google-vertex/global', output_modalities: [speechOutput(['voice-0'], ['pcm'])] }],
+  },
+  {
+    id: 'heygen/heygen-voice-1-turbo',
+    output_modalities: [speechOutput(heygenVoices, ['pcm'])],
+    endpoints: [
+      { provider_slug: 'heygen', output_modalities: [speechOutput(heygenVoices, ['pcm'])] },
+      { provider_slug: 'text-only', output_modalities: [{ type: 'text' }] },
+    ],
+  },
+  { id: 'example/audio', output_modalities: [{ type: 'audio' }] },
+  { id: 'example/transcription', output_modalities: [{ type: 'transcription' }] },
+  { id: 'example/untyped-voice', output_modalities: [speechOutput([123], ['pcm'])] },
+]), [
+  {
+    id: 'google/gemini-2.5-flash-tts', voices: googleVoices, formats: ['pcm', 'wav'],
+    endpoints: [{ provider: 'google-vertex/global', voices: ['voice-0'], formats: ['pcm'] }],
+  },
+  {
+    id: 'heygen/heygen-voice-1-turbo', voices: heygenVoices, formats: ['pcm'],
+    endpoints: [{ provider: 'heygen', voices: heygenVoices, formats: ['pcm'] }],
+  },
+  { id: 'example/untyped-voice', formats: ['pcm'], endpoints: [] },
+]);
+
+const transcriptionRow = {
+  id: 'openai/whisper-1',
+  architecture: { input_modalities: ['audio'], output_modalities: ['transcription'] },
+  endpoints: ['/api/v1/audio/transcriptions'],
+};
+assert.deepEqual(summarizeTranscriptionInventory([
+  transcriptionRow,
+  { ...transcriptionRow, id: 'generic/audio', endpoints: ['/api/v1/chat/completions'] },
+  { ...transcriptionRow, id: 'generic/text', architecture: { ...transcriptionRow.architecture, input_modalities: ['text'] } },
+  { ...transcriptionRow, id: 'generic/speech', architecture: { ...transcriptionRow.architecture, output_modalities: ['speech'] } },
+]), [{ id: 'openai/whisper-1' }]);

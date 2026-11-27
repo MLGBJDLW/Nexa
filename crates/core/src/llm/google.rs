@@ -3435,6 +3435,52 @@ mod tests {
     }
 
     #[test]
+    fn developer_api_legacy_aliases_and_explicit_replacements_keep_distinct_wire_contracts() {
+        for (legacy, replacement) in [
+            ("gemini-2.5-pro", "gemini-3.8-flash"),
+            ("gemini-2.5-flash", "gemini-3.5-flash-lite"),
+        ] {
+            for (model, modern) in [(legacy, false), (replacement, true)] {
+                for thinking in [false, true] {
+                    let request = CompletionRequest {
+                        model: model.into(),
+                        temperature: Some(0.2),
+                        max_tokens: Some(8192),
+                        thinking_budget: thinking.then_some(2048),
+                        reasoning_enabled: thinking.then_some(true),
+                        ..Default::default()
+                    };
+                    let body = serde_json::to_value(build_request_body(
+                        &google_config(),
+                        &request,
+                        None,
+                        vec![],
+                    ))
+                    .unwrap();
+                    assert_eq!(body["store"].as_bool(), Some(false));
+                    let generation = &body["generationConfig"];
+                    assert_eq!(
+                        generation.get("temperature").is_some(),
+                        !thinking && !modern
+                    );
+                    if thinking {
+                        let config = &generation["thinkingConfig"];
+                        assert_eq!(
+                            config["thinkingBudget"].as_i64(),
+                            (!modern).then_some(2048)
+                        );
+                        assert_eq!(config.get("thinkingBudget").is_some(), !modern);
+                        assert_eq!(config["thinkingLevel"].as_str(), modern.then_some("low"));
+                        assert_eq!(config.get("thinkingLevel").is_some(), modern);
+                    } else {
+                        assert!(generation.get("thinkingConfig").is_none());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_latest_models_use_thinking_level_and_omit_temperature() {
         let mut request = CompletionRequest {
             model: "gemini-3.8-flash".to_string(),

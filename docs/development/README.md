@@ -8,6 +8,7 @@
 | [Internationalization](I18N_GUIDELINES.md) | Namespace JSON, generated files, and locale review |
 | [Agent task evaluation](AGENT_TASK_EVALUATION.md) | Contract, replay, scripted and opt-in live task evidence |
 | [Model catalog audit](MODEL_CATALOG_AUDIT.md) | Provider coverage, verified model metadata and discovery limits |
+| [Model catalog evidence, November 27](MODEL_CATALOG_EVIDENCE_2026_11_27.md) | Exact OpenRouter changes, Google alias contracts, public speech inventory, and coverage |
 | [Model catalog evidence, November 26](MODEL_CATALOG_EVIDENCE_2026_11_26.md) | Contributor disclosure, scoped retirements, Decisions, and public coverage |
 | [Model catalog evidence, November 23](MODEL_CATALOG_EVIDENCE_2026_11_23.md) | Scoped OpenRouter image sunsets and public discovery coverage |
 | [Model catalog evidence, November 22](MODEL_CATALOG_EVIDENCE_2026_11_22.md) | Inkling availability, Liquid and Grok lifecycle, scoped premium routes and endpoint evidence |
