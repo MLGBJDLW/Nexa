@@ -3465,10 +3465,7 @@ mod tests {
                     );
                     if thinking {
                         let config = &generation["thinkingConfig"];
-                        assert_eq!(
-                            config["thinkingBudget"].as_i64(),
-                            (!modern).then_some(2048)
-                        );
+                        assert_eq!(config["thinkingBudget"].as_i64(), (!modern).then_some(2048));
                         assert_eq!(config.get("thinkingBudget").is_some(), !modern);
                         assert_eq!(config["thinkingLevel"].as_str(), modern.then_some("low"));
                         assert_eq!(config.get("thinkingLevel").is_some(), modern);
