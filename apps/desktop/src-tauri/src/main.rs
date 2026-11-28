@@ -1079,6 +1079,7 @@ fn main() {
             commands::cleanup_empty_conversations_cmd,
             commands::compact_conversation_cmd,
             commands::start_context_compaction_cmd,
+            commands::refine_chat_draft_cmd,
             commands::observe_context_compaction_cmd,
             commands::cancel_context_compaction_cmd,
             // Durable media generation jobs
