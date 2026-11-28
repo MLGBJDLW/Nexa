@@ -27,6 +27,17 @@
 * **mobile:** show model disclosures and reject retired selections ([d02e64a](https://github.com/MLGBJDLW/Nexa/commit/d02e64aec6bbb5d74387e982e00d6029308d5175))
 * **models:** restore backed Kimi routes and refresh hosted chat contracts ([3186678](https://github.com/MLGBJDLW/Nexa/commit/3186678277362bf4284b30e7d71b33b0ee568a47))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e0add1e5498ebac1cea3d76a3a6ccde50f7860bd -->
+
+### What's Changed
+* fix(catalog): retain route disclosures and refresh scoped model lifecycle by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/604
+* feat(chat): improve phone multitasking, storage and computer control by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/605
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.21.0...nexa-monorepo-v0.21.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.21.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0) (2026-11-25)
 
 ### Breaking changes
