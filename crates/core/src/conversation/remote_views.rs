@@ -38,6 +38,39 @@ impl Database {
         let cursor = more.then(|| rows.last().unwrap()["id"].clone());
         Ok(json!({"items":rows,"nextCursor":cursor}))
     }
+    /// Lightweight task history for the same top-level chats visible on the phone.
+    pub fn remote_tasks(&self, before: Option<[String; 3]>) -> Result<Value, CoreError> {
+        let conn = self.conn();
+        let mut query = conn.prepare(
+            "SELECT r.id, r.conversation_id, substr(COALESCE(NULLIF(r.title,''), NULLIF(c.title,''), r.model),1,180),
+                    r.status, r.updated_at, r.created_at
+             FROM agent_task_runs r JOIN conversations c ON c.id=r.conversation_id
+             WHERE c.parent_conversation_id IS NULL AND c.archived_at IS NULL
+               AND (?1 IS NULL OR (r.updated_at,r.created_at,r.id)<(?1,?2,?3))
+             ORDER BY r.updated_at DESC,r.created_at DESC,r.id DESC LIMIT 51"
+        )?;
+        let [updated, created, id] = before
+            .as_ref()
+            .map(|cursor| cursor.each_ref().map(String::as_str).map(Some))
+            .unwrap_or([None; 3]);
+        let mut items = query
+            .query_map(params![updated, created, id], |row| {
+                Ok(json!({
+                    "id":row.get::<_,String>(0)?, "conversationId":row.get::<_,String>(1)?,
+                    "title":row.get::<_,Option<String>>(2)?, "status":row.get::<_,String>(3)?,
+                    "updatedAt":row.get::<_,String>(4)?, "createdAt":row.get::<_,String>(5)?
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let more = items.len() > 50;
+        items.truncate(50);
+        let cursor = more.then(|| {
+            let last = &items[49];
+            json!([last["updatedAt"], last["createdAt"], last["id"]])
+        });
+        Ok(json!({"items":items,"nextCursor":cursor}))
+    }
+
     pub fn remote_archived_conversations(&self, before: Option<&str>) -> Result<Value, CoreError> {
         let cursor = before.map(serde_json::from_str).transpose()?;
         let page = self.conversation_storage_page("archived", cursor.as_ref())?;

@@ -446,6 +446,7 @@ impl RemoteHost for DesktopHost {
             #[cfg(windows)]
             "screen-control-v1".into(),
             "chat-schedules-v1".into(),
+            "chat-tasks-v1".into(),
             "chat-management-v1".into(),
             "chat-search-v1".into(),
             "chat-archive-search-v1".into(),
@@ -567,6 +568,8 @@ impl RemoteHost for DesktopHost {
             ConversationSchedules { conversation_id, input } => state.db_executor.write(move |db|
                 nexa_core::tools::automation_tool::conversation_schedule_action(db, &conversation_id, input)
             ).await.map(|result| result.value).map_err(|e| e.to_string()),
+            Tasks { before } => state.db_executor.read(move |db| db.remote_tasks(before))
+                .await.map(|result| result.value).map_err(|e| e.to_string()),
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),

@@ -19,7 +19,7 @@ export class LocalClient implements RemoteChatClient {
   readonly exportFile = (path: string) => invoke('mobile_files', { action: 'share', relativePath: path });
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
-  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-archive-search-v1', 'chat-steering-v1', 'chat-schedules-v1'] } };
+  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-archive-search-v1', 'chat-steering-v1', 'chat-schedules-v1', 'chat-tasks-v1'] } };
   state: RemoteConnection = { phase: 'connected', endpoint: null };
   private listeners = new Set<(event: RemoteEnvelope) => void>();
   private unlisteners: UnlistenFn[] = [];
@@ -46,6 +46,7 @@ export class LocalClient implements RemoteChatClient {
     switch (method) {
       case 'connections.list': return local('connections');
       case 'models.list': return this.models(params.connectionId);
+      case 'chat.tasks': return local('tasks', params);
       case 'chat.list': return local('list',{before:params.before});
       case 'chat.search': return local('search', params);
       case 'chat.archive': return local('archive', { conversationId: params.conversationId });

@@ -267,6 +267,16 @@ async fn mobile_local(
             .db
             .remote_conversations(input["before"].as_str())
             .map_err(|e| e.to_string()),
+        "tasks" => {
+            let before =
+                serde_json::from_value(input["before"].clone()).map_err(|e| e.to_string())?;
+            state
+                .db_executor
+                .read(move |db| db.remote_tasks(before))
+                .await
+                .map(|result| result.value)
+                .map_err(|e| e.to_string())
+        }
         "search" => {
             let query = string("query")?;
             let archived = input["archived"].as_bool().unwrap_or(false);
