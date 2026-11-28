@@ -75,7 +75,7 @@ test('aggregators keep complete routed metadata and independent regional model a
 test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {
   const particle = model('openrouter', 'particle-ai/particle-1');
   assert.equal(particle.contextTokens, 1_048_576);
-  assert.equal(particle.maxOutputTokens, 131_072);
+  assert.equal(particle.maxOutputTokens, 943_718);
   assert.equal(particle.supportsTools, true);
   assert.equal(particle.capabilities.reasoning.mode, 'optional');
   assert(particle.capabilities.reasoning.effortLevels.includes('none'));
