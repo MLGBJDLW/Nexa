@@ -2,6 +2,14 @@
 
 [Development guides](README.md) · [Documentation home](../README.md)
 
+## November 28 hosted chat verification
+
+OpenRouter's chat inventory and both exact Novita endpoint listings agree on the return of Kimi K2 0711 and 0905. Both accept tools and advertise a 98,304-token output limit. The 0711 route has a 131,072-token context and the 0905 route has a 262,144-token context. Both are available for explicit selection. For the other updated routes, the inventory's limits matched a serving endpoint and its parameter changes matched the serving endpoints' combined list. [Chat inventory](https://openrouter.ai/api/v1/models) · [0711](https://openrouter.ai/api/v1/models/moonshotai/kimi-k2/endpoints) · [0905](https://openrouter.ai/api/v1/models/moonshotai/kimi-k2-0905/endpoints)
+
+SiliconFlow's China marketplace listed 87 records across operations. Its 56 chat-transport records included 53 general chat models and three specialized OCR or captioning models. Xing4.1 Preview became available for general chat on November 27. Its card specifies text input, a 1,048,576-token context, tool calling and JSON mode. The catalog also covers all eight embedding, seven transcription and two speech synthesis IDs in this marketplace. [China marketplace](https://www.siliconflow.cn/models) · [Xing4.1 Preview](https://www.siliconflow.cn/models/XingChenAGI%2FXing4.1-Preview)
+
+The connected Codex app server returned ten visible models for this account. The ACP registry published 46 agents, including all 44 supported registry IDs and both IDs on Nexa's retired-agent list. Six public operation probes completed against OpenRouter and Jina. Account, deployment and local model inventories depend on the configured connection. [Codex model discovery](https://github.com/openai/codex/tree/main/codex-rs/app-server) · [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+
 ## November 17, 2026 verification
 
 The audit enumerated all 92 endpoint presets and 1,415 model projections on baseline `0a609d24`. All six public operation inventories returned successfully. OpenRouter returned 470 text inventory rows (including batch routes), 68 image, 38 embedding, 42 decision and 33 video records. Jina returned 30 records across operations. The other 86 endpoints comprised 21 credential-gated checks, 59 without a supported operation listing and six without configured discovery. The [November 17 catalog refresh](https://github.com/MLGBJDLW/Nexa/pull/567) documents each endpoint and the new routed, regional and video models. These counts measure catalog coverage. Account entitlements and paid inference were outside the check.
