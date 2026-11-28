@@ -119,7 +119,7 @@ impl AgentRunEventDelivery for Delivery {
 }
 
 struct ActivePhoneTurn {
-    conversation_id: String,
+    foreground: bool,
     run_id: String,
     cancel: CancellationToken,
     steering: mpsc::UnboundedSender<AgentSteeringMessage>,
@@ -135,10 +135,16 @@ pub struct LocalRuntime {
     workspace: Workspace,
     skills: ManageSkillTool,
     outboxes: AgentRunEventOutboxes,
-    // Admission spans idempotent persistence and spawning. One phone task at a
-    // time avoids competing cross-app actions and keeps Stop unambiguous.
-    active: Mutex<Option<ActivePhoneTurn>>,
-    pending: Mutex<HashMap<String, (ApprovalRequest, oneshot::Sender<ApprovalDecision>)>>,
+    // Admission and foreground-service transitions are serialized. Execution is per conversation.
+    active: Mutex<HashMap<String, ActivePhoneTurn>>,
+    pending: Mutex<HashMap<String, PendingPhoneApproval>>,
+    control_lane: Arc<Mutex<()>>,
+}
+
+struct PendingPhoneApproval {
+    conversation_id: String,
+    request: ApprovalRequest,
+    sender: oneshot::Sender<ApprovalDecision>,
 }
 
 impl LocalRuntime {
@@ -167,7 +173,8 @@ impl LocalRuntime {
             workspace: Workspace::validate(&[workspace_dir.to_string_lossy().into_owned()])
                 .map_err(err)?,
             outboxes,
-            active: Mutex::new(None),
+            active: Mutex::new(HashMap::new()),
+            control_lane: Arc::default(),
             scheduler: Mutex::new(()),
             arm_lock: Mutex::new(()),
             pending: Mutex::new(HashMap::new()),
@@ -176,20 +183,16 @@ impl LocalRuntime {
 
     pub async fn approvals(&self, conversation_id: &str) -> Result<Value, String> {
         let active = self.active.lock().await;
-        if active
-            .as_ref()
-            .is_none_or(|turn| turn.conversation_id != conversation_id)
-        {
+        let Some(turn) = active.get(conversation_id) else {
             return Ok(json!([]));
-        }
-        let run = self.db.remote_latest_run(conversation_id).map_err(err)?;
-        let run_id = run.as_deref();
+        };
         let approvals: Vec<_> = self
             .pending
             .lock()
             .await
             .values()
-            .map(|(request, _)| json!({"runId":run_id,"request":request}))
+            .filter(|item| item.conversation_id == conversation_id)
+            .map(|item| json!({"runId": turn.run_id, "request": item.request}))
             .collect();
         Ok(json!(approvals))
     }
@@ -336,8 +339,8 @@ impl LocalRuntime {
             .db
             .find_agent_turn_by_idempotency_key(&conversation.id, &request_id)
             .map_err(err)?;
-        if active.is_some() && previous.is_none() {
-            return Err("Stop or finish the current phone task first.".into());
+        if active.contains_key(&conversation.id) && previous.is_none() {
+            return Err("This conversation already has an active task.".into());
         }
         let app_config = self.db.load_app_config().map_err(err)?;
         if scheduled_tools.is_some() && app_config.tool_approval_mode == ToolApprovalMode::DenyAll {
@@ -398,7 +401,8 @@ impl LocalRuntime {
             .get_effective_conversation_system_prompt(&conversation)
             .map_err(err)?;
         let token = host.cancel_token();
-        let channel = host.begin(self, &token).await?;
+        let first_foreground = !active.values().any(|turn| turn.foreground);
+        let channel = host.begin(&token, first_foreground).await?;
         let persisted = if let Some(checkpoint) = &checkpoint_id {
             self.db.resume_agent_turn_from_checkpoint(
                 &message,
@@ -452,12 +456,12 @@ impl LocalRuntime {
         let launch = match persisted {
             Ok(launch) => launch,
             Err(error) => {
-                host.end(channel).await;
+                host.end(channel, first_foreground).await;
                 return Err(err(error));
             }
         };
         if launch.reused {
-            host.end(channel).await;
+            host.end(channel, first_foreground).await;
             return serde_json::to_value(launch).map_err(err);
         }
         let (steering, receiver) = mpsc::unbounded_channel();
@@ -472,8 +476,9 @@ impl LocalRuntime {
         tools.register(Box::new(EditFileTool));
         if let Some(app) = host.app() {
             tools.register(Box::new(
-                nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
+                nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost::new(
                     app.clone(),
+                    self.control_lane.clone(),
                 ))),
             ));
         }
@@ -543,6 +548,10 @@ impl LocalRuntime {
         let runtime = self.clone();
         let approval_runtime = self.clone();
         let confirmation_runtime = self.clone();
+        let approve_chat = conversation.id.clone();
+        let confirm_chat = approve_chat.clone();
+        let approve_token = token.clone();
+        let confirm_token = token.clone();
         let approve_app = host.app().cloned();
         let confirm_app = host.app().cloned();
         let has_skill_tool = tools.contains("manage_skill");
@@ -599,9 +608,11 @@ impl LocalRuntime {
         .with_approval_callback(Arc::new(move |request| {
             let runtime = approval_runtime.clone();
             let app = approve_app.clone();
+            let chat = approve_chat.clone();
+            let cancel = approve_token.clone();
             Box::pin(async move {
                 match app {
-                    Some(app) => runtime.approve(&app, request).await,
+                    Some(app) => runtime.approve(&app, &chat, request, &cancel).await,
                     None => ApprovalDecision::Deny,
                 }
             })
@@ -609,6 +620,8 @@ impl LocalRuntime {
         .with_confirmation_callback(Arc::new(move |message| {
             let runtime = confirmation_runtime.clone();
             let app = confirm_app.clone();
+            let chat = confirm_chat.clone();
+            let cancel = confirm_token.clone();
             Box::pin(async move {
                 let request = ApprovalRequest::new(
                     uuid::Uuid::new_v4().to_string(),
@@ -619,7 +632,8 @@ impl LocalRuntime {
                 );
                 match app {
                     Some(app) => {
-                        runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
+                        runtime.approve(&app, &chat, request, &cancel).await
+                            == ApprovalDecision::AllowOnce
                     }
                     None => false,
                 }
@@ -644,12 +658,15 @@ impl LocalRuntime {
                 base64_data: Some(image.base64_data),
             })
             .collect();
-        *active = Some(ActivePhoneTurn {
-            conversation_id: conversation.id.clone(),
-            run_id: launch.run_id.clone(),
-            cancel: token,
-            steering,
-        });
+        active.insert(
+            conversation.id.clone(),
+            ActivePhoneTurn {
+                foreground: host.app().is_some(),
+                run_id: launch.run_id.clone(),
+                cancel: token,
+                steering,
+            },
+        );
         tokio::spawn(async move {
             let result = session.start_turn(turn_input).await;
             if let Err(error) = result {
@@ -670,9 +687,11 @@ impl LocalRuntime {
                 }
             }
             drop(session);
-            runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
-            host.end(channel).await;
+            active.remove(&conversation.id);
+            host.end(channel, !active.values().any(|turn| turn.foreground))
+                .await;
+            drop(active);
             let result = if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
                 if let Some(id) = &workflow_run {
                     if let Err(error) = runtime.db.transition_workflow_automation_run(
@@ -689,8 +708,7 @@ impl LocalRuntime {
             };
             let app = host.app().cloned();
             host.finish(result).await;
-            active.take();
-            drop(active);
+
             if let Some(ui) = host::ui() {
                 let _ = ui.emit("mobile:refresh", ());
             }
@@ -791,13 +809,28 @@ impl LocalRuntime {
         Ok(launch_result)
     }
 
-    async fn approve(&self, app: &AppHandle, request: ApprovalRequest) -> ApprovalDecision {
+    async fn approve(
+        &self,
+        app: &AppHandle,
+        conversation_id: &str,
+        request: ApprovalRequest,
+        cancel: &CancellationToken,
+    ) -> ApprovalDecision {
         let (tx, rx) = oneshot::channel();
         let id = request.id.clone();
         let prompt = format!("{}\n{}", request.reason, request.arguments_preview);
-        self.pending.lock().await.insert(id.clone(), (request, tx));
+        self.pending.lock().await.insert(
+            id.clone(),
+            PendingPhoneApproval {
+                conversation_id: conversation_id.to_owned(),
+                request,
+                sender: tx,
+            },
+        );
         let _ = app.emit("mobile:refresh", ());
         let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => ApprovalDecision::Deny,
             result = rx => result.unwrap_or(ApprovalDecision::Deny),
             result = platform::call(app,"approval",json!({"id":id,"reason":prompt})) => {
                 if result.is_ok_and(|v|v["allow"] == true) { ApprovalDecision::AllowOnce } else { ApprovalDecision::Deny }
@@ -812,13 +845,14 @@ impl LocalRuntime {
     }
 
     pub async fn respond(&self, id: &str, allow: bool) -> Result<(), String> {
-        let (_, sender) = self
+        let approval = self
             .pending
             .lock()
             .await
             .remove(id)
             .ok_or("This approval is no longer pending.")?;
-        sender
+        approval
+            .sender
             .send(if allow {
                 ApprovalDecision::AllowOnce
             } else {
@@ -839,12 +873,8 @@ impl LocalRuntime {
         }
         let active = self.active.lock().await;
         let turn = active
-            .as_ref()
-            .filter(|turn| {
-                turn.conversation_id == conversation_id
-                    && turn.run_id == run_id
-                    && !turn.cancel.is_cancelled()
-            })
+            .get(conversation_id)
+            .filter(|turn| turn.run_id == run_id && !turn.cancel.is_cancelled())
             .ok_or("This run is no longer accepting instructions.")?;
         turn.steering
             .send(AgentSteeringMessage::text(message))
@@ -852,15 +882,8 @@ impl LocalRuntime {
     }
 
     pub async fn stop(&self, conversation_id: &str) {
-        if let Some(turn) = self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .filter(|turn| turn.conversation_id == conversation_id)
-        {
+        if let Some(turn) = self.active.lock().await.get(conversation_id) {
             turn.cancel.cancel();
-            self.pending.lock().await.clear();
         }
     }
 

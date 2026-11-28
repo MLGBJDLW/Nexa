@@ -86,8 +86,8 @@ impl RunHost {
     // Only interactive tasks own the Activity's notification and Stop channel.
     pub(super) async fn begin(
         &self,
-        runtime: &Arc<LocalRuntime>,
         token: &CancellationToken,
+        first_foreground: bool,
     ) -> Result<Option<u32>, String> {
         if token.is_cancelled() {
             return Err("Phone job was stopped.".into());
@@ -95,15 +95,9 @@ impl RunHost {
         let Some(app) = self.app() else {
             return Ok(None);
         };
-        let weak = Arc::downgrade(runtime);
         let stopped = token.clone();
         let channel = tauri::ipc::Channel::<Value>::new(move |_| {
             stopped.cancel();
-            if let Some(runtime) = weak.upgrade() {
-                tauri::async_runtime::spawn(async move {
-                    runtime.pending.lock().await.clear();
-                });
-            }
             Ok(())
         });
         platform::call(
@@ -112,6 +106,9 @@ impl RunHost {
             json!({"event":"taskStop","handler":channel}),
         )
         .await?;
+        if !first_foreground {
+            return Ok(Some(channel.id()));
+        }
         if let Err(error) = platform::call(app, "taskService", json!({"active":true})).await {
             let _ = platform::call(
                 app,
@@ -124,9 +121,11 @@ impl RunHost {
         Ok(Some(channel.id()))
     }
 
-    pub(super) async fn end(&self, channel: Option<u32>) {
+    pub(super) async fn end(&self, channel: Option<u32>, last_foreground: bool) {
         if let (Some(app), Some(id)) = (self.app(), channel) {
-            let _ = platform::call(app, "taskService", json!({"active":false})).await;
+            if last_foreground {
+                let _ = platform::call(app, "taskService", json!({"active":false})).await;
+            }
             let _ = platform::call(
                 app,
                 "removeListener",
