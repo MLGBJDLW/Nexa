@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
-import { findProviderPreset, PROVIDER_PRESETS, type ProviderPreset } from '../../desktop/src/lib/providerPresets';
-import { selectImplicitDefault } from '../../desktop/src/lib/modelCatalog';
+import { findProviderPreset, PROVIDER_PRESETS, removedProviderModel, type ProviderPreset } from '../../desktop/src/lib/providerPresets';
+import { hasVisibleContributorDisclosure, selectImplicitDefault } from '../../desktop/src/lib/modelCatalog';
 import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
@@ -135,9 +135,11 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const choices: PhonePreset[] = presets.filter(item => !item.retired || item.id === savedPreset.id);
   if (!choices.some(item => item.id === savedPreset.id)) choices.push(savedPreset);
   const preset = choices.find(item => item.id === provider) ?? savedPreset;
-  const catalogModels = findProviderPreset({ provider: preset.provider, baseUrl })?.models ?? [];
+  const endpointPreset = findProviderPreset({ provider: preset.provider, baseUrl });
+  const catalogModels = endpointPreset?.models ?? [];
+  const retired = endpointPreset && removedProviderModel(endpointPreset.id, model);
   const catalogSelection = catalogModels.find(item => item.id === model || item.descriptor.aliases.includes(model));
-  const modelToSave = customModel || !catalogModels.length || catalogSelection ? model.trim() : '';
+  const modelToSave = !retired && (customModel || !catalogModels.length || catalogSelection) ? model.trim() : '';
   const loadRecord = (record?: PhoneConnection) => {
     const preset = presetFor(record);
     setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
@@ -209,8 +211,12 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
             : <NexaCombobox ariaLabel={t('remote.model')} disabled={busy} onValueChange={setModel}
                 value={catalogSelection?.id ?? ''}
                 placeholder={t('settings.selectModel')} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}
-                options={catalogModels.map(item => ({ value: item.id, label: item.name, description: item.id, keywords: item.descriptor.aliases }))}/>}
+                options={catalogModels.map(item => ({ value: item.id, label: item.name, description: item.id, keywords: item.descriptor.aliases, wrapLabel: hasVisibleContributorDisclosure(item) }))}/>}
         </label>
+        {retired && <p className="mobile-section-hint" role="status">
+          {t('settings.retiredModelSelection', { model })}
+          {retired.replacementModelId && ` ${t('settings.suggestedModelReplacement', { model: retired.replacementModelId })}`}
+        </p>}
         {!!catalogModels.length && <button type="button" disabled={busy} onClick={() => setCustomModel(!customModel)}>{t(customModel ? 'settings.usePresetModels' : 'settings.useCustomModel')}</button>}
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>

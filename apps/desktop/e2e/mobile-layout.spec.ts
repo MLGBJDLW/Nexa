@@ -244,6 +244,16 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   await model.click();
   await expect(page.locator('[cmdk-item][role="option"]').nth(1)).toHaveAttribute('data-value','gpt-6.2-astra');
   await page.keyboard.press('Escape');
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
+  await page.getByRole('button', {name:'Provider', exact:true}).click();
+  await page.locator('[role="option"][data-value="openrouter"]').click();
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
+  await model.click();
+  await page.locator('.nexa-combobox-content[data-state="open"] [cmdk-input]').fill('Solar Pro 4 Contributor');
+  const disclosure = page.getByRole('option').getByText(/^Data sharing: Solar Pro 4 Contributor/);
+  await expect(disclosure).toHaveCSS('white-space', 'normal');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
   await page.getByRole('button', {name:'Provider', exact:true}).click();
   await page.locator('[role="option"][data-value="qwen-token-plan-cn"]').click();
   // This subscription requires an explicit model choice for the account.
@@ -251,13 +261,18 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   const save = page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true});
   await expect(save).toBeDisabled();
   await page.getByRole('button', {name:'Use custom model ID', exact:true}).click();
-  await page.getByRole('textbox', {name:'Model connection', exact:true}).fill('tenant-only-model');
+  const customId = page.getByRole('textbox', {name:'Model connection', exact:true});
+  await customId.fill('qwen3.8-max-preview');
+  await expect(page.getByRole('status').filter({hasText:'qwen3.8-max-preview'})).toContainText('retired');
+  await expect(save).toBeDisabled();
+  await customId.fill('tenant-only-model');
   await expect(save).toBeEnabled();
   await page.getByRole('button', {name:'Choose from preset models', exact:true}).click();
   await expect(save).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.some((call: any) => call.command === 'mobile_save_settings'))).toBe(false);
   await page.getByRole('button', {name:'Provider', exact:true}).click();
   await page.getByRole('option', {name:/^Anthropic/}).click();
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
   await expect(model).toHaveAttribute('data-value','claude-opus-5-5');
   await model.click();
   await page.locator('.nexa-combobox-content[data-state="open"] [cmdk-input]').fill('Fable 5.2');

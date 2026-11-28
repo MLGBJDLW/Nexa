@@ -7,6 +7,7 @@ import type { ModelChoices, ModelChoicesLoader, TurnModelSelection } from './mod
 import { ServiceTierButtons } from './ServiceTierButtons';
 import { ReasoningIntensity } from '../../components/chat/ReasoningIntensity';
 import { reasoningEffortLabel } from '../../lib/reasoningControls';
+import { hasVisibleContributorDisclosure } from '../../lib/modelCatalog';
 
 const field = 'w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 py-2.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-50';
 export function ConnectionModelPicker({ connectionId, defaultModel, value, onChange, load, label, disabled = false, allowServiceTiers = false }: {
@@ -66,7 +67,7 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
           onChange={event => changeModel(event.target.value)} /> :
           <NexaCombobox className={field} ariaLabel={label} value={model} disabled={disabled || !connectionId} onValueChange={changeModel}
             searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}
-            options={[...(!selected ? [{value:model,label:model || t('settings.defaultModel')}] : []), ...choices.map(item => ({value:item.id,label:item.name,description:item.available === false ? t('settings.modelLifecycleRemoved') : item.id,disabled:item.available === false}))]}/>}
+            options={[...(!selected ? [{value:model,label:model || t('settings.defaultModel')}] : []), ...choices.map(item => ({value:item.id,label:item.name,description:item.available === false ? t('settings.modelLifecycleRemoved') : item.id,disabled:item.available === false,wrapLabel:hasVisibleContributorDisclosure(item)}))]}/>}
       </label>
       <button type="button" className="rounded-xl border border-border p-3 text-text-secondary disabled:opacity-40" aria-label={t('remote.refreshModels')} disabled={loading || disabled || !connectionId} onClick={() => setRevision(current => current + 1)}>
         {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
