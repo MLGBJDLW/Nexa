@@ -115,7 +115,7 @@ pub fn generation_body(
     quality: Option<&str>,
     output_format: &str,
 ) -> Result<Value, CoreError> {
-    if model.metadata["status"] == "removed" {
+    if model.metadata.get("status").and_then(Value::as_str) == Some("removed") {
         return Err(CoreError::InvalidInput(format!(
             "OpenRouter image model {} was retired. Choose a different model in Settings.",
             model.id
