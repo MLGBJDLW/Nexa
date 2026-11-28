@@ -48,7 +48,7 @@ export function RemoteComposerOptions({ attachments, onAttachments, settings, on
       for (const ref of [input, imageInput, cameraInput]) if (ref.current) ref.current.value = '';
     }
   }
-  return <div className="flex flex-wrap items-center gap-2" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); void add(Array.from(event.dataTransfer.files)); }}>
+  return <div className="composer-options flex flex-wrap items-center gap-2" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); void add(Array.from(event.dataTransfer.files)); }}>
     <input ref={input} type="file" accept={imagesOnly ? 'image/png,image/jpeg,image/webp,image/gif' : undefined} multiple className="hidden" aria-label={t('remote.addAttachments')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
     <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" aria-label={t('chat.attachImage')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
     <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" aria-label={t('live.camera')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />

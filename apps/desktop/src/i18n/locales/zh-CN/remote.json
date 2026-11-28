@@ -254,5 +254,9 @@
   "screenBusy": "等待上一次操作完成。",
   "screenZoom": "切换画面缩放",
   "screenFocus": "聚焦窗口",
-  "screenHostUnsupported": "此桌面环境无法捕获屏幕。你仍可查看已授权的 Android 手机。"
+  "screenHostUnsupported": "此桌面环境无法捕获屏幕。你仍可查看已授权的 Android 手机。",
+  "improvePrompt": "优化提示词",
+  "usePrompt": "使用此提示词",
+  "meetingNotes": "聆听与会议纪要",
+  "meetingInstructions": "请整理会议决策、待办，以及原文明确提到的负责人和截止日期。"
 }

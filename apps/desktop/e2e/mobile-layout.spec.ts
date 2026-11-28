@@ -313,7 +313,7 @@ test('delete all archived chats includes unloaded pages and preserves active cha
 });
 
 
-test('holding the phone composer dictates into the draft and Plan is a distinct control',async({page})=>{
+test('the first phone tap accepts input, long press keeps editing and the microphone owns dictation',async({page})=>{
   await page.setViewportSize({width:320,height:740});
   await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
   const input=page.getByRole('textbox',{name:'Message',exact:true});
@@ -340,15 +340,14 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   const release=(type:'touchEnd'|'touchCancel')=>driver.send('Input.dispatchTouchEvent',{type,touchPoints:[]});
   const count=(method:string)=>page.evaluate(method=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method===method).length,method);
   await touchStart();await release('touchEnd');expect(await count('speech.listen')).toBe(0);
-  // Allow the short tap's double-click selection window to expire.
-  await page.waitForTimeout(380);
-  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(1);await release('touchEnd');
-  await expectDraft(input, 'Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
-  await input.fill('draft');await input.press('End');
-  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
-  await expect.poll(()=>count('speech.cancel')).toBe(1);await expectDraft(input, 'draft');
+  await expect(input).toBeFocused();
+  await driver.send('Input.insertText', {text:'draft'});
+  await expectDraft(input, 'draft');
+  await touchStart(); await page.waitForTimeout(650); await release('touchEnd');
+  expect(await count('speech.listen')).toBe(0);
+  expect(await input.evaluate(el => el.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true})))).toBe(true);
   await page.emulateMedia({reducedMotion:'no-preference'});
-  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);
+  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(1);
   const waveform = page.getByTestId('microphone-waveform');
   await expect(waveform).toBeVisible();
   await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:.82, text:'Hello'}));

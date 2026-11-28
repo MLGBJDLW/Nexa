@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "이 데스크톱에서는 화면을 캡처할 수 없습니다. 권한이 부여된 Android 휴대전화의 화면은 볼 수 있습니다."
+  "screenHostUnsupported": "이 데스크톱에서는 화면을 캡처할 수 없습니다. 권한이 부여된 Android 휴대전화의 화면은 볼 수 있습니다.",
+  "improvePrompt": "프롬프트 개선",
+  "usePrompt": "이 프롬프트 사용",
+  "meetingNotes": "회의록",
+  "meetingInstructions": "결정 사항과 할 일을 정리하고 언급된 담당자와 기한을 포함하세요."
 }

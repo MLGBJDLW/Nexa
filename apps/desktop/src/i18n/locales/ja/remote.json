@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "このデスクトップでは画面をキャプチャできません。許可された Android スマートフォンの画面は表示できます。"
+  "screenHostUnsupported": "このデスクトップでは画面をキャプチャできません。許可された Android スマートフォンの画面は表示できます。",
+  "improvePrompt": "プロンプトを改善",
+  "usePrompt": "このプロンプトを使用",
+  "meetingNotes": "会議メモ",
+  "meetingInstructions": "決定事項とタスクを整理し、発言で示された担当者と期限を記載してください。"
 }
