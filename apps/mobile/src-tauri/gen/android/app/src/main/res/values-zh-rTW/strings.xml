@@ -4,8 +4,9 @@
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">手機控制為選用功能。Nexa 讀取可見控制項、忽略密碼欄位，並在操作前請求批准。可隨時透過通知停止任務。</string>
     <string name="task_channel">手機任務</string>
-    <string name="task_running">Nexa 正在執行手機任務</string>
-    <string name="task_progress">點選查看進度，或停止任務。</string>
+    <string name="task_running">手機任務執行中</string>
+    <string name="task_progress">開啟 Nexa 查看進度或停止個別任務。</string>
+    <string name="task_stop_all">全部停止</string>
     <string name="task_stop">停止</string>
     <string name="share_file">分享手機檔案</string>
     <string name="approval_title">Nexa 需要你的批准</string>

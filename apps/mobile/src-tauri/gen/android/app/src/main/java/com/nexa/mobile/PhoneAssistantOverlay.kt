@@ -139,7 +139,7 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
             layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
         }
         val open = button(R.drawable.ic_nexa_notification, service.getString(R.string.main_activity_title))
-        val stop = button(android.R.drawable.ic_media_pause, service.getString(R.string.task_stop)).apply {
+        val stop = button(android.R.drawable.ic_media_pause, service.getString(if (TaskService.remoteHost != null) R.string.task_stop else R.string.task_stop_all)).apply {
             visibility = View.GONE
             setOnClickListener { service.startService(Intent(service, TaskService::class.java).setAction("stop")); visibility = View.GONE }
         }

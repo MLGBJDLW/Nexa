@@ -4,8 +4,9 @@
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">Le contrôle est facultatif. Nexa lit les contrôles visibles, exclut les mots de passe et demande votre accord avant d’agir. Arrêtez depuis la notification.</string>
     <string name="task_channel">Tâches du téléphone</string>
-    <string name="task_running">Nexa exécute une tâche</string>
-    <string name="task_progress">Touchez pour voir la progression ou arrêter.</string>
+    <string name="task_running">Des tâches sont en cours</string>
+    <string name="task_progress">Ouvrez Nexa pour voir la progression ou arrêter une tâche.</string>
+    <string name="task_stop_all">Tout arrêter</string>
     <string name="task_stop">Arrêter</string>
     <string name="share_file">Partager un fichier</string>
     <string name="approval_title">Nexa demande votre accord</string>
