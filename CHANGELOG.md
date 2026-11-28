@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.21.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.21.0...nexa-monorepo-v0.21.1) (2026-11-28)
+
+
+### Features
+
+* **chat:** improve phone multitasking, storage and computer control ([e0add1e](https://github.com/MLGBJDLW/Nexa/commit/e0add1e5498ebac1cea3d76a3a6ccde50f7860bd))
+* **chat:** offer draft improvements, phone commands and meeting notes ([40c36a5](https://github.com/MLGBJDLW/Nexa/commit/40c36a5478e047d2f81a4ebfba4f10499a1356ca))
+* **composer:** preview prompt edits with the selected model and privacy policy ([4b87d5d](https://github.com/MLGBJDLW/Nexa/commit/4b87d5dbd3820cf64635f17548c752cced31e474))
+* **storage:** compress file rollback checkpoints without losing bytes ([a2da40f](https://github.com/MLGBJDLW/Nexa/commit/a2da40fd5a0540840355cf867bc3de7f9d9fa11e))
+* **tasks:** project paginated chat task history to phone clients ([9d1b1bd](https://github.com/MLGBJDLW/Nexa/commit/9d1b1bd05ab784bed0be9091268faccfefafe4eb))
+
+
+### Bug Fixes
+
+* **catalog:** preserve retired OpenRouter image selections ([1fad364](https://github.com/MLGBJDLW/Nexa/commit/1fad3641014bfe2165890680bd4f64e17ca8453c))
+* **catalog:** retain route disclosures and refresh scoped model lifecycle ([4253493](https://github.com/MLGBJDLW/Nexa/commit/4253493d754744eca658c230bfb0e91bb07f5567))
+* **catalog:** retain route disclosures and refresh scoped model lifecycle ([6c6112f](https://github.com/MLGBJDLW/Nexa/commit/6c6112f2af8f6ea27ea6903a69ee77e4a549bc0a))
+* **catalog:** verify OpenRouter lifecycle and audio discovery ([7f33512](https://github.com/MLGBJDLW/Nexa/commit/7f33512ae3f3a862faadbea5a9c6fd936ec75e04))
+* **chat:** preserve pending draft files across archive previews ([e5ae6ee](https://github.com/MLGBJDLW/Nexa/commit/e5ae6eeb2f05d6ae75f9b1286b77a6ed1908df1f))
+* **computer-use:** continue on observed windows and scroll nested browser targets ([c4e93be](https://github.com/MLGBJDLW/Nexa/commit/c4e93bec69aa1851e65b7103ecdbd84f709e1d4e))
+* **computer-use:** require fresh visual evidence for each presented preview ([aabb792](https://github.com/MLGBJDLW/Nexa/commit/aabb7920aabfb6711a82b70444b315f575a251e9))
+* **desktop:** guide app launches through the advertised control interface ([700567a](https://github.com/MLGBJDLW/Nexa/commit/700567a7cd7974a379e17862b21bc79850c7ee82))
+* **images:** accept active OpenRouter models without a lifecycle annotation ([327a8a2](https://github.com/MLGBJDLW/Nexa/commit/327a8a2f4a165edddb2697b724c31a432f1e115e))
+* **mobile:** isolate chat drafts and keep meeting transcription listening ([d73a9c7](https://github.com/MLGBJDLW/Nexa/commit/d73a9c731e6c16a4cdb1738f684c391821aa9fa2))
+* **mobile:** show model disclosures and reject retired selections ([d02e64a](https://github.com/MLGBJDLW/Nexa/commit/d02e64aec6bbb5d74387e982e00d6029308d5175))
+* **models:** restore backed Kimi routes and refresh hosted chat contracts ([3186678](https://github.com/MLGBJDLW/Nexa/commit/3186678277362bf4284b30e7d71b33b0ee568a47))
+
 ## [0.21.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0) (2026-11-25)
 
 ### Breaking changes
