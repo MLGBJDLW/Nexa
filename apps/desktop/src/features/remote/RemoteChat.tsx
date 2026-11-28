@@ -195,10 +195,13 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     client.rpc<HistoryPage>('chat.search', { query, before }), [client]);
   const findArchivedHistory = useCallback((query: string, before: HistoryPage['next']) =>
     client.rpc<HistoryPage>('chat.search', { query, before, archived: true }), [client]);
+  // Archive previews own the transcript only. The underlying composer keeps receiving its files.
+  const draftOwner = useRef(activeConversationId);
   const storedDrafts = useRef(new Map<string, {text: string; attachments: ImageAttachment[]}>());
   const selectConversation = (id: string, hit?: HistoryHit, transferDraft = false) => {
-    const previous = selectedConversation.current;
-    if (id !== previous && !archivePreview) {
+    const previous = draftOwner.current;
+    if (id !== previous) {
+      draftOwner.current = id;
       // The first send promotes its draft to a durable ID. Ordinary navigation
       // restores the destination's draft without carrying a file into another chat.
       if (transferDraft) storedDrafts.current.delete(previous);
@@ -240,7 +243,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     });
   }
   function updateDraftFiles(items: ImageAttachment[]) {
-    if (selectedConversation.current === conversationId) {
+    if (draftOwner.current === conversationId) {
       attachmentsRef.current = items;
       setAttachments(items);
     } else {
