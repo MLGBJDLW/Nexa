@@ -30,27 +30,34 @@ fn invalid_frame(reason: &'static str) -> rusqlite::Error {
 }
 
 fn pack(raw: &str) -> rusqlite::Result<rusqlite::types::Value> {
+    Ok(match pack_bytes(raw.as_bytes())? {
+        Some(frame) => rusqlite::types::Value::Blob(frame),
+        None => rusqlite::types::Value::Text(raw.to_owned()),
+    })
+}
+
+pub(crate) fn pack_bytes(raw: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
     if !eligible_size(raw.len()) {
-        return Ok(rusqlite::types::Value::Text(raw.to_owned()));
+        return Ok(None);
     }
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
     encoder
-        .write_all(raw.as_bytes())
+        .write_all(raw)
         .map_err(|_| invalid_frame("compression failed"))?;
     let body = encoder
         .finish()
         .map_err(|_| invalid_frame("compression failed"))?;
     // Avoid storing a frame when its space saving cannot justify decoding.
     if body.len() + HEADER_BYTES >= raw.len() - raw.len() / 8 {
-        return Ok(rusqlite::types::Value::Text(raw.to_owned()));
+        return Ok(None);
     }
     let mut frame = Vec::with_capacity(HEADER_BYTES + body.len());
     frame.extend_from_slice(MAGIC);
     frame.push(VERSION);
     frame.extend_from_slice(&(raw.len() as u64).to_le_bytes());
-    frame.extend_from_slice(blake3::hash(raw.as_bytes()).as_bytes());
+    frame.extend_from_slice(blake3::hash(raw).as_bytes());
     frame.extend_from_slice(&body);
-    Ok(rusqlite::types::Value::Blob(frame))
+    Ok(Some(frame))
 }
 
 fn frame_length(frame: &[u8]) -> rusqlite::Result<u64> {
@@ -69,6 +76,10 @@ fn frame_length(frame: &[u8]) -> rusqlite::Result<u64> {
 }
 
 fn unpack(frame: &[u8]) -> rusqlite::Result<String> {
+    String::from_utf8(unpack_bytes(frame)?).map_err(|_| invalid_frame("content is not UTF-8"))
+}
+
+pub(crate) fn unpack_bytes(frame: &[u8]) -> rusqlite::Result<Vec<u8>> {
     let expected = frame_length(frame)?;
     let body = &frame[HEADER_BYTES..];
     let mut decoder = Decompress::new(true);
@@ -101,7 +112,7 @@ fn unpack(frame: &[u8]) -> rusqlite::Result<String> {
     if blake3::hash(&bytes).as_bytes() != &frame[17..49] {
         return Err(invalid_frame("content digest mismatch"));
     }
-    String::from_utf8(bytes).map_err(|_| invalid_frame("content is not UTF-8"))
+    Ok(bytes)
 }
 
 fn same_snapshot(left: ValueRef<'_>, right: ValueRef<'_>) -> rusqlite::Result<bool> {

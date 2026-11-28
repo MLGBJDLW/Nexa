@@ -6,7 +6,6 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -121,20 +120,24 @@ impl Database {
             )));
         }
 
-        let (existed_before, content_before, bytes_before, hash_before) = if absolute.exists() {
-            let bytes = std::fs::read(&absolute)?;
-            let hash = blake3::hash(&bytes).to_hex().to_string();
-            (true, Some(bytes.clone()), bytes.len() as u64, Some(hash))
-        } else {
-            (false, None, 0, None)
-        };
+        let (existed_before, content_before, compressed_before, bytes_before, hash_before) =
+            if absolute.exists() {
+                let bytes = std::fs::read(&absolute)?;
+                let hash = blake3::hash(&bytes).to_hex().to_string();
+                let size = bytes.len() as u64;
+                let frame = crate::snapshot_store::pack_bytes(&bytes)?;
+                let original = if frame.is_none() { Some(bytes) } else { None };
+                (true, original, frame, size, Some(hash))
+            } else {
+                (false, None, None, 0, None)
+            };
 
         let conn = self.conn();
         conn.execute(
             "INSERT INTO file_checkpoints
              (id, conversation_id, tool_call_id, tool_name, operation, path, absolute_path,
-              existed_before, content_before, bytes_before, hash_before)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              existed_before, content_before, bytes_before, hash_before, compressed_before)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 &id,
                 input.conversation_id,
@@ -147,6 +150,7 @@ impl Database {
                 &content_before,
                 bytes_before as i64,
                 &hash_before,
+                &compressed_before,
             ],
         )?;
         drop(conn);
@@ -169,6 +173,19 @@ impl Database {
             }
             other => CoreError::Database(other),
         })
+    }
+
+    pub(crate) fn file_checkpoint_bytes(&self, id: &str) -> Result<Option<Vec<u8>>, CoreError> {
+        // Drop the database lock before decoding a potentially large checkpoint.
+        let (bytes, frame): (Option<Vec<u8>>, Option<Vec<u8>>) = self.conn().query_row(
+            "SELECT content_before, compressed_before FROM file_checkpoints WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        match frame {
+            Some(frame) => Ok(Some(crate::snapshot_store::unpack_bytes(&frame)?)),
+            None => Ok(bytes),
+        }
     }
 
     pub fn list_file_checkpoints(
@@ -250,19 +267,8 @@ impl Database {
             None
         };
 
-        let conn = self.conn();
-        let content_before: Option<Vec<u8>> = conn
-            .query_row(
-                "SELECT content_before FROM file_checkpoints WHERE id = ?1",
-                rusqlite::params![checkpoint_id],
-                |row| row.get(0),
-            )
-            .optional()?
-            .flatten();
-        drop(conn);
-
         if checkpoint.existed_before {
-            let bytes = content_before.ok_or_else(|| {
+            let bytes = self.file_checkpoint_bytes(checkpoint_id)?.ok_or_else(|| {
                 CoreError::Internal(format!(
                     "File checkpoint {checkpoint_id} is missing its stored bytes."
                 ))
@@ -407,6 +413,45 @@ mod tests {
         assert_eq!(restored.action, "restored");
         assert_eq!(std::fs::read(&file).unwrap(), b"before");
         assert_eq!(restored.bytes_written, 6);
+    }
+
+    #[test]
+    fn compressed_checkpoint_restores_binary_content_and_checks_integrity() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = db_with_source(dir.path());
+        let file = dir.path().join("data.bin");
+        let original = [0xff, 0, 0x80, 42].repeat(32_768);
+        std::fs::write(&file, &original).unwrap();
+        let checkpoint = db
+            .create_file_checkpoint(CreateFileCheckpointInput {
+                conversation_id: None,
+                tool_call_id: "binary",
+                tool_name: "edit_file",
+                operation: "write",
+                path: "data.bin",
+                absolute_path: &file,
+            })
+            .unwrap();
+        let compressed: usize = db.conn().query_row(
+            "SELECT length(compressed_before) FROM file_checkpoints WHERE id=?1 AND content_before IS NULL",
+            [&checkpoint.id], |row| row.get(0)).unwrap();
+        assert!(compressed < original.len() / 8);
+        assert_eq!(
+            db.file_checkpoint_bytes(&checkpoint.id).unwrap().unwrap(),
+            original
+        );
+        std::fs::write(&file, b"edited").unwrap();
+        db.restore_file_checkpoint(&checkpoint.id).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), original);
+        db.conn()
+            .execute(
+                "UPDATE file_checkpoints SET compressed_before=x'00' WHERE id=?1",
+                [&checkpoint.id],
+            )
+            .unwrap();
+        std::fs::write(&file, b"keep").unwrap();
+        assert!(db.restore_file_checkpoint(&checkpoint.id).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), b"keep");
     }
 
     #[test]

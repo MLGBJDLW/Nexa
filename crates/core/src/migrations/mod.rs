@@ -2908,6 +2908,7 @@ Every answer that uses knowledge base search results.
     ("v161_shared_model_connections", include_str!("v161_shared_model_connections.sql")),
     ("v162_conversation_model_selection", include_str!("v162_conversation_model_selection.sql")),
     ("v163_history_search", include_str!("v163_history_search.sql")),
+    ("v164_file_checkpoint_frames", "ALTER TABLE file_checkpoints ADD COLUMN compressed_before BLOB;"),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

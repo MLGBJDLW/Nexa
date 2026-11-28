@@ -136,9 +136,11 @@ impl FileChangeScope {
 
     pub fn record_checkpoint(&self, checkpoint: &FileCheckpoint, after: &[u8]) {
         let result = (|| {
-            let before: Option<Vec<u8>> = self.db.conn().query_row(
-                "SELECT CASE WHEN length(content_before) <= ?2 THEN content_before ELSE NULL END FROM file_checkpoints WHERE id=?1",
-                params![checkpoint.id, MAX_CONTENT_BYTES], |row| row.get(0))?;
+            let before = if checkpoint.bytes_before <= MAX_CONTENT_BYTES as u64 {
+                self.db.file_checkpoint_bytes(&checkpoint.id)?
+            } else {
+                None
+            };
             let after_hash = blake3::hash(after).to_hex().to_string();
             let identity = crate::file_mutation::canonical_file_identity(std::path::Path::new(
                 &checkpoint.absolute_path,
@@ -164,11 +166,11 @@ impl FileChangeScope {
     /// live path that another mutation may already have changed.
     pub fn record_append(&self, checkpoint: &FileCheckpoint, suffix: &[u8]) {
         let result = (|| {
-            let mut after: Vec<u8> = self.db.conn().query_row(
-                "SELECT content_before FROM file_checkpoints WHERE id=?1",
-                [&checkpoint.id],
-                |row| row.get(0),
-            )?;
+            let mut after = match self.db.file_checkpoint_bytes(&checkpoint.id)? {
+                Some(bytes) => bytes,
+                None if !checkpoint.existed_before => Vec::new(),
+                None => return Err(CoreError::Internal("Missing file checkpoint bytes".into())),
+            };
             after.extend_from_slice(suffix);
             self.record_checkpoint(checkpoint, &after);
             Ok(())
