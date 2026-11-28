@@ -143,8 +143,8 @@ impl Tool for OpenInNexaTool {
                     .map(|warning| format!("\nNote: {warning}"))
                     .unwrap_or_default(),
                 receipt.browser.as_ref().map(|browser| format!(
-                    "\nBrowser target: sessionId={}, tabId={}, readiness={}. The tab is presented; background resources may still be loading. Continue with browser_session action=observe using these exact IDs to read the page and obtain a screenshot before interacting.",
-                    browser.session_id, browser.tab_id, browser.readiness
+                    "\nBrowser readiness: {}. To inspect or interact with this page, call computer_use with {}. Use the returned observation for the next action.",
+                    browser.readiness, serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":browser.session_id,"tab_id":browser.tab_id}})
                 )).unwrap_or_default()
             ),
             is_error: false,
