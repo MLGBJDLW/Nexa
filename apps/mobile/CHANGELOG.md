@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.5.0...nexa-mobile-v0.5.1) (2026-11-28)
+
+### Improvements
+
+- Run tasks in multiple conversations at the same time. The Task Center in the conversation drawer shows active and previous runs. Drafts, files, approvals, steering and cancellation stay with their chat. The Android notification can stop all foreground tasks.
+- Tap the message field to type immediately or long-press for the system editing menu. The rotating plus button opens a vertical action menu. Inline suggestions fit within the field, and expanded reasoning can be collapsed from its last line.
+- Use slash commands for common chat tasks or choose **Improve prompt** to preview a draft rewrite. Apply a suggestion before sending it. Supported connections can use the selected model.
+- Open **Meeting notes** from the conversation drawer to listen across speech segments, edit the transcript and prepare a summary or chat draft.
+- The model picker wraps long route details and identifies retired saved IDs. New file rollback checkpoints can use verified lossless compression.
+
 ## [0.5.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.2...nexa-mobile-v0.5.0) (2026-11-25)
 
 ### Breaking changes
