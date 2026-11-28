@@ -2951,14 +2951,99 @@
         ]
       },
       {
+        "id": "inclusionai/lingsante-3.1-air-vl",
+        "name": "inclusionAI: LingSante 3.1 Air VL",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-27",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/lingsante-3.1-air-vl/endpoints",
+        "contextTokens": 131072,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
+        "id": "tngtech/deepseek-r1t2-chimera",
+        "name": "TNG: DeepSeek R1T2 Chimera",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-26",
+        "documentationRef": "https://openrouter.ai/api/v1/models/tngtech/deepseek-r1t2-chimera/endpoints",
+        "contextTokens": 131072,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
         "id": "upstage/solar-pro-4-contributor",
-        "name": "Upstage: Solar Pro 4 Contributor (training data sharing)",
+        "name": "Data sharing: Solar Pro 4 Contributor (Upstage may use prompts and outputs to improve its models)",
         "source": "official",
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
         "lastVerifiedAt": "2026-11-25",
-        "documentationRef": "https://openrouter.ai/api/v1/models/upstage/solar-pro-4-contributor/endpoints",
+        "documentationRef": "https://openrouter.ai/upstage/solar-pro-4-contributor",
         "contextTokens": 524288,
         "maxOutputTokens": 131072,
         "inputModalities": [
@@ -11917,17 +12002,11 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
-          "frequency_penalty",
           "include_reasoning",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
-          "repetition_penalty",
-          "response_format",
-          "seed",
-          "stop",
           "temperature",
           "tool_choice",
           "tools",
@@ -11935,8 +12014,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/z-ai/glm-4.6v",
+        "lastVerifiedAt": "2026-11-27",
+        "documentationRef": "https://openrouter.ai/api/v1/models/z-ai/glm-4.6v/endpoints",
         "maxOutputTokens": 32768
       },
       {
@@ -15684,6 +15763,8 @@
       },
       {
         "id": "google/gemini-2.5-flash",
+        "status": "deprecated",
+        "deprecationDate": "2026-12-01",
         "name": "Google: Gemini 2.5 Flash",
         "tagKey": "providers.tagFast",
         "capabilities": {
@@ -15725,12 +15806,14 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-26",
         "documentationRef": "https://openrouter.ai/google/gemini-2.5-flash",
         "maxOutputTokens": 65535
       },
       {
         "id": "google/gemini-2.5-pro",
+        "status": "deprecated",
+        "deprecationDate": "2026-12-01",
         "name": "Google: Gemini 2.5 Pro",
         "tagKey": "providers.tagBest",
         "capabilities": {
@@ -15771,7 +15854,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-26",
         "documentationRef": "https://openrouter.ai/google/gemini-2.5-pro",
         "maxOutputTokens": 65536
       },
@@ -19922,7 +20005,7 @@
       {
         "id": "unbiased/pareto-26.10-preview",
         "name": "Pareto 26.10 Preview",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19945,7 +20028,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-26",
         "documentationRef": "https://openrouter.ai/unbiased/pareto-26.10-preview",
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -22641,11 +22724,11 @@
         "contextTokens": 262144,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-26",
         "inputModalities": [
           "text",
           "image"
@@ -23388,14 +23471,14 @@
         "id": "unbiased/pareto-26.10",
         "name": "Pareto 26.10",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "product_ready",
         "recommended": false,
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-26",
         "releaseDate": "2026-10-15",
         "inputModalities": [
           "text",
@@ -24379,6 +24462,44 @@
             "effortBudgetExclusive": true
           }
         }
+      },
+      {
+        "id": "inclusionai/ling-3.2-flash",
+        "name": "inclusionAI: Ling 3.2 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-28",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/ling-3.2-flash/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
       },
       {
         "id": "inclusionai/ling-3.2-flash:free",
@@ -32648,19 +32769,19 @@
       },
       {
         "id": "qwen4-max-preview",
-        "name": "Qwen4 Max Preview",
+        "name": "Qwen4 Max Preview (routes at standard rate)",
         "aliases": [
           "qwen4.0-max-preview"
         ],
         "recommended": false,
-        "status": "preview",
+        "status": "deprecated",
         "access": "account_enablement",
         "source": "official",
         "productReadiness": "product_ready",
         "regions": [
           "cn-beijing"
         ],
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-26",
         "modalities": [
           "text",
           "image",
@@ -32691,8 +32812,9 @@
             }
           }
         },
-        "deprecationDate": "2026-11-26",
-        "documentationRef": "https://help.aliyun.com/en/model-studio/qwen4-max-preview"
+        "deprecationDate": "2026-11-25",
+        "replacementModelId": "qwen4-max",
+        "documentationRef": "https://docs.bailian.console.aliyun.com/zh/model-studio/token-plan-product-updates"
       },
       {
         "id": "qwen3.8-max-preview",
@@ -33676,19 +33798,19 @@
       },
       {
         "id": "qwen4-max-preview",
-        "name": "Qwen4 Max Preview",
+        "name": "Qwen4 Max Preview (routes at standard rate)",
         "aliases": [
           "qwen4.0-max-preview"
         ],
         "recommended": false,
-        "status": "preview",
+        "status": "deprecated",
         "access": "account_enablement",
         "source": "official",
         "productReadiness": "known",
         "regions": [
           "ap-southeast-1"
         ],
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-26",
         "modalities": [
           "text",
           "image",
@@ -33719,8 +33841,9 @@
             }
           }
         },
-        "deprecationDate": "2026-11-26",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/qwen4-max-preview"
+        "deprecationDate": "2026-11-25",
+        "replacementModelId": "qwen4-max",
+        "documentationRef": "https://docs.modelstudio.console.alibabacloud.com/en/model-studio/token-plan-product-updates"
       }
     ]
   },

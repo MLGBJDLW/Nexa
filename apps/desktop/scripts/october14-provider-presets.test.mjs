@@ -52,7 +52,8 @@ test('aggregators keep complete routed metadata and independent regional model a
     const entry = model(provider, 'qwen4-max-preview');
     assert.deepEqual(entry.capabilities.reasoning.effortLevels, ['low', 'medium', 'xhigh']);
     assert.equal(entry.maxOutputTokens, 393_216);
-    assert.equal(entry.status, 'preview');
+    assert.equal(entry.status, 'deprecated');
+    assert.equal(entry.replacementModelId, 'qwen4-max');
   }
   for (const provider of ['alibaba-model-studio', 'qwen-cloud-intl']) {
     assert.equal(providers.find(item => item.id === provider).models.some(item => item.id === 'qwen4-max-preview'), false);
@@ -212,7 +213,7 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   const qwen4 = model('qwen-token-plan-cn', 'qwen4-max-preview');
   assert.equal(qwen4.maxOutputTokens, 393_216);
   assert.equal(qwen4.capabilities.reasoning.defaultEffort, 'xhigh');
-  assert.equal(qwen4.deprecationDate, '2026-11-26');
+  assert.equal(qwen4.deprecationDate, '2026-11-25');
   const globalQwen4 = model('qwen-token-plan-global', 'qwen4-max-preview');
   assert.deepEqual(globalQwen4.regions, ['ap-southeast-1']);
   assert.deepEqual(globalQwen4.capabilities.reasoning.effortLevels, ['low', 'medium', 'xhigh']);

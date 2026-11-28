@@ -298,11 +298,36 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
     const id = normalizeModelId(observation.id);
     const current = bundled.get(id);
     const bundledTiers = current?.capabilities?.serviceTiers;
-    const model = bundledTiers
+    let model = bundledTiers
       ? { ...observation, capabilities: { ...observation.capabilities,
         serviceTiers: observation.capabilities?.serviceTiers ?? bundledTiers,
         serviceTiersUntil: current?.capabilities?.serviceTiersUntil ?? observation.capabilities?.serviceTiersUntil } }
       : observation;
+    // A previously persisted OpenRouter snapshot can still have the bare upstream name.
+    if (preset?.id === 'openrouter' && id === 'upstage/solar-pro-4-contributor' && current) {
+      model = {
+        ...model,
+        name: current.name,
+        descriptor: { ...model.descriptor, displayName: current.descriptor.displayName },
+      };
+    }
+    // Alibaba still accepts the legacy Token Plan ID, which the vendor routes at standard rates.
+    // A live presence or stale catalog name is not evidence that its preview has been restored.
+    if ((preset?.id === 'qwen-token-plan-cn' || preset?.id === 'qwen-token-plan-global')
+      && id === 'qwen4-max-preview' && current?.descriptor.lifecycle === 'deprecated') {
+      model = {
+        ...model,
+        name: current.name,
+        status: current.status,
+        descriptor: {
+          ...model.descriptor,
+          displayName: current.descriptor.displayName,
+          lifecycle: current.descriptor.lifecycle,
+          deprecationDate: current.descriptor.deprecationDate,
+          replacementModelId: current.descriptor.replacementModelId,
+        },
+      };
+    }
     const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
     // A previous release may have cached the model before its contract changed.
     // Account availability and inference receipts are independent of that contract.

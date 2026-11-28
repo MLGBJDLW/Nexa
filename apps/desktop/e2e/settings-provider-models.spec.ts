@@ -1159,7 +1159,10 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "discover_openrouter_image_models_cmd":
-          return [{ id: 'test-publisher/new-image', name: 'New discovered image', outputFormats: ['jpeg'], source: 'discovered', qualityOptions: ['high'], sizeOptions: [{ value: '2K', label: '2K' }], inputModalities: ['text'], outputModalities: ['image'] }];
+          return [
+            { id: 'google/gemini-nano-banana-2.1', name: 'Nano Banana 2.1', inputModalities: ['text'], outputModalities: ['image'], outputFormats: ['png'], recommended: true, productReadiness: 'product_ready' },
+            { id: 'test-publisher/new-image', name: 'New discovered image', outputFormats: ['jpeg'], source: 'discovered', qualityOptions: ['high'], sizeOptions: [{ value: '2K', label: '2K' }], inputModalities: ['text'], outputModalities: ['image'] },
+          ];
         case "synthesize_speech_preview_cmd": {
           const preview = {
             assetId: "speech-preview",
@@ -1704,6 +1707,42 @@ test("provider refresh keeps account-discovered models selectable and cached", a
 
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage)
     .some((key) => key.startsWith("nexa-provider-model-catalog-v1:")))).toBe(true);
+});
+
+test("OpenRouter contributor keeps its data-use warning in the chooser after an account refresh", async ({ page }) => {
+  await page.goto("/settings");
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      const result = await original(command, args);
+      if (command !== "refresh_provider_model_catalog_cmd" || args.config.provider !== "openrouter") return result;
+      return {
+        ...result,
+        refreshedAt: "2026-11-27T00:00:00Z",
+        models: [...result.models, {
+          id: "upstage/solar-pro-4-contributor", name: "Upstage: Solar Pro 4 Contributor", source: "official",
+          status: "active", recommended: false, regions: ["global"], lastVerifiedAt: "2026-11-27",
+          modalities: ["text"], supportsTools: true, supportsStructuredOutput: true, reasoningEfforts: [],
+        }],
+      };
+    };
+  });
+  await page.getByRole("tab", { name: "AI Providers" }).click();
+  await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("button", { name: /^OpenRouter/ }).click();
+  await page.getByPlaceholder("sk-...").fill("router-fixture");
+  await page.getByRole("button", { name: "Refresh models" }).click();
+  await expect(page.getByTestId("provider-model-catalog-status")).toContainText("Live account catalog");
+  const chooser = page.getByTestId("default-model-field").locator("[data-nexa-select-trigger]");
+  await expectNexaValue(chooser, "google/gemini-4-hydrogen");
+  await chooser.click();
+  await page.locator("[cmdk-input]").fill("Solar Pro 4 Contributor");
+  const disclosure = page.locator('[role="option"][data-value="upstage/solar-pro-4-contributor"]')
+    .getByText(/Data sharing:.*Upstage may use prompts and outputs/);
+  await expect(disclosure).toBeVisible();
+  await expect(disclosure).toHaveCSS("white-space", "normal");
+  await expect(disclosure).not.toHaveCSS("text-overflow", "ellipsis");
 });
 
 test("an edited public base URL cannot inherit catalog identity or capabilities", async ({ page }) => {
@@ -3328,12 +3367,47 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   const image = page.getByTestId('image-generation-settings-panel');
   await image.getByRole('button', { name: 'Expand image generation settings' }).click();
   await selectControl(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').first(), 'openrouter-images');
-  await selectControl(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'test-publisher/new-image');
-  await expectNexaValue(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'test-publisher/new-image');
+  const imageModel = image.getByRole('button', { name: 'Model catalog picker' });
+  await selectControl(imageModel, 'test-publisher/new-image');
+  await expectNexaValue(imageModel, 'test-publisher/new-image');
   await expect(image).toContainText('2K');
   await image.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { outputFormat?: string } } }).__savedAppConfig?.imageGeneration?.outputFormat)).toBe('jpeg');
   expect(await image.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('saved OpenRouter image retirement stays selected but disabled after live discovery', async ({ page }) => {
+  const retired = 'recraft/recraft-v4.1-flash-v2:free';
+  await page.goto('/settings');
+  await page.evaluate((model) => {
+    localStorage.setItem('nexa-e2e-saved-app-config', JSON.stringify({
+      imageGeneration: {
+        source: 'apiKey',
+        provider: 'openrouter',
+        apiStyle: 'openrouter_images',
+        apiKey: 'test-image-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model,
+        size: 'auto',
+        quality: null,
+        outputFormat: 'png',
+      },
+    }));
+  }, retired);
+  await page.reload();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
+  const panel = page.getByTestId('image-generation-settings-panel');
+  await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
+  const model = panel.getByRole('button', { name: 'Model catalog picker' });
+  await expectNexaValue(model, retired);
+  await model.click();
+  await expect(page.getByRole('option', { name: /New discovered image/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Recraft V4.1 Flash V2.*free/ })).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { __savedAppConfig?: { imageGeneration?: { model?: string } } }).__savedAppConfig?.imageGeneration?.model,
+  )).toBe(retired);
 });
 
 test('image generation source follows chat or explicitly selects subscription and API', async ({ page }, testInfo) => {

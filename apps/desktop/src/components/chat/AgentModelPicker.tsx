@@ -33,6 +33,7 @@ import {
 } from '../../lib/reasoningControls';
 import {
   canonicalModelProviderId,
+  hasVisibleContributorDisclosure,
   modelEndpointId,
   projectModelDescriptor,
 } from '../../lib/modelCatalog';
@@ -890,7 +891,7 @@ export function AgentModelPicker({
                               size="sm"
                             />
                             <span className="min-w-0">
-                              <span className="truncate text-xs font-medium text-text-primary">
+                              <span className={`block text-xs font-medium text-text-primary ${hasVisibleContributorDisclosure(row.model) ? "whitespace-normal break-words" : "truncate"}`}>
                                 {row.model.name}
                               </span>
                               <span className="mt-0.5 block truncate text-[10px] leading-3 text-text-tertiary">
