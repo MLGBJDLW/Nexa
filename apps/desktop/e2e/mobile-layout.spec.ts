@@ -363,6 +363,33 @@ test('the first phone tap accepts input, long press keeps editing and the microp
 });
 
 
+test('phone task navigation isolates drafts and meeting notes and prompt upgrades require an explicit choice', async ({page}) => {
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
+  const input = page.getByRole('textbox',{name:'Message',exact:true});
+  await input.fill('Compare both options');
+  await page.getByRole('button',{name:/Improve prompt/}).click();
+  await expectDraft(input, 'Compare both options');
+  await page.getByRole('button',{name:'Use this prompt'}).click();
+  await expectDraft(input, 'Compare the supplied options against the stated requirements.');
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Task Center'}).click();
+  await page.getByRole('button',{name:/Previous task/}).click();
+  await expectDraft(input, '');
+  await input.fill('/sum');
+  await page.getByRole('button',{name:'summarize',exact:true}).click();
+  await expectDraft(input, '/summarize ');
+  await input.fill('');
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Meeting notes'}).click();
+  const meeting = page.getByRole('dialog',{name:'Meeting notes'});
+  await meeting.getByRole('button',{name:'Voice input'}).click();
+  await meeting.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(meeting.getByRole('textbox')).toHaveValue('Hello from dictation');
+  await meeting.getByRole('button',{name:'Create summary'}).click();
+  await expectDraft(input, /Hello from dictation/);
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions.filter((item:any)=>item.method==='chat.start').length)).toBe(0);
+});
+
 test('phone schedules are created in the selected chat and changes carry its revision', async ({page}) => {
   await page.setViewportSize({width:360,height:780});
   await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');

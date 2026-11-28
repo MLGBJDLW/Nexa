@@ -123,7 +123,7 @@ export function renderMobileContinuity() {
   };
   let schedules: {id:string;definitionRevision:number;enabled:boolean;name:string}[] = [];
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-search-v1','chat-archive-search-v1','chat-steering-v1','chat-schedules-v1']}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-search-v1','chat-archive-search-v1','chat-steering-v1','chat-schedules-v1','chat-tasks-v1','chat-refine-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
@@ -135,6 +135,8 @@ export function renderMobileContinuity() {
       if (method==='chat.read' && params.conversationId==='e' && params.beforeOrder===7) return {messages:[{id:'archived-note',role:'user',content:'A previous decision.',sortOrder:6,totalChars:20}],beforeOrder:null};
       if (method==='chat.search') return {items:params.query==='旧记录' ? [{id:'old',title:'Previous work',messageId:'historical',messageOrder:7,snippet:'旧记录的正文'}] : [],next:null};
       if (method==='chat.read' && params.beforeOrder===8) return {messages:[{id:'historical',role:'user',content:'旧记录的正文',totalChars:6,sortOrder:7}],beforeOrder:null};
+      if (method==='chat.tasks') return {items:[{id:'run-old',conversationId:'old',title:'Previous task',status:'running',updatedAt:'2026-11-28T00:00:00Z'}],nextCursor:null};
+      if (method==='chat.refineDraft') return 'Compare the supplied options against the stated requirements.';
       if (method==='chat.list') {
         if (!projectsFixture || !new URLSearchParams(location.search).has('paged')) return {items:chats,nextCursor:null};
         const start = params.before ? chats.findIndex(item => item.id === params.before) + 1 : 0;

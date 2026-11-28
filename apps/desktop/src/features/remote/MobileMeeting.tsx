@@ -23,7 +23,7 @@ export function MobileMeeting({speech, open, onClose, onInsert}: {
   return <MobileDialog open={open} title={t('remote.meetingNotes')} onClose={onClose}>
     <div className="mobile-meeting">
       <div className="mobile-meeting-recorder"><span>{t(recording ? 'live.listening' : 'live.microphone')}</span>
-        {open && <NativeDictationInput speech={speech} disabled={false} onBusy={setRecording} onEvent={event => {
+        {open && <NativeDictationInput continuous speech={speech} disabled={false} onBusy={setRecording} onEvent={event => {
           const next = applyVoiceDictationEvent(latest.current, session.current, event);
           session.current = next.session; latest.current = next.draft; setText(next.draft);
         }}/>}

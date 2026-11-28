@@ -1,5 +1,6 @@
 import { MobileTasks } from './MobileTasks';
 import { MobileMeeting } from './MobileMeeting';
+import { findProviderPreset } from '../../lib/providerPresets';
 import { portableCommands } from '../../lib/portableChatCommands';
 import { resolveSlashCommandSelection } from '../../lib/slashCommands';
 import { PromptUpgrade } from '../../components/chat/PromptUpgrade';
@@ -194,7 +195,22 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     client.rpc<HistoryPage>('chat.search', { query, before }), [client]);
   const findArchivedHistory = useCallback((query: string, before: HistoryPage['next']) =>
     client.rpc<HistoryPage>('chat.search', { query, before, archived: true }), [client]);
-  const selectConversation = (id: string, hit?: HistoryHit) => {
+  const storedDrafts = useRef(new Map<string, {text: string; attachments: ImageAttachment[]}>());
+  const selectConversation = (id: string, hit?: HistoryHit, transferDraft = false) => {
+    const previous = selectedConversation.current;
+    if (id !== previous && !archivePreview) {
+      // The first send promotes its draft to a durable ID. Ordinary navigation
+      // restores the destination's draft without carrying a file into another chat.
+      if (transferDraft) storedDrafts.current.delete(previous);
+      else {
+        if (draftRef.current || attachmentsRef.current.length) storedDrafts.current.set(previous, {text:draftRef.current, attachments:attachmentsRef.current});
+        else storedDrafts.current.delete(previous);
+        const saved = storedDrafts.current.get(id);
+        draftRef.current = saved?.text ?? '';
+        setDraft(draftRef.current); setAttachments(saved?.attachments ?? []);
+      }
+      setOptionsOpen(false); setMeetingOpen(false);
+    }
     setArchivedHit(null);
     setSelectedHit(hit ?? null);
     selectedConversation.current = id;
@@ -212,7 +228,26 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     return saved === 'ask' || saved === 'allow_all' || saved === 'deny_all' ? { ...defaultComposerSettings, toolApprovalMode: saved } : defaultComposerSettings;
   });
   useEffect(() => { if (client.approvalModeAvailable) localStorage.setItem(`nexa.approval.${client.paired.manifest.serverId}`, composerSettings.toolApprovalMode ?? 'ask'); }, [client, composerSettings.toolApprovalMode]);
-  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const [readingFiles, setReadingFiles] = useState<ReadonlySet<string>>(() => new Set());
+  const loadingAttachments = readingFiles.has(conversationId);
+  function onFilesBusy(busy: boolean) {
+    setReadingFiles(previous => {
+      const next = new Set(previous);
+      if (busy) next.add(conversationId); else next.delete(conversationId);
+      return next;
+    });
+  }
+  function updateDraftFiles(items: ImageAttachment[]) {
+    if (selectedConversation.current === conversationId) {
+      attachmentsRef.current = items;
+      setAttachments(items);
+    } else {
+      const text = storedDrafts.current.get(conversationId)?.text ?? '';
+      storedDrafts.current.set(conversationId, {text, attachments:items});
+    }
+  }
   const [sending, setSending] = useState(false);
   const sendLock = useRef(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
@@ -501,7 +536,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
     const questions = async () => {
       const expectedRun = runId;
       const [nextApprovals, nextInteractions] = await Promise.all([
-        client.rpc<Approval[]>('approvals.list'),
+        client.approvalsFor?.<Approval[]>(conversationId) ?? client.rpc<Approval[]>('approvals.list'),
         client.rpc<Interaction[]>('interactions.list', { conversationId }),
       ]);
       if (valid() && runId === expectedRun) {
@@ -819,7 +854,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           scope.current === generation &&
           selectedConversation.current === conversationId
         )
-          selectConversation(id);
+          selectConversation(id, undefined, true);
         rememberCreated(conversation);
       }
       // The chat now has a durable ID. On a failed move, a second send
@@ -959,6 +994,8 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
   }, [running, runStatus, lastMessage, finalMessageId, timeline, t]);
   const followups = !sending && !dictating && !draft && !attachments.length && suggestions?.key !== dismissedFollowup ? suggestions : null;
   const ghostPrompt = followups?.items[0]?.prompt;
+  const selectedProvider = connections.find(item => item.id === connectionId)?.provider;
+  const modelRefinement = client.paired.manifest.capabilities?.includes('chat-refine-v1') && (!selectedProvider || !findProviderPreset({provider:selectedProvider})?.runtime);
   const draftProject = !conversationId && projectView?.projects.find(project => project.id === projectView.selectedId);
   const providerControls = <>
       {connections.length > 0 && (mobile ? <NexaCombobox ariaLabel={t('remote.providerConnection')} className={remoteField} value={connectionId} disabled={sending} onValueChange={id=>chooseRoute(id,null)} options={connections.map(item=>({value:item.id,label:item.name,description:item.model}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}/> : <select
@@ -1326,7 +1363,9 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
               }}>{t('chat.editDraft')}</button>}
           </div>
         )}</div>}
-        {mobile && !running && !sending && !dictating && <PromptUpgrade key={conversationId} draft={draft} onApply={text => { setDraft(text); composerInput.current?.focus(); }}/>}
+        {mobile && !running && !sending && !dictating && <PromptUpgrade key={JSON.stringify([conversationId, connectionId, modelSelection])} draft={draft}
+          model={modelSelection?.model ?? connections.find(item => item.id === connectionId)?.model}
+          refine={connectionId && modelRefinement ? text => client.rpc<string>('chat.refineDraft', {connectionId, modelSelection, draft:text}) : undefined} onApply={text => { setDraft(text); composerInput.current?.focus(); }}/>}
         {!running && matchingCommands.length > 0 && <div className="mobile-composer-menu mobile-command-list" aria-label={t('nav.commandPalette')}>
           {matchingCommands.map(command => <button key={command.name} type="button" onClick={() => {
             setDraft('/' + command.name + ' '); composerInput.current?.focus();
@@ -1356,7 +1395,7 @@ function RemoteChatSession({ client, initialDraft, onDraftConsumed, emptyState, 
           <SquarePen size={16}/>
         </button>}
         </div>
-        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div id="remote-composer-options" className={mobile ? "mobile-composer-menu" : "mb-3"}>{mobile && !running && <button className="mobile-drawer-new" type="button" onClick={() => { setOptionsOpen(false); setDraft(current => current || '/'); composerInput.current?.focus(); }} disabled={!!draft}><Slash size={16}/>{t('nav.commandPalette')}</button>}<RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
+        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div id="remote-composer-options" className={mobile ? "mobile-composer-menu" : "mb-3"}>{mobile && !running && <button className="mobile-drawer-new" type="button" onClick={() => { setOptionsOpen(false); setDraft(current => current || '/'); composerInput.current?.focus(); }} disabled={!!draft}><Slash size={16}/>{t('nav.commandPalette')}</button>}<RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={updateDraftFiles} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running || loadingAttachments} onBusy={onFilesBusy} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
           {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}
           {client.approvalModeAvailable && <label className="mobile-approval-chip" data-mode={composerSettings.toolApprovalMode ?? 'ask'} title={t('settings.toolApproval')}>
