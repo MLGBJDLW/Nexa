@@ -2240,8 +2240,14 @@ mod tests {
         let openrouter_open =
             model_limits_from_catalog(ProviderType::OpenRouter, "qwen/qwen3.8-2.4t-a95b")
                 .expect("OpenRouter Qwen3.8 open flagship should expose its endpoint limits");
-        assert_eq!(openrouter_open.context_tokens, Some(1_048_576));
-        assert_eq!(openrouter_open.max_output_tokens, Some(65_536));
+        assert_eq!(openrouter_open.context_tokens, Some(1_000_000));
+        assert_eq!(openrouter_open.max_output_tokens, Some(900_000));
+
+        let alibaba_open =
+            model_limits_from_catalog(ProviderType::AlibabaModelStudio, "qwen3.8-2.4t-a95b")
+                .expect("Alibaba Model Studio should expose its own hosted limits");
+        assert_eq!(alibaba_open.context_tokens, Some(1_000_000));
+        assert_eq!(alibaba_open.max_output_tokens, Some(131_072));
 
         for model in [
             "google/gemini-3.8-flash",

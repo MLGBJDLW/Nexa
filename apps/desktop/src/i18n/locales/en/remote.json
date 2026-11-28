@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "This desktop cannot capture a screen. You can still view an authorized Android phone."
+  "screenHostUnsupported": "This desktop cannot capture a screen. You can still view an authorized Android phone.",
+  "improvePrompt": "Improve prompt",
+  "usePrompt": "Use this prompt",
+  "meetingNotes": "Meeting notes",
+  "meetingInstructions": "Create meeting minutes with decisions, action items, owners and due dates when stated."
 }

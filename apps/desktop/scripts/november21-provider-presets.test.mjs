@@ -46,7 +46,7 @@ test('DaisyRose hosted boundaries remain distinct from other aggregator and open
   assert.equal(row.recommended, false);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-flash').contextTokens, 1_048_576);
   assert.equal(model('openrouter', 'xiaomi/mimo-v2.6-pro').contextTokens, 1_048_576);
-  assert.equal(model('openrouter', 'deepseek/deepseek-v4-flash-vision-exp').maxOutputTokens, 393_216);
+  assert.equal(model('openrouter', 'deepseek/deepseek-v4-flash-vision-exp').maxOutputTokens, 262_144);
 });
 
 test('Macaron Venti Pro is an opt-in Singapore cloud route, not a token-plan model', () => {

@@ -6,6 +6,8 @@ mod history_search;
 pub use history_search::HistorySearchPage;
 pub mod memory;
 pub(crate) mod model_selection;
+mod refine_draft;
+pub use refine_draft::refine_draft;
 mod remote_views;
 mod storage_management;
 pub use storage_management::{

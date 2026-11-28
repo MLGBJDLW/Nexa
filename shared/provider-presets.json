@@ -6065,11 +6065,11 @@
         "id": "qwen/qwen3.8-2.4t-a95b",
         "name": "Qwen: Qwen3.8 2.4T A95B",
         "tagKey": "providers.tagMostIntelligent",
-        "contextTokens": 1048576,
-        "maxOutputTokens": 65536,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 900000,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "modalities": [
           "text"
         ],
@@ -6129,7 +6129,7 @@
         "maxOutputTokens": 131072,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "modalities": [
           "text",
           "image",
@@ -6168,6 +6168,7 @@
           "include_reasoning",
           "logit_bias",
           "logprobs",
+          "max_completion_tokens",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -7904,6 +7905,7 @@
           "include_reasoning",
           "logit_bias",
           "logprobs",
+          "max_completion_tokens",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -7921,7 +7923,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.6-35b-a3b",
         "maxOutputTokens": 235929
       },
@@ -8143,7 +8145,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "releaseDate": "2026-09-10",
         "inputModalities": [
           "text",
@@ -8155,7 +8157,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 393216,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -9860,9 +9862,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-9b",
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 40960
       },
       {
         "id": "openai/gpt-5.4-pro",
@@ -10274,7 +10276,6 @@
           "max_tokens",
           "presence_penalty",
           "reasoning",
-          "repetition_penalty",
           "response_format",
           "seed",
           "stop",
@@ -10287,7 +10288,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-122b-a10b",
         "maxOutputTokens": 65536
       },
@@ -10700,9 +10701,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-16",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-397b-a17b",
-        "maxOutputTokens": 81920
+        "maxOutputTokens": 235929
       },
       {
         "id": "minimax/minimax-m2.5:free",
@@ -11096,9 +11097,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2.5/endpoints",
-        "maxOutputTokens": 235929,
+        "maxOutputTokens": 131072,
         "status": "active",
         "recommended": false
       },
@@ -13532,7 +13533,7 @@
             "defaultEnabled": true
           }
         },
-        "contextTokens": 204800,
+        "contextTokens": 202752,
         "inputModalities": [
           "text"
         ],
@@ -13561,7 +13562,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/z-ai/glm-4.6",
         "maxOutputTokens": 131072
       },
@@ -14270,10 +14271,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2-0905/endpoints",
         "maxOutputTokens": 98304,
-        "status": "removed",
+        "status": "active",
         "recommended": false
       },
       {
@@ -14559,15 +14560,10 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "supportedParameters": [
-          "frequency_penalty",
           "include_reasoning",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
-          "repetition_penalty",
           "response_format",
-          "seed",
-          "stop",
           "temperature",
           "tool_choice",
           "tools",
@@ -14575,7 +14571,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/api/v1/models",
         "maxOutputTokens": 16384,
         "status": "deprecated",
@@ -15180,11 +15176,7 @@
           "frequency_penalty",
           "include_reasoning",
           "max_tokens",
-          "presence_penalty",
           "reasoning",
-          "repetition_penalty",
-          "seed",
-          "stop",
           "temperature",
           "tool_choice",
           "tools",
@@ -15192,7 +15184,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/z-ai/glm-4.5-air",
         "maxOutputTokens": 98304
       },
@@ -15478,10 +15470,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k2/endpoints",
         "maxOutputTokens": 98304,
-        "status": "removed",
+        "status": "active",
         "recommended": false
       },
       {
@@ -15996,9 +15988,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-r1-0528",
-        "maxOutputTokens": 32000
+        "maxOutputTokens": 147456
       },
       {
         "id": "anthropic/claude-opus-4",
@@ -16809,7 +16801,12 @@
         "supportedParameters": [
           "frequency_penalty",
           "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "repetition_penalty",
           "response_format",
+          "seed",
+          "stop",
           "structured_outputs",
           "temperature",
           "tool_choice",
@@ -16818,7 +16815,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-chat-v3-0324",
         "maxOutputTokens": 147456
       },
@@ -18019,9 +18016,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/meta-llama/llama-3.3-70b-instruct",
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 32768
       },
       {
         "id": "amazon/nova-lite-v1",
@@ -20141,16 +20138,12 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "max_completion_tokens",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
-          "repetition_penalty",
           "response_format",
-          "seed",
           "stop",
           "structured_outputs",
           "temperature",
@@ -20160,7 +20153,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-23",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/tencent/hy4-preview",
         "maxOutputTokens": 64000,
         "capabilities": {
@@ -20393,9 +20386,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-vision-exp",
-        "maxOutputTokens": 393216,
+        "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -20757,9 +20750,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-pro-0813",
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 393216,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -21237,9 +21230,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/meta/muse-glimmer-30b",
-        "maxOutputTokens": 117964,
+        "maxOutputTokens": 16384,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -21928,6 +21921,7 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
+          "logprobs",
           "max_tokens",
           "min_p",
           "presence_penalty",
@@ -21939,10 +21933,11 @@
           "tool_choice",
           "tools",
           "top_k",
+          "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/thinkingmachines/inkling",
         "maxOutputTokens": 471859,
         "capabilities": {
@@ -23075,7 +23070,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-24",
+        "lastVerifiedAt": "2026-11-28",
         "inputModalities": [
           "text",
           "image",
@@ -23118,7 +23113,7 @@
           }
         },
         "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-super-vl",
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 131072
       },
       {
         "id": "nvidia/nemotron-3.5-super-vl:free",
@@ -23412,7 +23407,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-19",
+        "lastVerifiedAt": "2026-11-28",
         "releaseDate": "2026-10-16",
         "inputModalities": [
           "text"
@@ -23423,7 +23418,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -23946,10 +23941,10 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/particle-ai/particle-1",
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943718,
         "inputModalities": [
           "text",
           "image"
@@ -24279,10 +24274,10 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-13",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/api/v1/models/particle-ai/particle-1:free/endpoints",
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943718,
         "inputModalities": [
           "text",
           "image"
@@ -24558,7 +24553,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-25",
+        "lastVerifiedAt": "2026-11-28",
         "documentationRef": "https://openrouter.ai/tencent/hy4-flash",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
@@ -24575,6 +24570,7 @@
           "frequency_penalty",
           "include_reasoning",
           "logit_bias",
+          "logprobs",
           "max_completion_tokens",
           "max_tokens",
           "min_p",
@@ -24589,6 +24585,7 @@
           "tool_choice",
           "tools",
           "top_k",
+          "top_logprobs",
           "top_p"
         ],
         "capabilities": {
@@ -31544,6 +31541,29 @@
           "reasoning": null
         },
         "supportsStructuredOutput": true
+      },
+      {
+        "id": "XingChenAGI/Xing4.1-Preview",
+        "name": "Xing4.1-Preview",
+        "source": "official",
+        "status": "preview",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-28",
+        "documentationRef": "https://www.siliconflow.cn/models/XingChenAGI%2FXing4.1-Preview",
+        "contextTokens": 1048576,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false
+        }
       },
       {
         "id": "XingChenAGI/Xing4.0-29B",

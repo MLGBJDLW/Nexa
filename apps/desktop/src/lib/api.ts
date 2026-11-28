@@ -1452,6 +1452,9 @@ export const getAgentTaskRunEvents = (runId: string) =>
 export const getAgentTaskRunPlan = (runId: string) =>
   invoke<Record<string, unknown> | null>('get_agent_task_run_plan_cmd', { runId });
 
+export const refineChatDraft = (connectionId: string, model: string, draft: string) =>
+  invoke<string>('refine_chat_draft_cmd', {connectionId, modelSelection: {model}, draft});
+
 export interface DatabaseStorageStats { allocatedBytes: number; reusableBytes: number; mainFileBytes: number | null; walBytes: number | null }
 export const getDatabaseStorageStats = () => invoke<DatabaseStorageStats>('get_database_storage_stats_cmd');
 export interface StorageDetail { path: string; table: string | null; bytes: number; cleanup: string }

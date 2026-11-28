@@ -267,6 +267,37 @@ async fn mobile_local(
             .db
             .remote_conversations(input["before"].as_str())
             .map_err(|e| e.to_string()),
+        "refineDraft" => {
+            let mut config = connections::get(&app, Some(&string("connectionId")?)).await?;
+            if let Some(selection) = serde_json::from_value::<
+                Option<nexa_core::conversation::TurnModelSelection>,
+            >(input["modelSelection"].clone())
+            .map_err(|e| e.to_string())?
+            {
+                selection
+                    .apply_to_shared(&mut config)
+                    .map_err(|e| e.to_string())?;
+            }
+            nexa_core::conversation::refine_draft(
+                &state.db,
+                connections::provider_config(&config)?,
+                &config.model,
+                &string("draft")?,
+            )
+            .await
+            .map(Value::String)
+            .map_err(|e| e.to_string())
+        }
+        "tasks" => {
+            let before =
+                serde_json::from_value(input["before"].clone()).map_err(|e| e.to_string())?;
+            state
+                .db_executor
+                .read(move |db| db.remote_tasks(before))
+                .await
+                .map(|result| result.value)
+                .map_err(|e| e.to_string())
+        }
         "search" => {
             let query = string("query")?;
             let archived = input["archived"].as_bool().unwrap_or(false);

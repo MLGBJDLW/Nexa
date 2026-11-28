@@ -244,6 +244,16 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   await model.click();
   await expect(page.locator('[cmdk-item][role="option"]').nth(1)).toHaveAttribute('data-value','gpt-6.2-astra');
   await page.keyboard.press('Escape');
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
+  await page.getByRole('button', {name:'Provider', exact:true}).click();
+  await page.locator('[role="option"][data-value="openrouter"]').click();
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
+  await model.click();
+  await page.locator('.nexa-combobox-content[data-state="open"] [cmdk-input]').fill('Solar Pro 4 Contributor');
+  const disclosure = page.getByRole('option').getByText(/^Data sharing: Solar Pro 4 Contributor/);
+  await expect(disclosure).toHaveCSS('white-space', 'normal');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
   await page.getByRole('button', {name:'Provider', exact:true}).click();
   await page.locator('[role="option"][data-value="qwen-token-plan-cn"]').click();
   // This subscription requires an explicit model choice for the account.
@@ -251,13 +261,18 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   const save = page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true});
   await expect(save).toBeDisabled();
   await page.getByRole('button', {name:'Use custom model ID', exact:true}).click();
-  await page.getByRole('textbox', {name:'Model connection', exact:true}).fill('tenant-only-model');
+  const customId = page.getByRole('textbox', {name:'Model connection', exact:true});
+  await customId.fill('qwen3.8-max-preview');
+  await expect(page.getByRole('status').filter({hasText:'qwen3.8-max-preview'})).toContainText('retired');
+  await expect(save).toBeDisabled();
+  await customId.fill('tenant-only-model');
   await expect(save).toBeEnabled();
   await page.getByRole('button', {name:'Choose from preset models', exact:true}).click();
   await expect(save).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.some((call: any) => call.command === 'mobile_save_settings'))).toBe(false);
   await page.getByRole('button', {name:'Provider', exact:true}).click();
   await page.getByRole('option', {name:/^Anthropic/}).click();
+  await expect(page.locator('.nexa-combobox-content')).toHaveCount(0);
   await expect(model).toHaveAttribute('data-value','claude-opus-5-5');
   await model.click();
   await page.locator('.nexa-combobox-content[data-state="open"] [cmdk-input]').fill('Fable 5.2');
@@ -313,7 +328,7 @@ test('delete all archived chats includes unloaded pages and preserves active cha
 });
 
 
-test('holding the phone composer dictates into the draft and Plan is a distinct control',async({page})=>{
+test('the first phone tap accepts input, long press keeps editing and the microphone owns dictation',async({page})=>{
   await page.setViewportSize({width:320,height:740});
   await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
   const input=page.getByRole('textbox',{name:'Message',exact:true});
@@ -340,15 +355,14 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   const release=(type:'touchEnd'|'touchCancel')=>driver.send('Input.dispatchTouchEvent',{type,touchPoints:[]});
   const count=(method:string)=>page.evaluate(method=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method===method).length,method);
   await touchStart();await release('touchEnd');expect(await count('speech.listen')).toBe(0);
-  // Allow the short tap's double-click selection window to expire.
-  await page.waitForTimeout(380);
-  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(1);await release('touchEnd');
-  await expectDraft(input, 'Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
-  await input.fill('draft');await input.press('End');
-  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
-  await expect.poll(()=>count('speech.cancel')).toBe(1);await expectDraft(input, 'draft');
+  await expect(input).toBeFocused();
+  await driver.send('Input.insertText', {text:'draft'});
+  await expectDraft(input, 'draft');
+  await touchStart(); await page.waitForTimeout(650); await release('touchEnd');
+  expect(await count('speech.listen')).toBe(0);
+  expect(await input.evaluate(el => el.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true})))).toBe(true);
   await page.emulateMedia({reducedMotion:'no-preference'});
-  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);
+  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(1);
   const waveform = page.getByTestId('microphone-waveform');
   await expect(waveform).toBeVisible();
   await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:.82, text:'Hello'}));
@@ -363,6 +377,33 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   expect(started.params.executionMode).toBe('plan');
 });
 
+
+test('phone task navigation isolates drafts and meeting notes and prompt upgrades require an explicit choice', async ({page}) => {
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
+  const input = page.getByRole('textbox',{name:'Message',exact:true});
+  await input.fill('Compare both options');
+  await page.getByRole('button',{name:/Improve prompt/}).click();
+  await expectDraft(input, 'Compare both options');
+  await page.getByRole('button',{name:'Use this prompt'}).click();
+  await expectDraft(input, 'Compare the supplied options against the stated requirements.');
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Task Center'}).click();
+  await page.getByRole('button',{name:/Previous task/}).click();
+  await expectDraft(input, '');
+  await input.fill('/sum');
+  await page.getByRole('button',{name:'summarize',exact:true}).click();
+  await expectDraft(input, '/summarize ');
+  await input.fill('');
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Meeting notes'}).click();
+  const meeting = page.getByRole('dialog',{name:'Meeting notes'});
+  await meeting.getByRole('button',{name:'Voice input'}).click();
+  await meeting.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(meeting.getByRole('textbox')).toHaveValue('Hello from dictation');
+  await meeting.getByRole('button',{name:'Create summary'}).click();
+  await expectDraft(input, /Hello from dictation/);
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions.filter((item:any)=>item.method==='chat.start').length)).toBe(0);
+});
 
 test('phone schedules are created in the selected chat and changes carry its revision', async ({page}) => {
   await page.setViewportSize({width:360,height:780});

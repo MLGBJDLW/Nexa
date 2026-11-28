@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "Este escritorio no puede capturar la pantalla. Puedes seguir viendo un teléfono Android autorizado."
+  "screenHostUnsupported": "Este escritorio no puede capturar la pantalla. Puedes seguir viendo un teléfono Android autorizado.",
+  "improvePrompt": "Mejorar instrucción",
+  "usePrompt": "Usar esta instrucción",
+  "meetingNotes": "Notas de reunión",
+  "meetingInstructions": "Resume las decisiones y tareas, con responsables y fechas cuando se indiquen."
 }

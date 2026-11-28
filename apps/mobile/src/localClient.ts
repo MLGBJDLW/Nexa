@@ -19,12 +19,12 @@ export class LocalClient implements RemoteChatClient {
   readonly exportFile = (path: string) => invoke('mobile_files', { action: 'share', relativePath: path });
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
-  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-archive-search-v1', 'chat-steering-v1', 'chat-schedules-v1'] } };
+  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-search-v1', 'chat-archive-search-v1', 'chat-steering-v1', 'chat-schedules-v1', 'chat-tasks-v1', 'chat-refine-v1'] } };
   state: RemoteConnection = { phase: 'connected', endpoint: null };
   private listeners = new Set<(event: RemoteEnvelope) => void>();
   private unlisteners: UnlistenFn[] = [];
   private closed = false;
-  private selected = '';
+  readonly approvalsFor = <T,>(conversationId: string) => local<T>('approvals', {conversationId});
   private continuation: { checkpointId: string; requestId: string } | null = null;
   readonly models = cachedModelChoices(connectionId => local<ModelChoices>('models', { connectionId }));
   subscribe(listener: (event: RemoteEnvelope) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -46,6 +46,8 @@ export class LocalClient implements RemoteChatClient {
     switch (method) {
       case 'connections.list': return local('connections');
       case 'models.list': return this.models(params.connectionId);
+      case 'chat.refineDraft': return local('refineDraft', params);
+      case 'chat.tasks': return local('tasks', params);
       case 'chat.list': return local('list',{before:params.before});
       case 'chat.search': return local('search', params);
       case 'chat.archive': return local('archive', { conversationId: params.conversationId });
@@ -57,7 +59,6 @@ export class LocalClient implements RemoteChatClient {
       case 'chat.delete': return local('delete', { conversationId: params.conversationId });
       case 'chat.create': return local('create', { connectionId:params.connectionId, modelSelection:params.modelSelection });
       case 'chat.read':
-        this.selected = params.conversationId;
         return local('messages',{conversationId:params.conversationId,beforeOrder:params.beforeOrder});
       case 'files.preview': return invoke('mobile_files', {action:'preview',relativePath:params.path,verifyContentHash:params.verifyContentHash,startLine:params.startLine,focusSlide:params.focusSlide});
       case 'files.data': return invoke('mobile_files', {action:'data',relativePath:params.path,expectedHash:params.expectedHash});
@@ -75,9 +76,7 @@ export class LocalClient implements RemoteChatClient {
         this.continuation = null; return result;
       }
       case 'chat.resume':
-        this.selected = params.conversationId;
         return local('events',{conversationId:params.conversationId,runId:params.runId,afterSequence:params.afterSequence,durableHighWater:params.durableHighWater});
-      case 'approvals.list': return local('approvals',{conversationId:this.selected});
       case 'approvals.respond': return local('approve',{requestId:params.requestId,allow:params.decision === 'allow_once'});
       case 'interactions.list': return [];
       default: throw new Error(`This operation is unavailable on the phone: ${method}`);

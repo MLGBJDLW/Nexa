@@ -41,6 +41,20 @@ finding. Stream deltas are coalesced within durable commits; original live token
 delivery remains unchanged. These changes reduce future row amplification, not
 the size of every existing database immediately.
 
+## Compacting an existing desktop database
+
+In Settings → Data & Privacy, the reusable database space is already free for future inserts. To estimate the disk space a compacted copy would occupy, use SQLite's `VACUUM INTO` on the Nexa database. Choose a new file in a private directory with enough free space. For a replacement candidate, fully quit Nexa, including the tray, before making the copy and keep it closed during verification.
+
+```sql
+PRAGMA page_size;
+PRAGMA freelist_count;
+VACUUM INTO 'nexa-compact.db';
+```
+
+Multiply the first two values to obtain the bytes held in free pages. The copy contains the database's committed records, including archived chats and run history. Opening the source and writing to a different file leaves the original available for comparison. SQLite sidecar files belong to their own database. Use an integrity check and verify message and search results in the copy before using it for recovery. The application does not rebuild a large database at startup.
+
+New file checkpoints use the existing lossless snapshot frame when it saves at least one eighth of the original size. File restore verifies the frame's length and digest before writing bytes back. Previously stored checkpoints remain readable.
+
 ## Existing downloads
 
 Fresh downloads use the shared model home. Populated legacy model folders remain

@@ -436,6 +436,16 @@ test('Agent pointer preparation scrolls targets into view and rejects covered el
   });
   expect(revalidated.bounds).toEqual(prepared.bounds);
 
+  await page.setContent(`<main style="height:64px; overflow:auto"><div style="height:180px"></div><button onclick="this.textContent='Clicked'">Nested target</button></main>`);
+  await page.addScriptTag({ content: runtimeSource });
+  const nested = await observe(page);
+  const nestedRef = nested.elements.find(element => element.name === 'Nested target')!.ref;
+  const point = await page.evaluate(value => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(value), actionInput(nested, 'click', nestedRef));
+  await page.mouse.click(point.bounds.x + point.bounds.width / 2, point.bounds.y + point.bounds.height / 2);
+  await expect(page.getByRole('button', {name:'Clicked'})).toBeVisible();
+
   await page.setContent(`
     <!doctype html>
     <button id="covered">Covered target</button>

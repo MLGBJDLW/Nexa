@@ -1098,6 +1098,21 @@ impl WorkflowIr {
             self.refresh_checkpoint();
             return;
         }
+        let preview_target = (tool_name == "open_in_nexa"
+            && self.verification_gates.iter().any(|gate| {
+                gate.required && gate.kind == VerificationGateKind::BrowserSessionObservation
+            }))
+        .then(|| artifacts.and_then(presented_preview_target))
+        .flatten();
+        if let Some(target) = &preview_target {
+            self.checkpoint.browser_observation_targets.retain(|prior| {
+                prior.session_id != target.session_id || prior.tab_id != target.tab_id
+            });
+            self.checkpoint
+                .browser_observation_targets
+                .push(target.clone());
+            self.require_fresh_browser_observation("Observe the HTML preview's exact browser session and tab before completing this browser task.");
+        }
         if tool_name == "browser_session" {
             let before = self.checkpoint.browser_observation_targets.len();
             self.checkpoint
@@ -1108,7 +1123,8 @@ impl WorkflowIr {
                     "The host confirmed an exact prior tab is absent. Its action effect and the requested goal remain unverified. Re-plan from current state and obtain a new screenshot-bearing observation; do not report the old action as successful.");
             }
         }
-        if tool_may_mutate_workspace(tool_name)
+        if preview_target.is_some()
+            || tool_may_mutate_workspace(tool_name)
             || (tool_name == "browser_session"
                 && browser_session_action_invalidates_observation(tool_arguments))
         {
@@ -2670,6 +2686,25 @@ fn normalized_tool_action(tool_arguments: Option<&str>) -> Option<String> {
                 .and_then(serde_json::Value::as_str)
                 .map(|action| action.trim().to_ascii_lowercase())
         })
+}
+
+fn presented_preview_target(artifacts: &serde_json::Value) -> Option<BrowserObservationTarget> {
+    let receipt = artifacts.get("artifacts").unwrap_or(artifacts);
+    if receipt.get("kind")?.as_str()? != "nexaPreview" {
+        return None;
+    }
+    let browser = receipt.pointer("/receipt/browser")?;
+    if browser.get("readiness")?.as_str()? != "presented" {
+        return None;
+    }
+    let target = BrowserObservationTarget {
+        session_id: browser.get("sessionId")?.as_str()?.to_owned(),
+        tab_id: browser.get("tabId")?.as_str()?.to_owned(),
+        consumed_observation_id: None,
+        opened_without_observation: true,
+        observation_not_before_ms: None,
+    };
+    target.is_bound().then_some(target)
 }
 
 fn browser_session_action_invalidates_observation(tool_arguments: Option<&str>) -> bool {
@@ -4400,6 +4435,24 @@ mod tests {
             "Observed the interacted browser tab.",
         );
         assert!(workflow.completion_allowed());
+        workflow.observe_tool_result("preview", "open_in_nexa", false, Some(&serde_json::json!({
+            "kind":"nexaPreview","receipt":{"browser":{"readiness":"presented","sessionId":"s","tabId":"new"}}
+        })), "Opened HTML.");
+        assert!(!workflow.completion_allowed());
+        for tab in ["old", "new"] {
+            let args = serde_json::json!({"action":"observe","sessionId":"s","tabId":tab});
+            let mut pixels = session_observation.clone();
+            pixels["data"] = serde_json::json!({"screenshotHash":"shot","observationId":"obs","sessionId":"s","tabId":tab});
+            workflow.observe_tool_result_with_arguments(
+                "inspect",
+                "browser_session",
+                Some(&args.to_string()),
+                false,
+                Some(&pixels),
+                "Observed tab.",
+            );
+            assert_eq!(workflow.completion_allowed(), tab == "new");
+        }
     }
 
     #[test]

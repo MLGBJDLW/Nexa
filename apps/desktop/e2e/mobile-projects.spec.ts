@@ -147,3 +147,28 @@ test('opening a Project finds older chats and retrying a first send preserves th
   await button(drawer, root).click();
   await expect(button(drawer, 'New work')).toHaveCount(0);
 });
+
+test('opening an archive preview while a draft file is loading preserves the active attachment', async ({page}) => {
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
+  await expect(page.locator('.native-plus')).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__MOBILE_CONTINUITY__.seedArchives();
+    const read = FileReader.prototype.readAsDataURL;
+    FileReader.prototype.readAsDataURL = function (file) {
+      (window as any).finishDraftRead = () => read.call(this, file);
+    };
+  });
+  await page.locator('.native-plus').click();
+  await page.locator('#remote-composer-options input[type=file]').first().setInputFiles({
+    name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('draft notes'),
+  });
+  await openDrawer(page);
+  await button(page,'Archived conversations').click();
+  await button(page,'Archived a').click();
+  await expect(page.locator('.native-chat-heading')).toHaveText('Archived a');
+  await page.evaluate(() => (window as any).finishDraftRead());
+  await page.locator('.native-chat-header button').first().click();
+  await page.keyboard.press('Escape');
+  await page.locator('.native-plus').click();
+  await expect(page.locator('#remote-composer-options')).toContainText('notes.txt');
+});

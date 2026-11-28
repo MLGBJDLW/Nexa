@@ -76,7 +76,7 @@ class TaskService : Service() {
         val notification = NotificationCompat.Builder(this, STATUS_CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
             .setContentTitle(getString(R.string.task_running)).setContentText(getString(if (remoteHost != null) R.string.phone_remote_control else R.string.task_progress))
             .setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(open).setOngoing(true).addAction(0,getString(R.string.task_stop),stop).build()
+            .setContentIntent(open).setOngoing(true).addAction(0,getString(if (remoteHost != null) R.string.task_stop else R.string.task_stop_all),stop).build()
         startForeground(NOTIFICATION, notification)
         if (wakeLock == null) {
             wakeLock = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Nexa:PhoneTask").apply { acquire() }

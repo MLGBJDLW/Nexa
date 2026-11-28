@@ -51,11 +51,13 @@ impl LocalRuntime {
         let Ok(_tick) = self.scheduler.try_lock() else {
             return Ok(json!({"status":"idle"}));
         };
-        if self.active.lock().await.is_some() {
-            return Ok(json!({"status":"idle"}));
-        }
         let now = chrono::Utc::now().to_rfc3339();
         for due in self.db.list_due_phone_schedules(&now).map_err(err)? {
+            if let Some(chat) = due.automation.conversation_id.as_deref() {
+                if self.active.lock().await.contains_key(chat) {
+                    continue;
+                }
+            }
             host.check_worker()?;
             let claim = self
                 .db
@@ -108,7 +110,7 @@ impl LocalRuntime {
             self.db
                 .validate_workflow_conversation(&due.automation, chat)
                 .map_err(err)?;
-            if self.active.lock().await.is_some()
+            if self.active.lock().await.contains_key(chat)
                 || self.db.workflow_conversation_is_busy(chat).map_err(err)?
             {
                 return Err(

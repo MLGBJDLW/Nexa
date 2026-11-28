@@ -57,6 +57,7 @@ import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
 import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
+import { PromptUpgrade } from './PromptUpgrade';
 import { MarkdownDraftEditor, type DraftEditorHandle } from './MarkdownDraftEditor';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
@@ -95,6 +96,7 @@ interface ChatInputProps {
   projectId?: string | null;
   agentRuntime?: 'api' | 'subscription' | 'acp';
   agentId?: string;
+  draftModel?: string;
   inputHistory?: string[];
   sessionControls?: ReactNode;
   onRestoreCheckpoint?: () => void;
@@ -384,6 +386,7 @@ export function ChatInput({
   projectId,
   agentRuntime = 'api',
   agentId,
+  draftModel,
   inputHistory = [],
   sessionControls,
   onRestoreCheckpoint,
@@ -2085,6 +2088,9 @@ export function ChatInput({
           onChange={handleFileSelect}
         />
 
+        {!inputLocked && !isStreaming && !activeSlashCommandId && <PromptUpgrade key={JSON.stringify([draftKey, agentId, draftModel])} draft={value}
+          model={agentRuntime === 'api' ? draftModel : undefined}
+          refine={agentId && draftModel && agentRuntime === 'api' ? text => api.refineChatDraft(agentId, draftModel, text) : undefined} onApply={next => applyInputHistoryValue(next, 'end')}/>}
         <NexaPopoverAnchor asChild>
         <div className="relative">
         {ghostSuggestion && <div data-testid="chat-input-ghost" aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 px-4 pb-3 pt-3.5 text-sm leading-6 text-text-tertiary/70">

@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "Эта среда не поддерживает захват экрана. Просмотр экрана авторизованного телефона Android по-прежнему доступен."
+  "screenHostUnsupported": "Эта среда не поддерживает захват экрана. Просмотр экрана авторизованного телефона Android по-прежнему доступен.",
+  "improvePrompt": "Улучшить запрос",
+  "usePrompt": "Применить запрос",
+  "meetingNotes": "Протокол встречи",
+  "meetingInstructions": "Составь протокол с решениями и задачами. Укажи исполнителей и сроки, если они названы."
 }

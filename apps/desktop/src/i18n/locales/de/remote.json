@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "Diese Desktopumgebung unterstützt keine Bildschirmaufnahme. Ein autorisiertes Android-Telefon lässt sich weiterhin anzeigen."
+  "screenHostUnsupported": "Diese Desktopumgebung unterstützt keine Bildschirmaufnahme. Ein autorisiertes Android-Telefon lässt sich weiterhin anzeigen.",
+  "improvePrompt": "Prompt verbessern",
+  "usePrompt": "Prompt übernehmen",
+  "meetingNotes": "Besprechungsnotizen",
+  "meetingInstructions": "Fasse Entscheidungen, Aufgaben sowie genannte Zuständigkeiten und Fristen zusammen."
 }

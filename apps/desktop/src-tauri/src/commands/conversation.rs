@@ -1600,6 +1600,40 @@ pub async fn cleanup_empty_conversations_cmd(
 }
 
 #[tauri::command]
+pub async fn refine_chat_draft_cmd(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    model_selection: Option<nexa_core::conversation::TurnModelSelection>,
+    draft: String,
+) -> Result<String, String> {
+    let config = state
+        .db_executor
+        .read(move |db| {
+            let config = db.get_agent_config(&connection_id)?;
+            if crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_some() {
+                return Err(nexa_core::error::CoreError::InvalidInput(
+                    "Select an API connection for model-assisted draft editing.".into(),
+                ));
+            }
+            match model_selection {
+                Some(selection) => selection.apply(&config),
+                None => Ok(config),
+            }
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .value;
+    nexa_core::conversation::refine_draft(
+        &state.db,
+        db_config_to_provider_config(&config, None),
+        &config.model,
+        &draft,
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn start_context_compaction_cmd(
     state: tauri::State<'_, AppState>,
     agent_state: tauri::State<'_, AgentState>,

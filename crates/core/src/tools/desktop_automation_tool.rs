@@ -367,7 +367,7 @@ impl Tool for DesktopAutomationTool {
                 receipt["launchExecutableName"] = application.executable_name.clone().into();
                 Ok(ToolResult {
                     call_id: call_id.to_string(),
-                    content: format!("Launched installed application {} with no arguments. Initial process id: {:?}; launch executable hint: {}. Applications can hand off to a different process id AND name. Call computer_observe list_windows to discover the actual window/appName, then capture the chosen window to verify readiness before input. Only use wait_for_window with an app_name already verified in that inventory. This single-use launch token was consumed; inspect state before requesting another launch.", application.name, launched.process_id, application.executable_name),
+                    content: format!("Launched installed application {} with no arguments. Initial process id: {:?}; launch executable hint: {}. Applications can hand off to a different process id AND name. Call computer_use with target.kind=window and action=list_windows to discover the actual window/appName, then capture the chosen window to verify readiness before input. Only use wait_for_window with an app_name already verified in that inventory. This single-use launch token was consumed; inspect state before requesting another launch.", application.name, launched.process_id, application.executable_name),
                     is_error: false,
                     artifacts: Some(receipt),
                 })
@@ -399,7 +399,7 @@ impl Tool for DesktopAutomationTool {
                 Ok(ToolResult {
                     call_id: call_id.to_string(),
                     content: format!(
-                        "Launched desktop application: {target}. Process id: {:?}. Its lifetime is independent of shell command cleanup. Use computer_observe list_windows, then capture_window to verify startup and obtain a fresh observation before input.",
+                        "Launched desktop application: {target}. Process id: {:?}. Its lifetime is independent of shell command cleanup. Use computer_use with target.kind=window and action=list_windows, then observe the selected target.window_id with its inventory observation_id to verify startup and obtain a fresh observation before input.",
                         launched.process_id,
                     ),
                     is_error: false,

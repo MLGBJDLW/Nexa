@@ -72,8 +72,7 @@ export function MobileApp() {
   const pairRequest = useRef(crypto.randomUUID());
   const [connection, setConnection] = useState<RemoteConnection>({ phase: 'connecting', endpoint: null });
   const [filesOpen, setFilesOpen] = useState(false);
-  // One host-wide foreground check. The Rust scheduler claims persisted
-  // occurrences and admits at most one phone executor, regardless of chat.
+  // One foreground check polls durable schedules for all phone conversations.
   useEffect(() => {
     let checking = false;
     const tick = async () => {

@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "Cet environnement ne permet pas la capture d’écran. Vous pouvez toujours afficher un téléphone Android autorisé."
+  "screenHostUnsupported": "Cet environnement ne permet pas la capture d’écran. Vous pouvez toujours afficher un téléphone Android autorisé.",
+  "improvePrompt": "Améliorer la consigne",
+  "usePrompt": "Utiliser cette consigne",
+  "meetingNotes": "Notes de réunion",
+  "meetingInstructions": "Résume les décisions, actions, responsables et échéances mentionnés."
 }

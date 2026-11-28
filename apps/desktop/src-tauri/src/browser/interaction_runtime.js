@@ -850,8 +850,10 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     let rect = el.getBoundingClientRect();
-    if (!prepared && !input.point && (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth)) {
-      el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+    // A ref can be clipped by a scrollable ancestor even inside the window.
+    // Explicit points and prepared receipts must retain their observed geometry.
+    if (!prepared && !input.point) {
+      el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
       rect = el.getBoundingClientRect();
     }
     const viewportBounds = viewportBoundsOf(el, true);

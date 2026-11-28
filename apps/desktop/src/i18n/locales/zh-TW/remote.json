@@ -254,5 +254,9 @@
   "screenBusy": "Wait for the previous action to finish.",
   "screenZoom": "Toggle screen zoom",
   "screenFocus": "Focus window",
-  "screenHostUnsupported": "此桌面環境無法擷取螢幕。你仍可查看已授權的 Android 手機。"
+  "screenHostUnsupported": "此桌面環境無法擷取螢幕。你仍可查看已授權的 Android 手機。",
+  "improvePrompt": "優化提示詞",
+  "usePrompt": "使用此提示詞",
+  "meetingNotes": "聆聽與會議紀要",
+  "meetingInstructions": "請整理會議決策、待辦事項，以及原文明確提到的負責人和期限。"
 }

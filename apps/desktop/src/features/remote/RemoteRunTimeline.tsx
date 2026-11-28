@@ -109,6 +109,11 @@ function ActivityGroup({ items, running }: { items: RemoteTimelineItem[]; runnin
           {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
         </section>
       ))}
+      <button type="button" className="inline-flex min-h-10 items-center gap-1 self-start text-xs text-text-secondary"
+        onClick={event => {
+          const details = event.currentTarget.closest('details');
+          if (details) { details.open = false; details.querySelector('summary')?.focus(); }
+        }}><ChevronDown size={14} className="rotate-180"/>{t('common.collapse')}</button>
     </div>}
   </details>;
 }

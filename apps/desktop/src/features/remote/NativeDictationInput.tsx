@@ -7,15 +7,16 @@ import type { DictationControls } from '../voice/useHoldToDictate';
 import type { VoiceDictationEvent } from '../voice/voiceDraftProjection';
 import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 
-export function NativeDictationInput({ speech, disabled, onEvent, onBusy, controls }: {
+export function NativeDictationInput({ speech, disabled, onEvent, onBusy, controls, continuous = false }: {
   speech: NativeSpeech; disabled: boolean; onEvent: (event: VoiceDictationEvent) => void; onBusy: (busy: boolean) => void;
-  controls?: Ref<DictationControls>;
+  controls?: Ref<DictationControls>; continuous?: boolean;
 }) {
   const { t, locale } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState('');
   const active = useRef<{ id: string; finishing: boolean; prepared: boolean } | null>(null);
+  const keepListening = useRef(false);
   const heldId = useRef<string | null>(null);
   const meter = useRef<((level: number) => void) | null>(null);
   const subscribeLevel = useCallback((update: (level: number) => void) => {
@@ -24,6 +25,7 @@ export function NativeDictationInput({ speech, disabled, onEvent, onBusy, contro
   }, []);
   const callbacks = useRef({ onEvent, onBusy }); callbacks.current = { onEvent, onBusy };
   const cancel = () => {
+    keepListening.current = false;
     const request = active.current;
     if (!request) return;
     active.current = null;
@@ -32,11 +34,14 @@ export function NativeDictationInput({ speech, disabled, onEvent, onBusy, contro
     void speech.cancel(request.id).catch(() => {});
   };
   useEffect(() => () => {
+    keepListening.current = false;
     const request = active.current; active.current = null;
     if (request) { void speech.cancel(request.id).catch(() => {}); callbacks.current.onEvent({kind:'cancel'}); callbacks.current.onBusy(false); }
   }, [speech]);
   async function start() {
     if (disabled || active.current) return;
+    keepListening.current = continuous;
+    let receivedFinal = false;
     const request = { id: crypto.randomUUID(), finishing: false, prepared: !speech.prepare };
     active.current = request; setBusy(true); setFinishing(false); onBusy(true); setError(''); onEvent({ kind: 'start' });
     try {
@@ -52,14 +57,20 @@ export function NativeDictationInput({ speech, disabled, onEvent, onBusy, contro
         if (typeof event.level === 'number' && !request.finishing) meter.current?.(event.level);
       });
       if (!text.trim()) throw new Error('speech_no_match');
-      if (active.current === request) callbacks.current.onEvent({ kind:'final', text });
+      if (active.current === request) { callbacks.current.onEvent({ kind:'final', text }); receivedFinal = true; }
     } catch (cause) {
       if (active.current === request && !String(cause).includes('speech_cancelled')) setError(t(nativeSpeechErrorKey(cause)));
     } finally {
       if (active.current === request) { active.current = null; setBusy(false); setFinishing(false); callbacks.current.onBusy(false); callbacks.current.onEvent({ kind:'end' }); }
+      // System recognition can finalize after a pause. Only a successful
+      // segment from an explicitly continuous recording may reopen the mic.
+      if (receivedFinal && keepListening.current) queueMicrotask(() => {
+        if (keepListening.current && !active.current) void start();
+      });
     }
   }
   async function finish() {
+    keepListening.current = false;
     const request = active.current;
     if (!request || request.finishing) return;
     if (!speech.finish || !request.prepared) { cancel(); return; }
