@@ -115,6 +115,12 @@ pub fn generation_body(
     quality: Option<&str>,
     output_format: &str,
 ) -> Result<Value, CoreError> {
+    if model.metadata["status"] == "removed" {
+        return Err(CoreError::InvalidInput(format!(
+            "OpenRouter image model {} was retired. Choose a different model in Settings.",
+            model.id
+        )));
+    }
     let parameters = &model.metadata["supportedParameters"];
     let mut body = json!({"model":model.id,"prompt":prompt});
     let mut put = |name: &str, value: &str| -> Result<(), CoreError> {
@@ -249,7 +255,6 @@ mod tests {
             ("openai/gpt-5-image-mini", "2026-12-01"),
             ("openai/gpt-5-image", "2026-12-11"),
             ("openai/gpt-image-2", "2027-02-10"),
-            ("recraft/recraft-v4.1-flash-v2:free", "2026-11-28"),
         ] {
             let models = parse_models(&json!({"data":[{
                 "id": id,
@@ -265,6 +270,34 @@ mod tests {
             assert!(!model.recommended);
             let selected = generation_body(model, "fixture", Some("1:1"), None, "png").unwrap();
             assert_eq!(selected["model"], id);
+        }
+    }
+
+    #[test]
+    fn retired_image_models_cannot_serialize_requests_from_stale_or_fallback_catalogs() {
+        for id in [
+            "microsoft/mai-image-2.5",
+            "microsoft/mai-image-2.5-pro",
+            "recraft/recraft-v4.1-flash-v2:free",
+        ] {
+            let stale = parse_models(&json!({"data":[{
+                "id": id,
+                "architecture": {"output_modalities": ["image"]},
+                "supported_parameters": {"aspect_ratio": {"values": ["1:1"]}}
+            }]}));
+            let bundled = catalog_fallback()
+                .into_iter()
+                .find(|row| row.id == id)
+                .unwrap();
+            assert_eq!(stale.len(), 1);
+            for model in [&stale[0], &bundled] {
+                assert_eq!(model.id, id);
+                assert_eq!(model.metadata["status"], "removed");
+                assert!(!model.metadata.contains_key("replacementModelId"));
+                assert!(!model.recommended);
+                let error = generation_body(model, "fixture", None, None, "png").unwrap_err();
+                assert!(error.to_string().contains(id));
+            }
         }
     }
 

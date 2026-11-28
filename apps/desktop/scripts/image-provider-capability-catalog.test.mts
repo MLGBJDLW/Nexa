@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 
-import { extractImageProviderPresets } from '../src/lib/imageProviderCapabilityCatalog.ts';
+import { extractImageProviderPresets, mergeOpenRouterImageDiscovery } from '../src/lib/imageProviderCapabilityCatalog.ts';
 import type { CapabilityPackageView } from '../src/types/conversation.ts';
 
 const rawRuntimePreset = {
@@ -121,9 +121,6 @@ test('OpenRouter image sunsets preserve exact selections and never point free at
   const catalogs = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
   const router = catalogs.find(preset => preset.id === 'openrouter-images')!;
   for (const [id, deadline] of [
-    ['microsoft/mai-image-2.5', '2026-11-27'],
-    ['microsoft/mai-image-2.5-pro', '2026-11-27'],
-    ['recraft/recraft-v4.1-flash-v2:free', '2026-11-28'],
     ['openai/gpt-image-1-mini', '2026-12-01'],
     ['openai/gpt-5-image-mini', '2026-12-01'],
     ['openai/gpt-5-image', '2026-12-11'],
@@ -147,5 +144,28 @@ test('OpenRouter image sunsets preserve exact selections and never point free at
     assert.equal(sibling.descriptor.lifecycle, 'active');
     assert.equal(sibling.descriptor.deprecationDate, null);
     assert.equal(sibling.descriptor.recommended, false);
+  }
+});
+
+test('OpenRouter retirement tombstones survive missing and stale discovery without route aliases', () => {
+  const items = JSON.parse(readFileSync(new URL('../../../shared/image-provider-presets.json', import.meta.url), 'utf8'));
+  const catalogs = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
+  const router = catalogs.find(preset => preset.id === 'openrouter-images')!;
+  const retiredIds = ['microsoft/mai-image-2.5', 'microsoft/mai-image-2.5-pro', 'recraft/recraft-v4.1-flash-v2:free'];
+  const selection = retiredIds[2];
+  const runtime = { ...router, models: router.models.filter(row => !retiredIds.includes(row.id)) };
+  const controls = ['microsoft/mai-image-2.7', 'microsoft/mai-image-2.7-flash', 'recraft/recraft-v4.1-flash-v2'];
+  const live = controls.map(id => ({ id, name: id }));
+  for (const rows of [live, [...live, { id: selection, name: 'Stale live row', status: 'active', recommended: true }]]) {
+    const merged = mergeOpenRouterImageDiscovery(runtime, rows, catalogs);
+    for (const [index, id] of retiredIds.entries()) {
+      const matches = merged.models.filter(row => row.id === id);
+      assert.equal(matches.length, 1);
+      assert.equal(matches[0].descriptor.lifecycle, 'removed');
+      assert.equal(matches[0].descriptor.deprecationDate, index === 2 ? '2026-11-28' : '2026-11-27');
+      assert.equal(matches[0].descriptor.replacementModelId, null);
+      assert.equal(matches[0].recommended, false);
+    }
+    assert.deepEqual(merged.models.filter(row => row.descriptor.lifecycle !== 'removed').map(row => row.id), controls);
   }
 });

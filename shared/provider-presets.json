@@ -24464,6 +24464,44 @@
         }
       },
       {
+        "id": "inclusionai/ling-3.2-flash",
+        "name": "inclusionAI: Ling 3.2 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-28",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/ling-3.2-flash/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
         "id": "inclusionai/ling-3.2-flash:free",
         "name": "inclusionAI: Ling 3.2 Flash (free)",
         "status": "active",

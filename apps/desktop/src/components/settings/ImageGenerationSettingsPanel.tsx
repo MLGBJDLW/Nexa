@@ -1,5 +1,5 @@
 import { SettingsRow, settingsSelectClass } from './SettingsRow';
-import { hydrateImageProviderPreset, type RuntimeImageProviderPreset } from "../../lib/imageProviderCatalogHydration";
+import type { RuntimeImageProviderPreset } from "../../lib/imageProviderCatalogHydration";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NexaSelect } from "../ui/overlay";
 import { ChevronDown, Eye, EyeOff, Image as ImageIcon, Save } from "lucide-react";
@@ -22,7 +22,7 @@ import {
   IMAGE_PROVIDER_PRESETS,
   type ImageProviderPreset,
 } from "../../lib/imageProviderPresets";
-import { extractImageProviderPresets } from "../../lib/imageProviderCapabilityCatalog";
+import { extractImageProviderPresets, mergeOpenRouterImageDiscovery } from "../../lib/imageProviderCapabilityCatalog";
 import { ProviderIcon } from "../../lib/providerIcons";
 import {
   featureCredential,
@@ -159,7 +159,7 @@ export function ImageGenerationSettingsPanel({
   const providerPresets = useMemo(
     () => extractImageProviderPresets(capabilityPackage, IMAGE_PROVIDER_PRESETS).map(preset =>
       preset.apiStyle === 'openrouter_images' && discoveredModels
-        ? hydrateImageProviderPreset({ ...preset, models: discoveredModels }) : preset),
+        ? mergeOpenRouterImageDiscovery(preset, discoveredModels, IMAGE_PROVIDER_PRESETS) : preset),
     [capabilityPackage, discoveredModels],
   );
   const preferredAgentPreset = useMemo(() => {
