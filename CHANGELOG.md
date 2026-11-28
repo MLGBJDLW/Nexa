@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.21.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.21.0...nexa-monorepo-v0.21.1) (2026-11-28)
+
+### Improvements
+
+- Open in Nexa and native app launches provide the window or browser target for the next computer action. A newly presented page requires a fresh observation before an inspection is complete. Browser clicks now scroll nested panels into view and check for covering elements.
+- Choose **Improve prompt** in the composer to preview a rewrite. Supported connections use the selected model and privacy settings. Apply the suggestion to edit the draft before sending.
+- Large file rollback checkpoints use lossless compression when it saves space. Restore checks the original length and digest. Existing checkpoints, message history and run records remain readable.
+- Provider and image model pickers retain route information, recognize retired IDs and support restored OpenRouter Kimi routes and SiliconFlow China's Xing4.1 Preview. Account-specific models are discovered through the configured connection.
+- Image discovery accepts active OpenRouter models that omit lifecycle metadata. Data-use and billing notices stay visible when the model list refreshes.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e0add1e5498ebac1cea3d76a3a6ccde50f7860bd -->
+
+### What's Changed
+* fix(catalog): retain route disclosures and refresh scoped model lifecycle by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/604
+* feat(chat): improve phone multitasking, storage and computer control by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/605
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.21.0...nexa-monorepo-v0.21.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.21.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.20.3...nexa-monorepo-v0.21.0) (2026-11-25)
 
 ### Breaking changes
