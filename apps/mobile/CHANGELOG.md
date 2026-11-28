@@ -2,20 +2,13 @@
 
 ## [0.5.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.5.0...nexa-mobile-v0.5.1) (2026-11-28)
 
+### Improvements
 
-### Features
-
-* **chat:** improve phone multitasking, storage and computer control ([e0add1e](https://github.com/MLGBJDLW/Nexa/commit/e0add1e5498ebac1cea3d76a3a6ccde50f7860bd))
-* **chat:** offer draft improvements, phone commands and meeting notes ([40c36a5](https://github.com/MLGBJDLW/Nexa/commit/40c36a5478e047d2f81a4ebfba4f10499a1356ca))
-* **composer:** preview prompt edits with the selected model and privacy policy ([4b87d5d](https://github.com/MLGBJDLW/Nexa/commit/4b87d5dbd3820cf64635f17548c752cced31e474))
-* **mobile:** run independent conversations concurrently with scoped approvals ([0a4bd0f](https://github.com/MLGBJDLW/Nexa/commit/0a4bd0f670da2fffad9340d540abf298286cf840))
-* **tasks:** project paginated chat task history to phone clients ([9d1b1bd](https://github.com/MLGBJDLW/Nexa/commit/9d1b1bd05ab784bed0be9091268faccfefafe4eb))
-
-
-### Bug Fixes
-
-* **mobile:** distinguish stopping one chat from stopping all phone tasks ([04340d6](https://github.com/MLGBJDLW/Nexa/commit/04340d6e93102e1f9d0cfb75dad9675bcd7557aa))
-* **mobile:** show model disclosures and reject retired selections ([d02e64a](https://github.com/MLGBJDLW/Nexa/commit/d02e64aec6bbb5d74387e982e00d6029308d5175))
+- Run tasks in multiple conversations at the same time. The Task Center in the conversation drawer shows active and previous runs. Drafts, files, approvals, steering and cancellation stay with their chat. The Android notification can stop all foreground tasks.
+- Tap the message field to type immediately or long-press for the system editing menu. The rotating plus button opens a vertical action menu. Inline suggestions fit within the field, and expanded reasoning can be collapsed from its last line.
+- Use slash commands for common chat tasks or choose **Improve prompt** to preview a draft rewrite. Apply a suggestion before sending it. Supported connections can use the selected model.
+- Open **Meeting notes** from the conversation drawer to listen across speech segments, edit the transcript and prepare a summary or chat draft.
+- The model picker wraps long route details and identifies retired saved IDs. New file rollback checkpoints can use verified lossless compression.
 
 ## [0.5.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.4.2...nexa-mobile-v0.5.0) (2026-11-25)
 
